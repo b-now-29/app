@@ -1,0 +1,5 @@
+= API 문서
+:toc: left
+
+== Ping
+operation::ping[snippets='http-request,http-response,response-fields']
