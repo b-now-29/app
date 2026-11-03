@@ -1,4 +1,12 @@
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy app:8080
+	reverse_proxy app:8080 {
+		# app이 응답하지 않으면 최대 30초까지 0.5초 간격으로 재시도
+		lb_try_duration 30s
+		lb_try_interval 500ms
+
+		# /actuator/health로 app 상태를 계속 확인
+		health_uri /actuator/health
+		health_interval 5s
+	}
 }
