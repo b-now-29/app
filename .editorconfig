@@ -5,6 +5,9 @@ charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 
+[Caddyfile]
+indent_style = tab
+
 [*.{kts,java}]
 indent_style = space
 indent_size = 4
