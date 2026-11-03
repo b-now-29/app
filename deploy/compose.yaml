@@ -10,6 +10,7 @@ services:
       DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./static:/srv/static:ro
       - caddy_data:/data        # 인증서 저장 (지우면 재발급됨)
       - caddy_config:/config
     depends_on:
