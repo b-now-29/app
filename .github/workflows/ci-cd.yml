@@ -95,4 +95,5 @@ jobs:
           ssh ec2-user@"$HOST" "cd ~/app \
             && APP_TAG=${{ github.sha }} docker compose pull app \
             && APP_TAG=${{ github.sha }} docker compose up -d \
+            && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
             && docker image prune -f"

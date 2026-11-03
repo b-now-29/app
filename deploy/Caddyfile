@@ -1,11 +1,14 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# /files/* → 서버의 ~/app/static (경로 앞부분 /files는 떼고 찾음)
-	handle_path /java-quiz/* {
-		root * /srv/static
-		file_server
-	}
+        # /java-quiz → /java-quiz/ 로 이동 (끝에 / 없이 접속해도 열리게)
+        redir /java-quiz /java-quiz/ 308
+
+        # /java-quiz/* → 서버의 ~/app/static (경로 앞부분 /java-quiz는 떼고 찾음)
+        handle /java-quiz/* {
+                root * /srv/static
+                file_server
+        }
 
 	# 나머지 전부 → Spring Boot
 	handle {
