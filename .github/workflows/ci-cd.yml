@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ on:
 # 같은 브랜치에 새로 push하면 이전 실행은 취소
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -44,6 +44,7 @@ jobs:
         with:
           name: reports
           path: build/reports/
+
   deploy:
     needs: check                     # CI 통과해야만 배포
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
