@@ -6,7 +6,7 @@ on:
   push:
     branches: [ develop, main ]
 
-# 같은 브랜치에 새로 push하면 이전 실행은 취소
+# PR에 새로 push하면 이전 검사는 취소 (develop·main push는 배포 중단을 막기 위해 취소하지 않음)
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
