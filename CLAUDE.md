@@ -7,15 +7,12 @@
 Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화면까지 jar 하나로 빌드하는 것이다.
 
 > **현재 상태**: 아래에 **(예정)** 으로 표시한 것은 아직 저장소에 없다. 없는 파일을 찾거나 이미 있다고 가정하지 말고, 해당 작업을 할 때 이 문서의 설명대로 만든다.
-> 아직 없는 것: `src/main/frontend/`, `SpaConfig`, `src/main/resources/db/migration/`, `.github/workflows/ci-cd.yml`, `deploy/`, `develop` 브랜치
+> 아직 없는 것:  `.github/workflows/ci-cd.yml`, `deploy/`, `develop` 브랜치
 
 - `src/main/java/` — 백엔드. API는 모두 `/api/` 아래에 매핑한다. 화면은 전부 React가 그리며 서버 템플릿(Thymeleaf 등)은 쓰지 않는다 → 컨트롤러는 `@RestController`로 JSON만 반환한다
-- `src/main/frontend/` **(예정)** — React + TypeScript, React Router v7 (Data mode, `createBrowserRouter`). import는 `react-router`에서 (`react-router-dom` 아님)
-- 프론트 빌드 결과(`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig` **(예정)** 가 `/api` 외의 없는 경로를 `index.html`로 돌려준다. `src/main/resources/static/`에 직접 파일을 두지 않는다.
-- DB: PostgreSQL 18, 마이그레이션은 <Flyway|Liquibase> (`<마이그레이션 폴더 경로>`)
 - `src/main/frontend/` — React + TypeScript, React Router v7 (Data mode, `createBrowserRouter`). import는 `react-router`에서 (`react-router-dom` 아님)
 - 프론트 빌드 결과(`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig`가 `/api` 외의 없는 경로를 `index.html`로 돌려준다. `src/main/resources/static/`에 직접 파일을 두지 않는다.
-- DB: PostgreSQL 18, 마이그레이션은 <Flyway|Liquibase> (`src/main/resources/db/migration`)
+- DB: PostgreSQL 18, 마이그레이션은 Flyway (`src/main/resources/db/migration`)
 
 ## 명령어
 
@@ -24,11 +21,11 @@ Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화�
 ./gradlew bootRun            # API만 :8080 (프론트는 빌드하지 않음)
 ./gradlew test               # 단위 테스트
 ./gradlew integrationTest    # Testcontainers — OrbStack이 실행 중이어야 함
-./gradlew check              # spotless + PMD + 단위 테스트 (+ 프론트 typecheck/lint: 예정)
+./gradlew check              # spotless + PMD + 단위 테스트 (+ 프론트 typecheck/lint)
 ./gradlew bootJar            # 배포 jar (테스트·REST Docs 생략, 빠름)
 ./gradlew bootJar -PwithDocs # 배포용: 테스트 → REST Docs 생성 → jar의 /docs/index.html 에 포함
 
-# 프론트 개발 (src/main/frontend/, 예정) — bootRun과 함께 띄움, /api는 :8080으로 프록시
+# 프론트 개발 (src/main/frontend/) — bootRun과 함께 띄움, /api는 :8080으로 프록시
 npm run dev
 npm run check                # typecheck + lint
 ```

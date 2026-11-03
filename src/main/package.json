@@ -1,0 +1,11 @@
+{
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "prettier": "^3.9.10"
+  },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "check": "npm run typecheck && npm run lint",
+    "format": "prettier --write ."
+  }
+}
