@@ -35,3 +35,15 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### 비밀값 ###
+.env
+deploy/.env
+
+### Claude Code 개인 설정 ###
+CLAUDE.local.md
+.claude/settings.local.json
+
+### Frontend ###
+src/main/frontend/node_modules/
+src/main/frontend/dist/
