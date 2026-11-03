@@ -34,7 +34,7 @@ scripts/local-run-jar.sh            # bootJar 빌드 후 실행 → http://local
 scripts/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
 ```
 
-CI: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로 향하는 PR과 `develop` push마다 `./gradlew check integrationTest`를 실행한다. CI에서는 Spotless가 포맷을 고치지 않고 실패만 한다. push 전에 로컬에서 같은 명령을 통과시킨다.
+CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로 향하는 PR과 `develop`·`main` push마다 `./gradlew check integrationTest`를 실행하고, `main` push면 이어서 이미지를 빌드해 서버에 배포한다.
 
 ## 배포
 
