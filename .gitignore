@@ -45,5 +45,6 @@ CLAUDE.local.md
 .claude/settings.local.json
 
 ### Frontend ###
+node_modules/
 src/main/frontend/node_modules/
 src/main/frontend/dist/

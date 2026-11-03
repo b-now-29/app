@@ -7,10 +7,10 @@
 Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화면까지 jar 하나로 빌드하는 것이다.
 
 > **현재 상태**: 아래에 **(예정)** 으로 표시한 것은 아직 저장소에 없다. 없는 파일을 찾거나 이미 있다고 가정하지 말고, 해당 작업을 할 때 이 문서의 설명대로 만든다.
-> 아직 없는 것:  `.github/workflows/ci-cd.yml`, `deploy/`, `develop` 브랜치
+> 아직 없는 것:  `.github/workflows/ci-cd.yml`, `deploy/`
 
 - `src/main/java/` — 백엔드. API는 모두 `/api/` 아래에 매핑한다. 화면은 전부 React가 그리며 서버 템플릿(Thymeleaf 등)은 쓰지 않는다 → 컨트롤러는 `@RestController`로 JSON만 반환한다
-- `src/main/frontend/` — React + TypeScript, React Router v7 (Data mode, `createBrowserRouter`). import는 `react-router`에서 (`react-router-dom` 아님)
+- `src/main/frontend/` — React + TypeScript, React Router v8 (Data mode, `createBrowserRouter`). import는 `react-router`에서 (`react-router-dom` 아님)
 - 프론트 빌드 결과(`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig`가 `/api` 외의 없는 경로를 `index.html`로 돌려준다. `src/main/resources/static/`에 직접 파일을 두지 않는다.
 - DB: PostgreSQL 18, 마이그레이션은 Flyway (`src/main/resources/db/migration`)
 
@@ -28,6 +28,10 @@ Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화�
 # 프론트 개발 (src/main/frontend/) — bootRun과 함께 띄움, /api는 :8080으로 프록시
 npm run dev
 npm run check                # typecheck + lint
+
+# 배포 jar 로컬 확인 — compose.yaml의 Postgres로 실행 (OrbStack 필요)
+script/local-run-jar.sh            # bootJar 빌드 후 실행 → http://localhost:8080
+script/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
 ```
 
 CI **(예정)**: GitHub Actions(`.github/workflows/ci-cd.yml`)가 `./gradlew check integrationTest`를 실행한다. push 전에 로컬에서 같은 명령을 통과시킨다.
@@ -41,7 +45,7 @@ CI **(예정)**: GitHub Actions(`.github/workflows/ci-cd.yml`)가 `./gradlew che
 
 ## Git
 
-- Git Flow를 따른다. `main`(운영, push 시 배포)과 `develop`(통합, **아직 없음** — 첫 `feature/*` 작업 전에 `main`에서 만든다)에는 직접 push하지 않고 PR로만 머지한다.
+- Git Flow를 따른다. `main`(운영, push 시 배포)과 `develop`(통합, — 첫 `feature/*` 작업 전에 `main`에서 만든다)에는 직접 push하지 않고 PR로만 머지한다.
   - `feature/<요약>`: `develop`에서 분기 → `develop`으로 PR
   - `release/<x.y.z>`: `develop`에서 분기 → `build.gradle.kts`의 `version` 올림 → `main`으로 PR → 머지 후 `v<x.y.z>` 태그 → `develop`에 다시 머지
   - `hotfix/<x.y.z>`: `main`에서 분기 → `main`으로 PR → 태그 → `develop`에 다시 머지

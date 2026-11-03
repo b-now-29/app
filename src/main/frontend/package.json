@@ -3,12 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
   "dependencies": {
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -36,6 +30,7 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "preview": "vite preview",
     "check": "npm run typecheck && npm run lint"
   }
 }

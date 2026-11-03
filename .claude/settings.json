@@ -1,5 +1,5 @@
 {
-  "output-style" : "Learning",
+  "outputStyle" : "Learning",
   "attribution": { "commit": "", "pr": "" },
   "hooks": {
     "PostToolUse": [

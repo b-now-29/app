@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 로컬에서 배포 jar를 그대로 띄워 확인한다 (compose.yaml의 Postgres 사용)
-# 사용법: scripts/run-jar.sh            → 빌드 후 실행
-#         scripts/run-jar.sh --no-build → 이미 만든 jar로 바로 실행
+# 사용법: scripts/local-run-jar.sh            → 빌드 후 실행
+#       scripts/local-run-jar.sh --no-build → 이미 만든 jar로 바로 실행
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
