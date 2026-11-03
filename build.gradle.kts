@@ -108,5 +108,8 @@ pmd {
 // TODO: 프론트엔드(src/main/frontend) 설정은 나중에 이 아래에 추가
 
 tasks.bootJar {
-	from(tasks.asciidoctor) { into("BOOT-INF/classes/static/docs") }
+	// -PwithDocs 를 줄 때만 REST Docs를 jar에 포함
+	if (project.hasProperty("withDocs")) {
+		from(tasks.asciidoctor) { into("BOOT-INF/classes/static/docs") }
+	}
 }
