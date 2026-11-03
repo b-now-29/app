@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.b.now._29"
-version = "0.0.1-SNAPSHOT"
+version = "0.1.0-SNAPSHOT"
 
 java {
     toolchain {
