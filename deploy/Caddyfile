@@ -1,4 +1,25 @@
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy app:8080
+
+        # /java-quiz → /java-quiz/ 로 이동 (끝에 / 없이 접속해도 열리게)
+        redir /java-quiz /java-quiz/ 308
+
+        # /java-quiz/* → 서버의 ~/app/static (경로 앞부분 /java-quiz는 떼고 찾음)
+        handle /java-quiz/* {
+                root * /srv/static
+                file_server
+        }
+
+	# 나머지 전부 → Spring Boot
+	handle {
+		reverse_proxy app:8080 {
+			# app이 응답하지 않으면 최대 30초까지 0.5초 간격으로 재시도
+			lb_try_duration 30s
+			lb_try_interval 500ms
+
+			# /actuator/health로 app 상태를 계속 확인
+			health_uri /actuator/health
+			health_interval 5s
+		}
+	}
 }
