@@ -13,6 +13,9 @@ Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화�
 - `src/main/frontend/` **(예정)** — React + TypeScript, React Router v7 (Data mode, `createBrowserRouter`). import는 `react-router`에서 (`react-router-dom` 아님)
 - 프론트 빌드 결과(`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig` **(예정)** 가 `/api` 외의 없는 경로를 `index.html`로 돌려준다. `src/main/resources/static/`에 직접 파일을 두지 않는다.
 - DB: PostgreSQL 18, 마이그레이션은 <Flyway|Liquibase> (`<마이그레이션 폴더 경로>`)
+- `src/main/frontend/` — React + TypeScript, React Router v7 (Data mode, `createBrowserRouter`). import는 `react-router`에서 (`react-router-dom` 아님)
+- 프론트 빌드 결과(`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig`가 `/api` 외의 없는 경로를 `index.html`로 돌려준다. `src/main/resources/static/`에 직접 파일을 두지 않는다.
+- DB: PostgreSQL 18, 마이그레이션은 <Flyway|Liquibase> (`src/main/resources/db/migration`)
 
 ## 명령어
 

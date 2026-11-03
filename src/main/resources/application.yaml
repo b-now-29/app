@@ -4,6 +4,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    open-in-view: false
 management:
   endpoints:
     web:
