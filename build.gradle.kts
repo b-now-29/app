@@ -145,3 +145,5 @@ tasks.bootJar {
         from(tasks.asciidoctor) { into("BOOT-INF/classes/static/docs") }
     }
 }
+
+tasks.jar { enabled = false }
