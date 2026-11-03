@@ -7,7 +7,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
     id("org.asciidoctor.jvm.convert") version "4.0.5"
     id("com.diffplug.spotless") version "8.9.0"
-    id("com.github.node-gradle.node") version "7.1.0" // 최신 버전 확인
+    id("com.github.node-gradle.node") version "7.1.0"
 }
 
 group = "com.b.now._29"
@@ -145,3 +145,5 @@ tasks.bootJar {
         from(tasks.asciidoctor) { into("BOOT-INF/classes/static/docs") }
     }
 }
+
+tasks.jar { enabled = false }
