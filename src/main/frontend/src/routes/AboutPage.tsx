@@ -1,3 +1,3 @@
 export default function AboutPage() {
-    return <h1>소개</h1>
+  return <h1>소개</h1>;
 }
