@@ -7,7 +7,7 @@
 Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화면까지 jar 하나로 빌드하는 것이다.
 
 > **현재 상태**: 아래에 **(예정)** 으로 표시한 것은 아직 저장소에 없다. 없는 파일을 찾거나 이미 있다고 가정하지 말고, 해당 작업을 할 때 이 문서의 설명대로 만든다.
-> 아직 없는 것:  `src/main/resources/db/migration/`, `.github/workflows/ci-cd.yml`, `deploy/`
+> 아직 없는 것:  `src/main/resources/db/migration/`, `deploy/`
 
 - `src/main/java/` — 백엔드. API는 모두 `/api/` 아래에 매핑한다. 화면은 전부 React가 그리며 서버 템플릿 (Thymeleaf 등)은 쓰지 않는다 → 컨트롤러는 `@RestController`로 JSON만 반환한다
 - `src/main/frontend/` — React + TypeScript, React Router v8 (Data mode, `createBrowserRouter`). import는 `react-router` 에서 (`react-router-dom` 아님)
@@ -34,8 +34,7 @@ scripts/local-run-jar.sh            # bootJar 빌드 후 실행 → http://local
 scripts/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
 ```
 
-CI **(예정)**: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `./gradlew check integrationTest`를 실행한다. push 전에 로컬에서 같은
-명령을 통과시킨다.
+CI: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로 향하는 PR과 `develop` push마다 `./gradlew check integrationTest`를 실행한다. CI에서는 Spotless가 포맷을 고치지 않고 실패만 한다. push 전에 로컬에서 같은 명령을 통과시킨다.
 
 ## 배포 (예정 — `deploy/`와 CI/CD 파이프라인은 아직 없음)
 
