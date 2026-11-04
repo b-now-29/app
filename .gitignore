@@ -44,6 +44,9 @@ deploy/.env
 CLAUDE.local.md
 .claude/settings.local.json
 
+### 기능 문서 (로컬 작업용) ###
+docs/features/
+
 ### Frontend ###
 node_modules/
 src/main/frontend/node_modules/
