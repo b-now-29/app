@@ -1,3 +1,9 @@
+import { Text } from "@seed-design/react";
+
 export default function AboutPage() {
-  return <h1>소개</h1>;
+  return (
+    <Text as="h1" textStyle="screenTitle">
+      소개
+    </Text>
+  );
 }
