@@ -1,17 +1,14 @@
 # CLAUDE.md
 
-<한 줄 소개: 무엇을 하는 앱인지>. 개인 프로젝트.
+카테고리별로 객관식·주관식·서술형 문제를 골라 푸는 퀴즈 앱. 개인 프로젝트.
 
 ## 구조
 
-Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화면까지 jar 하나로 빌드하는 것이다.
-
-> **현재 상태**: 아래에 **(예정)** 으로 표시한 것은 아직 저장소에 없다. 없는 파일을 찾거나 이미 있다고 가정하지 말고, 해당 작업을 할 때 이 문서의 설명대로 만든다.
-> 아직 없는 것:  `src/main/resources/db/migration/`
+Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. React 화면까지 jar 하나로 빌드한다.
 
 - `src/main/java/` — 백엔드. API는 모두 `/api/` 아래에 매핑한다. 화면은 전부 React가 그리며 서버 템플릿 (Thymeleaf 등)은 쓰지 않는다 → 컨트롤러는 `@RestController`로 JSON만 반환한다
 - `src/main/frontend/` — React + TypeScript, React Router v8 (Data mode, `createBrowserRouter`). import는 `react-router` 에서 (`react-router-dom` 아님)
-- 프론트 빌드 결과 (`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig`가 `/api` 외의 없는 경로를 `index.html`로 돌려준다. `src/main/resources/static/`에 직접 파일을 두지 않는다.
+- 프론트 빌드 결과 (`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig`가 없는 경로를 `index.html`로 돌려준다 (`/api/`로 시작하거나 `.`이 포함된 경로는 제외, 404). `src/main/resources/static/`에 직접 파일을 두지 않는다.
 - DB: PostgreSQL 18, 마이그레이션은 Flyway (`src/main/resources/db/migration`)
 
 ## 명령어
@@ -21,28 +18,18 @@ Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. 최종 목표는 React 화�
 ./gradlew bootRun            # API만 :8080 (프론트는 빌드하지 않음)
 ./gradlew test               # 단위 테스트
 ./gradlew integrationTest    # Testcontainers — OrbStack이 실행 중이어야 함
-./gradlew check              # spotless + PMD + 단위 테스트 (+ 프론트 typecheck/lint)
+./gradlew check              # spotless + PMD + 단위 테스트 (+ 프론트 typecheck/lint/format 검사·테스트)
 ./gradlew bootJar            # 배포 jar (테스트·REST Docs 생략, 빠름)
 ./gradlew bootJar -PwithDocs # 배포용: 테스트 → REST Docs 생성 → jar의 /docs/index.html 에 포함
 
 # 프론트 개발 (src/main/frontend/) — bootRun과 함께 띄움, /api는 :8080으로 프록시
 npm run dev
-npm run check                # typecheck + lint
+npm run check                # typecheck + lint + format 검사 + 테스트
 
 # 배포 jar 로컬 확인 — compose.yaml의 Postgres로 실행 (OrbStack 필요)
 scripts/local-run-jar.sh            # bootJar 빌드 후 실행 → http://localhost:8080
 scripts/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
 ```
-
-CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로 향하는 PR과 `develop`·`main` push마다 `./gradlew check integrationTest`를 실행하고, `main` push면 이어서 이미지를 빌드해 서버에 배포한다.
-
-## 배포
-
-- `main`에 push = 운영 배포 (`release/*`·`hotfix/*` 머지로만 반영). AWS Lightsail 인스턴스 1대 (Amazon Linux 2023, 사용자 `ec2-user`, 패키지는 `dnf`)에서 Docker Compose로 Caddy + Spring Boot + PostgreSQL 18 실행. 서버 설정 파일은 `deploy/`.
-- Caddy는 HTTPS만 맡고 모든 요청을 Spring Boot로 넘긴다. 프론트는 같은 도메인의 상대 경로 `/api/...`로 호출한다 (CORS 설정 불필요).
-- 운영 비밀값은 서버의 `~/app/.env`에만 있다. 저장소에는 `deploy/.env.example`만 둔다.
-- 운영 서버에 직접 SSH 명령을 실행하지 않는다. 필요하면 명령을 제안만 한다.
-- 이미지는 GHCR (`ghcr.io/b-now-29/app`)에 커밋 SHA 태그로 올라간다. 롤백은 서버에서 `APP_TAG=<이전 SHA> docker compose up -d`.
 
 ## Git
 
@@ -53,7 +40,7 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
     - `hotfix/<x.y.z>`: `main`에서 분기 → `main`으로 PR → 태그 → `develop`에 다시 머지
     - `release/*`, `hotfix/*`를 머지할 때는 squash 하지 않고 merge commit으로 머지한다 (`main`과 `develop` 이력이 어긋나지 않도록)
 - 커밋 메시지: Conventional Commits, `type(scope): 제목` — type은 `feat|fix|refactor|test|docs|chore|build|ci`, scope는
-  `backend|frontend|db|ci`. 예: `feat(backend): 회원 가입 API 추가`
+  `backend|frontend|db|ci` 중 하나이며 버전 올림·배포 설정처럼 어디에도 속하지 않으면 생략한다. 예: `feat(backend): 회원 가입 API 추가`, `chore: 버전 0.1.2`
 - 커밋 하나에 논리적 변경 하나. 백엔드와 프론트엔드 변경이 독립적이면 커밋을 나눈다.
 - 마이그레이션 파일은 그 마이그레이션을 사용하는 코드와 같은 커밋에 넣는다.
 - 내가 요청하기 전에는 commit/push 하지 않는다.
@@ -62,5 +49,27 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
 
 ## 규칙
 
-- 이미 적용된 마이그레이션 파일은 수정하지 말고 새 버전 파일을 추가한다.
-- <API 응답 형식, 패키지 구조 등 코드만 봐선 모르는 규칙이 있으면 추가>
+- 운영 서버에 직접 SSH 명령을 실행하지 않는다. 필요하면 명령을 제안만 한다.
+- 세부 규칙은 `.claude/rules/`의 `backend.md`(API 포함), `frontend.md`, `deploy.md`(CI 포함)에 있다. 관련 파일을 읽거나 고칠 때 자동으로 불러오므로, 파일을 열기 전에 설계할 때는 직접 읽는다.
+- 기능 개발을 시작하기 전에 `docs/feature-workflow.md`를 읽는다.
+
+### 퀴즈 도메인
+
+- 문제 유형: `MULTIPLE_CHOICE`(서버 자동 채점), `SHORT_ANSWER`·`ESSAY`(모범 답안 공개 후 자기 채점).
+- 정답 정보 (`choice.is_correct`, `question.model_answer`)는 조회 API로 내려주지 않는다. 답 제출 후 채점 API 응답으로만 공개한다.
+
+### TDD
+
+- 도메인 로직과 버그 수정은 테스트 먼저: 실패하는 테스트 작성 → 실행해서 실패 확인 (red) → 통과하는 최소 구현 (green) → 테스트가 통과하는 상태로 리팩터링.
+- 버그를 고칠 때는 그 버그를 재현하는 테스트부터 추가한다.
+- 커밋은 테스트가 모두 통과하는 상태에서만 한다. red 상태로 커밋하지 않는다.
+- Controller·설정·화면은 테스트 먼저를 강제하지 않는다 (구현 후 테스트 작성 가능).
+
+## 첫 버전 범위 (MVP)
+
+| 포함                                               | 나중에                       |
+|----------------------------------------------------|------------------------------|
+| 카테고리 목록 보기                                 | 로그인 / 회원별 풀이 기록    |
+| 카테고리를 고르면 그 카테고리의 문제를 하나씩 풀기 | 관리자 화면 (문제 등록·수정) |
+| 객관식 정답 1개,                                   | 주관식, 서술형               |
+| 제출하면 정답 여부 + 해설 표시, 마지막에 점수      | 랭킹, 오답 노트              |

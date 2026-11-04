@@ -4,7 +4,7 @@
         # /java-quiz → /java-quiz/ 로 이동 (끝에 / 없이 접속해도 열리게)
         redir /java-quiz /java-quiz/ 308
 
-        # /java-quiz/* → 서버의 ~/app/static (경로 앞부분 /java-quiz는 떼고 찾음)
+			# /java-quiz/* → 서버의 ~/app/static/java-quiz/* (경로를 그대로 사용)
         handle /java-quiz/* {
                 root * /srv/static
                 file_server

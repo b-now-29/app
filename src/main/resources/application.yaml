@@ -1,6 +1,9 @@
 spring:
   application:
     name: app
+  jackson:
+    deserialization:
+      accept-float-as-int: false
   jpa:
     hibernate:
       ddl-auto: validate
