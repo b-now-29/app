@@ -91,6 +91,8 @@ asciidoctorj {
 
 tasks.asciidoctor {
     configurations(asciidoctorExt.name)
+    // 스니펫이 없어도 경고만 내고 성공하므로, 경고를 빌드 실패로 처리한다
+    failureLevel = org.asciidoctor.gradle.base.log.Severity.WARN
     inputs.dir(snippetsDir)
     dependsOn(tasks.test)
     attributes(mapOf("snippets" to snippetsDir))

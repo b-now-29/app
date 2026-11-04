@@ -43,7 +43,7 @@ hooks:
    - `frontend-dev`: `src/main/frontend/`에서 `npm run check`.
    - `./gradlew check`는 쓰지 않는다. 로컬에서는 소스를 포맷하고, 다른 담당의 작업까지 함께 검사한다.
 3. **요구사항**: 기능 문서의 요구사항을 R번호별로 빠짐없이 구현했는지 코드로 확인한다.
-4. **규칙**: `CLAUDE.md`와 대상 규칙 파일의 위반을 찾는다. 조회 API의 정답 정보 노출 (`is_correct`, `model_answer`), 컨트롤러의 엔티티 반환, 적용된 마이그레이션 수정은 특히 확인한다.
+4. **규칙**: `CLAUDE.md`와 대상 규칙 파일의 위반을 찾는다. 조회 API의 정답 정보 노출 (`is_correct`, `model_answer`), 컨트롤러의 엔티티 반환은 특히 확인한다.
 
 ## 판정 기준
 
