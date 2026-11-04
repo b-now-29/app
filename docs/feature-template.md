@@ -1,12 +1,11 @@
 <!--
 기능 문서 템플릿. docs/features/<slug>.md로 복사해서 쓴다 (docs/features/는 git으로 추적하지 않는다).
 해당 없는 절은 지운다. 한 화면 분량을 목표로 하고, 스키마와 DTO는 복사하지 않고 경로로 가리킨다.
-운영 규칙은 CLAUDE.md의 "기능 문서" 절을 따른다.
+운영 규칙은 docs/feature-workflow.md를 따른다.
 -->
 
 # <기능 이름>
 
-- 상태: 작성 중 | 진행 중 | 완료
 - 브랜치: feature/<slug>
 
 ## 목표

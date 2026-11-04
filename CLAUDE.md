@@ -31,16 +31,6 @@ scripts/local-run-jar.sh            # bootJar 빌드 후 실행 → http://local
 scripts/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
 ```
 
-CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로 향하는 PR과 `develop`·`main` push마다 `./gradlew check integrationTest`를 실행하고, `main` push면 이어서 이미지를 빌드해 서버에 배포한다.
-
-## 배포
-
-- `main`에 push = 운영 배포 (`release/*`·`hotfix/*` 머지로만 반영). AWS Lightsail 인스턴스 1대 (Amazon Linux 2023, 사용자 `ec2-user`, 패키지는 `dnf`)에서 Docker Compose로 Caddy + Spring Boot + PostgreSQL 18 실행. 서버 설정 파일은 `deploy/`.
-- Caddy는 HTTPS를 맡고, `/java-quiz/*`는 서버의 `~/app/static/java-quiz/`에서 직접 서빙하며 (저장소 밖 파일), 나머지 요청은 Spring Boot로 넘긴다. 프론트는 같은 도메인의 상대 경로 `/api/...`로 호출한다 (CORS 설정 불필요).
-- 운영 비밀값은 서버의 `~/app/.env`에만 있다. 저장소에는 `deploy/.env.example`만 둔다.
-- 운영 서버에 직접 SSH 명령을 실행하지 않는다. 필요하면 명령을 제안만 한다.
-- 이미지는 GHCR (`ghcr.io/b-now-29/app`)에 커밋 SHA 태그로 올라간다. 롤백은 서버에서 `APP_TAG=<이전 SHA> docker compose up -d`.
-
 ## Git
 
 - Git Flow를 따른다. `main`(운영, push 시 배포)과 `develop`(통합)에는 직접 push하지 않고 PR로만 머지한다.
@@ -59,19 +49,9 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
 
 ## 규칙
 
-- 이미 적용된 마이그레이션 파일은 수정하지 말고 새 버전 파일을 추가한다.
-- 백엔드 세부 규칙은 `.claude/rules/backend.md`, 프론트엔드 세부 규칙은 `.claude/rules/frontend.md`에 있다. 관련 파일을 읽거나 고칠 때 자동으로 불러오므로, 파일을 열기 전에 설계할 때는 직접 읽는다.
-
-### API
-
-- 모든 API는 `/api/v1/` 아래에 둔다. 리소스는 복수형 명사 (`/categories`, `/questions`), 식별자는 path variable (`/categories/{slug}/questions`).
-- 요청·응답은 JSON, 필드명은 camelCase. 날짜는 ISO-8601 (UTC).
-- 컨트롤러는 엔티티를 반환하지 않는다. 요청은 `XxxRequest`, 응답은 `XxxResponse` record DTO로 만든다.
-- 성공 응답은 래퍼 없이 본문을 그대로 반환한다 (목록은 JSON 배열).
-- 에러 응답은 ProblemDetail (RFC 9457). 상태 코드: 입력 검증 실패 400, 없는 리소스 404. 예외는 `@RestControllerAdvice`에서 ProblemDetail로 변환한다.
-- 요청 검증은 Bean Validation (`@Valid`, `@NotNull` 등)으로 한다.
-- 모든 API는 REST Docs 테스트로 문서화하고 `src/docs/asciidoc/index.adoc`에 추가한다. 문서 없는 API를 만들지 않는다.
-- 응답 필드 추가는 괜찮지만, 삭제·이름 변경은 하지 않는다 (필요하면 `/api/v2`).
+- 운영 서버에 직접 SSH 명령을 실행하지 않는다. 필요하면 명령을 제안만 한다.
+- 세부 규칙은 `.claude/rules/`의 `backend.md`(API 포함), `frontend.md`, `deploy.md`(CI 포함)에 있다. 관련 파일을 읽거나 고칠 때 자동으로 불러오므로, 파일을 열기 전에 설계할 때는 직접 읽는다.
+- 기능 개발을 시작하기 전에 `docs/feature-workflow.md`를 읽는다.
 
 ### 퀴즈 도메인
 
@@ -84,26 +64,6 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
 - 버그를 고칠 때는 그 버그를 재현하는 테스트부터 추가한다.
 - 커밋은 테스트가 모두 통과하는 상태에서만 한다. red 상태로 커밋하지 않는다.
 - Controller·설정·화면은 테스트 먼저를 강제하지 않는다 (구현 후 테스트 작성 가능).
-
-### 기능 개발 순서
-
-1. 메인 세션이 `docs/feature-template.md`를 바탕으로 `docs/features/<slug>.md` 초안을 쓰고 사용자 확인을 받는다. 열린 질문이 남아 있으면 구현을 시작하지 않는다.
-2. 마이그레이션 + 먼저 쓰는 테스트: test-writer가 실패하는 테스트를 작성합니다.
-3. 개발: backend-dev, frontend-dev가 코드를 작성합니다.
-4. 구현 후 테스트: test-writer가 완성된 코드에 Controller·화면 테스트를 추가합니다.
-5. 완료된 에이전트 작업 응답 부터 리뷰어가 확인
-6. 통과 실패시 재개발, **-dev 에이전트 실행횟수 총 2회
-7. 2회 이상 실패시 문제점 docs/report경로에 <기능 (backend-dev|frontend-dev)>.md 로 실패한 이유 또는 제약사항을 작성 후 알린다.
-8. `./gradlew check` 통과 → `develop`으로 PR (제목은 Conventional Commits 형식) → squash merge
-
-### 기능 문서
-
-- `docs/features/<slug>.md`는 git으로 추적하지 않는 로컬 작업 문서다. PR을 만들 때 요구사항과 결정 요약을 PR 본문에 옮겨 squash 커밋에 남긴다.
-- 문서는 메인 세션만 고친다. 에이전트 실행마다 진행 기록에 한 줄을 남기고, 재시도 횟수는 이 기록으로 센다.
-- 에이전트에게는 문서의 정확한 경로를 넘긴다. 요구사항을 프롬프트에 다시 옮겨 적지 않는다. git이 무시하는 파일은 검색 결과에서 빠질 수 있으므로, 검색하지 않고 그 경로를 바로 읽는다.
-- 결정이 바뀌면 코드보다 문서를 먼저 고친다.
-- 머지하면 상태를 `완료`로 바꾸고 이후에는 갱신하지 않는다. 그 뒤로 현재 동작의 기준은 코드와 REST Docs다.
-- 여러 기능에 적용되는 결정은 `.claude/rules/`로 옮긴다.
 
 ## 첫 버전 범위 (MVP)
 
