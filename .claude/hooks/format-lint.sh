@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse (Edit|Write): Claude가 수정한 파일 하나만 포맷 + 린트한다.
 #   src/main/frontend/*.ts(x), *.js(x) → Prettier → ESLint --fix (남은 오류는 Claude에게 전달)
+#   src/main/frontend/*.css, *.json, *.md, *.html → Prettier
 #   src/**/*.java                      → Spotless (해당 파일만)
 # exit 2 = stderr 내용을 Claude에게 피드백으로 전달 (파일 수정 자체는 이미 끝난 상태)
 set -uo pipefail
@@ -27,6 +28,10 @@ case "$FILE" in
       echo "$OUT" >&2
       exit 2
     fi
+    ;;
+  "$FRONT"/*.css | "$FRONT"/*.json | "$FRONT"/*.md | "$FRONT"/*.html)
+    cd "$FRONT" || exit 0
+    npx --no-install prettier --write "$FILE" >/dev/null 2>&1
     ;;
   "$ROOT"/src/*.java)
     cd "$ROOT" || exit 0
