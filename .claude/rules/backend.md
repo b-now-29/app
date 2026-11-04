@@ -8,6 +8,17 @@ paths:
 
 # 백엔드 규칙
 
+## API
+
+- 모든 API는 `/api/v1/` 아래에 둔다. 리소스는 복수형 명사 (`/categories`, `/questions`), 식별자는 path variable (`/categories/{slug}/questions`).
+- 요청·응답은 JSON, 필드명은 camelCase. 날짜는 ISO-8601 (UTC).
+- 컨트롤러는 엔티티를 반환하지 않는다. 요청은 `XxxRequest`, 응답은 `XxxResponse` record DTO로 만든다.
+- 성공 응답은 래퍼 없이 본문을 그대로 반환한다 (목록은 JSON 배열).
+- 에러 응답은 ProblemDetail (RFC 9457). 상태 코드: 입력 검증 실패 400, 없는 리소스 404. 예외는 `@RestControllerAdvice`에서 ProblemDetail로 변환한다.
+- 요청 검증은 Bean Validation (`@Valid`, `@NotNull` 등)으로 한다.
+- 모든 API는 REST Docs 테스트로 문서화하고 `src/docs/asciidoc/index.adoc`에 추가한다. 문서 없는 API를 만들지 않는다.
+- 응답 필드 추가는 괜찮지만, 삭제·이름 변경은 하지 않는다 (필요하면 `/api/v2`).
+
 ## 백엔드 개발 방법
 
 - 패키지는 기능별로 나눈다 (`quiz/category`, `quiz/question`). 각 패키지 안에 Controller · Service · Repository · 엔티티 · DTO를 둔다.
@@ -17,7 +28,7 @@ paths:
 - `open-in-view: false`이므로 엔티티 → DTO 변환은 Service 안 (트랜잭션 안)에서 끝낸다.
 - 엔티티: setter를 두지 않고 생성자/정적 팩토리로 만든다. 연관관계는 `@ManyToOne(fetch = LAZY)`. 연관 데이터를 함께 쓰는 조회는 fetch join 또는 `@EntityGraph`로 N+1을 막는다.
 - `TEXT` 컬럼에 매핑하는 `String`은 `@Column(columnDefinition = "text")` (`ddl-auto: validate` 통과용).
-- DB 변경은 항상 새 Flyway 파일 (`V<n>__<설명>.sql`)로 한다.
+- DB 변경은 항상 새 Flyway 파일 (`V<n>__<설명>.sql`)로 한다. 이미 적용된 마이그레이션 파일은 수정하지 않는다.
 
 ## 코드 스타일
 

@@ -16,7 +16,7 @@ paths:
 
 ## 프론트엔드 코드 스타일
 
-- `any` 금지. 모르는 값은 `unknown`으로 받고 타입을 좁혀서 쓴다.
+- 모르는 값은 `unknown`으로 받고 타입을 좁혀서 쓴다.
 - 불변: state·props를 직접 수정하지 않는다 (spread, `map`, `filter`로 새 값을 만든다). 도메인 타입은 `readonly`.
 - 컴포넌트는 props → 화면만 담당한다. 계산 로직은 `src/quiz/` 함수로 빼서 테스트한다.
 - 문제 유형 분기는 union 타입 (`type: 'MULTIPLE_CHOICE' | 'SHORT_ANSWER' | 'ESSAY'`) + `switch` 한 곳에서 하고, `default`에서 `never` 검사로 빠진 유형이 없게 한다.
@@ -28,4 +28,3 @@ paths:
 - 풀이 흐름 reducer (`src/quiz/`): 상태 전이마다 단위 테스트. TDD 대상.
 - 컴포넌트: 사용자 관점으로 테스트한다 (`getByRole`, `getByLabelText`로 찾고 `user-event`로 조작). 내부 state나 CSS class는 검사하지 않는다. 핵심 상호작용 (답 선택·제출·결과 표시)만.
 - API 호출은 `vi.mock`으로 대체한다.
-- TDD 규칙은 `CLAUDE.md`의 TDD 절과 같다: 도메인 로직과 버그 수정은 실패 테스트 먼저 (red 확인 → green → 리팩터링). 화면은 강제하지 않는다.
