@@ -9,9 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.b.now._29.app.controller.PingController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -52,6 +55,17 @@ class SpaConfigTest {
     @DisplayName("확장자가 있는 없는 파일은 index.html이 아니라 404")
     void missingFileReturns404() throws Exception {
         mvc.perform(get("/missing.js")).andExpect(status().isNotFound());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/nope", "/missing.js"})
+    @DisplayName("index.html을 돌려주지 않는 경로의 404 본문은 ProblemDetail이다")
+    void notFoundBodyIsProblemDetail(String path) throws Exception {
+        mvc.perform(get(path))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.title").exists());
     }
 
     @Test

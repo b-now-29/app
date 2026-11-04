@@ -48,4 +48,18 @@ class CategoryRepositoryTest {
         assertThatThrownBy(() -> categoryRepository.saveAndFlush(duplicate))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    @DisplayName("저장된 slug면 existsBySlug는 참이다")
+    void existsBySlugIsTrueForSavedSlug() {
+        categoryRepository.saveAndFlush(new Category("saved-slug", "저장한 카테고리", 1000));
+
+        assertThat(categoryRepository.existsBySlug("saved-slug")).isTrue();
+    }
+
+    @Test
+    @DisplayName("없는 slug면 existsBySlug는 거짓이다")
+    void existsBySlugIsFalseForUnknownSlug() {
+        assertThat(categoryRepository.existsBySlug("unknown-slug")).isFalse();
+    }
 }
