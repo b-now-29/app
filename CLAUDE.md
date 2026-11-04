@@ -88,12 +88,13 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
 ### 기능 개발 순서
 
 1. 메인 세션이 `docs/feature-template.md`를 바탕으로 `docs/features/<slug>.md` 초안을 쓰고 사용자 확인을 받는다. 열린 질문이 남아 있으면 구현을 시작하지 않는다.
-2. 마이그레이션 + test-writer 에이전트가 **-dev에이전트 실행 전 테스트 코드 먼저 작성
-3. backend-dev 에이전트, frontend-dev 에이전트 각각 맡은 기능 개발
-4. 완료된 에이전트 작업 응답 부터 리뷰어가 확인
-5. 통과 실패시 재개발, **-dev 에이전트 실행횟수 총 2회
-6. 2회 이상 실패시 문제점 docs/report경로에 <기능 (backend-dev|frontend-dev)>.md 로 실패한 이유 또는 제약사항을 작성 후 알린다.
-7. `./gradlew check` 통과 → `develop`으로 PR (제목은 Conventional Commits 형식) → squash merge
+2. 마이그레이션 + 먼저 쓰는 테스트: test-writer가 실패하는 테스트를 작성합니다.
+3. 개발: backend-dev, frontend-dev가 코드를 작성합니다.
+4. 구현 후 테스트: test-writer가 완성된 코드에 Controller·화면 테스트를 추가합니다.
+5. 완료된 에이전트 작업 응답 부터 리뷰어가 확인
+6. 통과 실패시 재개발, **-dev 에이전트 실행횟수 총 2회
+7. 2회 이상 실패시 문제점 docs/report경로에 <기능 (backend-dev|frontend-dev)>.md 로 실패한 이유 또는 제약사항을 작성 후 알린다.
+8. `./gradlew check` 통과 → `develop`으로 PR (제목은 Conventional Commits 형식) → squash merge
 
 ### 기능 문서
 
