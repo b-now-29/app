@@ -54,6 +54,10 @@ jobs:
       # spotless + PMD + 단위 테스트 + 프론트 검사 + Testcontainers 테스트
       - run: ./gradlew check integrationTest
 
+      # 배포 jar가 만들어지는지 main 머지 전에 확인 (프론트 빌드 + REST Docs). 기능 PR은 시간이 늘어 제외
+      - if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: ./gradlew bootJar -PwithDocs
+
       # 실패하면 테스트 리포트를 내려받을 수 있게 올려둔다
       - if: failure()
         uses: actions/upload-artifact@v5
