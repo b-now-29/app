@@ -1,3 +1,5 @@
+import "@seed-design/css/base.css";
+import "./index.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
