@@ -115,6 +115,7 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
 - `src/quiz/` — 풀이 흐름 상태 (현재 문제, 제출 여부, 자기 채점 결과, 점수 집계)를 다루는 reducer. React를 import하지 않는 순수 TypeScript. 채점·정답 판단 같은 도메인 규칙은 프론트에 두지 않는다 (서버 책임).
 - `src/components/` — 재사용 UI 컴포넌트 (보기 목록, 유형별 답 입력칸 등).
 - `src/routes/` — 화면 + `loader`/`action`. 에러 화면은 route의 `ErrorBoundary`.
+- `src/seed-design/` — SEED Design CLI가 생성한 코드 (린트·포맷 제외). 직접 고치지 않고, 추가는 `npx @seed-design/cli@latest add ui:<이름>`. 화면은 SEED 컴포넌트를 먼저 쓰고, 없을 때만 CSS를 직접 작성한다. 당근 로고·이름·캐릭터, 당근 고유 컴포넌트 (`manner-temp` 등)는 쓰지 않는다.
 - 서버 데이터는 `loader`, 화면 상태는 `useState`. 여러 값이 같이 바뀌는 상태 (풀이 진행)는 `useReducer` + `src/quiz/`의 reducer. 별도 상태 관리 라이브러리는 쓰지 않는다.
 
 ### 프론트엔드 코드 스타일
