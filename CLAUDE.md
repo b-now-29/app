@@ -6,8 +6,6 @@
 
 Spring Boot 4 (Java 25, Gradle) 단일 프로젝트. React 화면까지 jar 하나로 빌드한다.
 
-> **현재 상태**: `src/main/resources/db/migration/`은 아직 저장소에 없다. 있다고 가정하지 말고, 첫 마이그레이션을 추가할 때 만든다.
-
 - `src/main/java/` — 백엔드. API는 모두 `/api/` 아래에 매핑한다. 화면은 전부 React가 그리며 서버 템플릿 (Thymeleaf 등)은 쓰지 않는다 → 컨트롤러는 `@RestController`로 JSON만 반환한다
 - `src/main/frontend/` — React + TypeScript, React Router v8 (Data mode, `createBrowserRouter`). import는 `react-router` 에서 (`react-router-dom` 아님)
 - 프론트 빌드 결과 (`dist/`)는 `bootJar` 때 jar의 `static/`으로 들어가고 Spring이 서빙한다. `SpaConfig`가 없는 경로를 `index.html`로 돌려준다 (`/api/`로 시작하거나 `.`이 포함된 경로는 제외, 404). `src/main/resources/static/`에 직접 파일을 두지 않는다.
@@ -143,3 +141,12 @@ CI/CD: GitHub Actions (`.github/workflows/ci-cd.yml`)가 `develop`·`main`으로
 4. Controller + REST Docs 테스트
 5. 프론트 (`src/api/` → `src/routes/`)
 6. `./gradlew check` 통과 → `develop`으로 PR (제목은 Conventional Commits 형식) → squash merge
+
+## 첫 버전 범위 (MVP)
+
+| 포함                                               | 나중에                       |
+|----------------------------------------------------|------------------------------|
+| 카테고리 목록 보기                                 | 로그인 / 회원별 풀이 기록    |
+| 카테고리를 고르면 그 카테고리의 문제를 하나씩 풀기 | 관리자 화면 (문제 등록·수정) |
+| 객관식 정답 1개,                                   | 주관식, 서술형               |
+| 제출하면 정답 여부 + 해설 표시, 마지막에 점수      | 랭킹, 오답 노트              |
