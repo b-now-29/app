@@ -10,3 +10,27 @@ operation::ping[snippets='http-request,http-response,response-fields']
 표시 순서대로 정렬된 카테고리 목록을 반환한다.
 
 operation::categories-list[snippets='http-request,http-response,response-fields']
+
+== 문제
+
+=== 카테고리의 문제 목록 조회
+카테고리의 객관식 문제를 표시 순서대로 반환한다. 보기도 표시 순서대로 정렬되어 있다. 정답 정보와 해설은 포함하지 않는다. 문제가 없는 카테고리는 빈 배열을 반환한다.
+
+operation::questions-list[snippets='path-parameters,http-request,http-response,response-fields']
+
+없는 카테고리는 404로 응답한다.
+
+operation::questions-list-category-not-found[snippets='http-response']
+
+=== 답 제출
+고른 보기를 채점해 정답 여부, 정답 보기의 ID, 해설을 반환한다. 채점 결과는 저장하지 않는다.
+
+operation::answers-submit[snippets='path-parameters,request-fields,http-request,http-response,response-fields']
+
+`choiceId`가 없거나 형식이 틀리거나 그 문제의 보기가 아니면 400으로 응답한다.
+
+operation::answers-submit-invalid-choice[snippets='http-response']
+
+없는 문제는 404로 응답한다.
+
+operation::answers-submit-question-not-found[snippets='http-response']
