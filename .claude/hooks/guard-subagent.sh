@@ -27,6 +27,14 @@ deny() {
   exit 2
 }
 
+# 파일을 읽으려다 Bash 형식에 걸린 경우가 많은 차단. 전용 도구로 바로 넘어가도록 안내한다.
+deny_use_tools() {
+  echo "$ROLE: 이 Bash 형식은 쓸 수 없습니다: $1" >&2
+  echo "파일 읽기와 검색이라면 Read·Grep·Glob 도구를 쓰세요. 그 외 명령이 필요하면 우회하지 말고 메인 세션에 보고하세요." >&2
+  finished=true
+  exit 2
+}
+
 allow() {
   finished=true
   exit 0
@@ -114,12 +122,19 @@ check_npm() {
 }
 
 check_segment() {
-  local words args
+  local words args word
   read -r -a words <<< "$1"
   args=" ${words[*]:1} "
   case "${words[0]}" in
     cd | ls | cat | head | tail | wc | grep | pwd | echo | diff)
       ;;
+    sort)
+      # -o는 파일에 쓰고 --compress-program은 프로그램을 실행한다. -ro처럼 붙여 써도 잡히도록 단어 단위로 본다.
+      for word in "${words[@]:1}"; do
+        case "$word" in
+          -*o* | --*) deny "sort의 출력 파일·긴 옵션은 쓸 수 없습니다" ;;
+        esac
+      done ;;
     rg)
       case "$args" in
         *' --pre'*) deny "rg --pre는 다른 명령을 실행합니다" ;;
@@ -130,6 +145,11 @@ check_segment() {
           deny "find의 삭제·실행·파일 출력 옵션은 쓸 수 없습니다" ;;
       esac ;;
     git)
+      # 이 프로젝트를 가리키는 -C만 떼어 내고 같은 검사를 거친다. 다른 경로는 아래에서 막힌다.
+      if [ "${words[1]:-}" = -C ] && [ "${words[2]:-}" = "$ROOT" ]; then
+        words=(git "${words[@]:3}")
+        args=" ${words[*]:1} "
+      fi
       case "${words[1]:-}" in
         status | diff | log | show | blame | ls-files | rev-parse) ;;
         *) deny "읽기 전용 git 명령만 쓸 수 있습니다 (git ${words[1]:-})" ;;
@@ -142,14 +162,14 @@ check_segment() {
       [ "$ROLE" != reviewer ] || check_reviewer_gradle "${words[@]:1}"
       case "$args" in
         *' -I'* | *' --init-script'* | *' -c '* | *' --settings-file'* | *' -b '* | *' --build-file'* | *' -p '* | *' --project-dir'*)
-          deny "Gradle의 스크립트·프로젝트 지정 옵션은 쓸 수 없습니다" ;;
+          deny "Gradle의 스크립트·프로젝트 지정 옵션은 쓸 수 없습니다. 프로젝트 루트에서 ./gradlew로 실행하세요" ;;
         *' wrapper '* | *' init '*)
           deny "Gradle wrapper·init 작업은 쓸 수 없습니다" ;;
       esac ;;
     npm)
       check_npm "${words[1]:-}" "${words[2]:-}" "$args" ;;
     *)
-      deny "허용 목록에 없는 명령입니다 (${words[0]})" ;;
+      deny_use_tools "허용 목록에 없는 명령입니다 (${words[0]})" ;;
   esac
 }
 
@@ -159,9 +179,9 @@ check_command() {
     *'$('* | *'`'* | *'<('* | *'>('*)
       deny "명령 치환은 쓸 수 없습니다" ;;
     *\\\"* | *\\\'*)
-      deny "이스케이프한 따옴표는 쓸 수 없습니다" ;;
+      deny_use_tools "이스케이프한 따옴표는 쓸 수 없습니다" ;;
     *\'*\"* | *\"*\'*)
-      deny "작은따옴표와 큰따옴표를 한 명령에 함께 쓸 수 없습니다" ;;
+      deny_use_tools "작은따옴표와 큰따옴표를 한 명령에 함께 쓸 수 없습니다" ;;
   esac
 
   # 따옴표 안의 글자는 인자일 뿐이므로 지운다 (grep "List<Question>" 같은 검색이 막히지 않도록).

@@ -35,6 +35,9 @@ jobs:
           path: ~/.npm
           key: npm-${{ hashFiles('src/main/frontend/package-lock.json') }}
 
+      # 서브에이전트 가드 훅의 허용·차단 규칙
+      - run: .claude/hooks/guard-subagent.test.sh
+
       # spotless + PMD + 단위 테스트 + 프론트 검사 + Testcontainers 테스트
       - run: ./gradlew check integrationTest
 
