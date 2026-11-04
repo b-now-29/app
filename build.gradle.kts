@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.b.now._29"
-version = "0.1.2"
+version = "0.1.3"
 
 java {
     toolchain {
