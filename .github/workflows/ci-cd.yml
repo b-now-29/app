@@ -3,6 +3,8 @@ name: CI/CD
 on:
   pull_request:
     branches: [ develop, main ]
+    # edited: PR 제목을 고치면 제목 검사를 다시 돌린다
+    types: [ opened, synchronize, reopened, edited ]
   push:
     branches: [ develop, main ]
 
@@ -20,6 +22,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2             # PR은 머지 커밋을 받으므로 HEAD^1이 대상 브랜치다
+
+      # 제목은 사용자 입력이므로 env로 넘긴다 (run에 ${{ }}로 직접 넣으면 셸 명령으로 실행될 수 있음)
+      - if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: scripts/ci-check-pr-title.sh "$PR_TITLE"
+
+      - if: github.event_name == 'pull_request'
+        run: scripts/ci-check-migrations.sh HEAD^1 HEAD
 
       - uses: actions/setup-java@v5
         with:
