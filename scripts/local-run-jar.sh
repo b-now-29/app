@@ -17,4 +17,5 @@ JAR=$(ls -t build/libs/app-*.jar | grep -v -- '-plain' | head -1)
 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/mydatabase \
 SPRING_DATASOURCE_USERNAME=myuser \
 SPRING_DATASOURCE_PASSWORD=secret \
+SPRING_PROFILES_ACTIVE=dev \
 exec java -jar "$JAR"

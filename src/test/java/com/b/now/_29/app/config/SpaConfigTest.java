@@ -1,12 +1,17 @@
 package com.b.now._29.app.config;
 
+import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.controller.PingController;
+import com.b.now._29.app.support.WithAppSecurity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -14,6 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -22,9 +28,13 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @WebMvcTest(PingController.class)
 @Import(SpaConfig.class)
+@WithAppSecurity
 class SpaConfigTest {
 
     private static final String INDEX_MARKER = "SPA_INDEX";
+    private static final String ASSET_MARKER = "SPA_ASSET";
+    // Spring Security 기본값 "no-cache, no-store, max-age=0, must-revalidate"에도 max-age가 있어 0보다 큰 값만 인정한다
+    private static final String POSITIVE_MAX_AGE = ".*max-age=[1-9].*";
 
     @Autowired
     MockMvc mvc;
@@ -66,6 +76,28 @@ class SpaConfigTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.title").exists());
+    }
+
+    @Test
+    @DisplayName("/assets/ 아래 파일은 max-age로 캐시하고 no-store를 주지 않는다 (D18)")
+    void assetsAreCached() throws Exception {
+        mvc.perform(get("/assets/app-abc123.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString(ASSET_MARKER)))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, matchesPattern(POSITIVE_MAX_AGE)))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, not(containsString("no-store"))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/", "/some/page", "/index.html"})
+    @DisplayName("SPA 경로 응답은 캐시되지 않는다 (D18)")
+    void spaResponsesAreNotCached(String path) throws Exception {
+        mvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                                HttpHeaders.CACHE_CONTROL,
+                                anyOf(containsString("no-store"), containsString("no-cache"))))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, not(matchesPattern(POSITIVE_MAX_AGE))));
     }
 
     @Test

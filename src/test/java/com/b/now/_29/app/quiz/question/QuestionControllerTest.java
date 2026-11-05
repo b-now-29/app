@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
+import com.b.now._29.app.support.WithAppSecurity;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ import org.springframework.test.web.servlet.ResultMatcher;
 
 @WebMvcTest(QuestionController.class)
 @AutoConfigureRestDocs
+@WithAppSecurity
 class QuestionControllerTest {
 
     private static final String SLUG = "java";

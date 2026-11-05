@@ -51,3 +51,49 @@ operation::text-answers-submit-unsupported-type[snippets='http-response']
 없는 문제는 404로 응답한다.
 
 operation::text-answers-submit-question-not-found[snippets='http-response']
+
+== 회원
+
+인증은 `access_token` 쿠키로 한다. 가입과 로그인이 `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=604800` 속성으로 쿠키를 설정한다. 토큰 수명은 7일이다. `GET /api/v1/users/me`만 인증이 필요하고, 나머지 API는 쿠키가 없거나 만료·위조되어도 비회원으로 정상 이용할 수 있다.
+
+=== 회원 가입
+이메일과 비밀번호로 가입하고 바로 로그인 상태가 된다. 이메일은 앞뒤 공백을 지우고 소문자로 저장한다.
+
+operation::users-signup[snippets='request-fields,http-request,http-response,response-headers,response-fields']
+
+이메일 형식이 틀리거나, 비밀번호가 8자보다 짧거나 UTF-8 72바이트를 넘으면 400으로 응답한다.
+
+operation::users-signup-invalid[snippets='http-response']
+
+대소문자만 다른 경우를 포함해 이미 가입한 이메일은 409로 응답한다.
+
+operation::users-signup-duplicate-email[snippets='http-response']
+
+=== 현재 사용자 조회
+로그인한 사용자의 정보를 반환한다.
+
+operation::users-me[snippets='request-cookies,http-request,http-response,response-fields']
+
+로그인하지 않았거나 쿠키가 만료·위조되었으면 401로 응답한다.
+
+operation::users-me-unauthorized[snippets='http-response']
+
+== 인증
+
+=== 로그인
+로그인에 성공하면 인증 쿠키를 설정한다.
+
+operation::auth-login[snippets='request-fields,http-request,http-response,response-headers,response-fields']
+
+이메일이나 비밀번호가 없으면 400으로 응답한다.
+
+operation::auth-login-invalid[snippets='http-response']
+
+없는 이메일과 틀린 비밀번호는 같은 메시지의 401로 응답한다.
+
+operation::auth-login-unauthorized[snippets='http-response']
+
+=== 로그아웃
+인증 쿠키를 지운다. 로그인하지 않았어도 204로 응답한다. 쿠키만 지우므로, 이미 유출된 토큰은 만료될 때까지 유효하다.
+
+operation::auth-logout[snippets='http-request,http-response,response-headers']
