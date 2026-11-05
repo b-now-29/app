@@ -2,6 +2,7 @@
 name: frontend-dev
 description: 퀴즈 앱 프론트엔드 화면과 로직을 구현하거나 실패 테스트를 통과시킬 때 사용한다. `src/api/`, `src/quiz/` reducer, `src/components/`, `src/routes/` 구현을 맡는다. 테스트 작성, SEED 컴포넌트 설치, 설정 파일 변경, 백엔드 작업에는 쓰지 않는다.
 tools: Read, Grep, Glob, Edit, Write, Bash
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Edit|Write|Bash"

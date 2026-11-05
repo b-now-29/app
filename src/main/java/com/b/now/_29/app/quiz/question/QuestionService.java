@@ -10,6 +10,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class QuestionService {
 
+    private static final List<QuestionType> SOLVABLE_TYPES =
+            List.of(QuestionType.MULTIPLE_CHOICE, QuestionType.SHORT_ANSWER);
+
     private final QuestionRepository questionRepository;
     private final CategoryRepository categoryRepository;
 
@@ -22,9 +25,7 @@ public class QuestionService {
         if (!categoryRepository.existsBySlug(slug)) {
             throw new CategoryNotFoundException(slug);
         }
-        return questionRepository
-                .findAllByCategorySlugAndTypeOrderBySortOrderAscIdAsc(slug, QuestionType.MULTIPLE_CHOICE)
-                .stream()
+        return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(slug, SOLVABLE_TYPES).stream()
                 .map(QuestionResponse::from)
                 .toList();
     }
@@ -34,5 +35,11 @@ public class QuestionService {
                 .findWithChoicesById(questionId)
                 .orElseThrow(() -> new QuestionNotFoundException(questionId));
         return AnswerResponse.from(question.grade(choiceId));
+    }
+
+    public TextAnswerResponse submitTextAnswer(long questionId) {
+        Question question =
+                questionRepository.findById(questionId).orElseThrow(() -> new QuestionNotFoundException(questionId));
+        return TextAnswerResponse.from(question.revealModelAnswer());
     }
 }
