@@ -39,6 +39,14 @@ scripts/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
       `develop`에 다시 머지
     - `hotfix/<x.y.z>`: `main`에서 분기 → `main`으로 PR → 태그 → `develop`에 다시 머지
     - `release/*`, `hotfix/*`를 머지할 때는 squash 하지 않고 merge commit으로 머지한다 (`main`과 `develop` 이력이 어긋나지 않도록)
+- PR을 요청받으면 `mattpocock-skills:pr` 형식으로 제목과 본문을 쓰고, push 후 `gh pr create`까지 한다. 머지는 사용자가 하므로 PR 링크와 머지 방식을 함께 알린다.
+    - `feature/*` → `develop` (squash merge)
+    - `release/*`, `hotfix/*` → `main` (merge commit)
+    - 그 외 브랜치는 PR을 만들지 않고 멈춰서 알린다
+- `release/*`, `hotfix/*`가 `main`에 머지됐다고 알려 주면 다음을 한다.
+    1. 그 머지 커밋에 `v<x.y.z>` 태그를 달고 push한다.
+    2. `main` → `develop` 역머지 PR을 만든다 (`--head main --base develop`). merge commit으로 머지하며 squash하지 않는다.
+    3. 충돌이 나면 `main`과 `develop`을 임의로 고치지 않고, 충돌 파일을 알린 뒤 `feature/backmerge-main-<x.y.z>` 브랜치에서 해결한다.
 - 커밋 메시지: Conventional Commits, `type(scope): 제목` — type은 `feat|fix|refactor|test|docs|chore|build|ci`, scope는
   `backend|frontend|db|ci` 중 하나이며 버전 올림·배포 설정처럼 어디에도 속하지 않으면 생략한다. 예: `feat(backend): 회원 가입 API 추가`, `chore: 버전 0.1.2`
 - 커밋 하나에 논리적 변경 하나. 백엔드와 프론트엔드 변경이 독립적이면 커밋을 나눈다.
@@ -67,6 +75,6 @@ scripts/local-run-jar.sh --no-build # 이미 빌드한 jar로 바로 실행
 
 ## 앞으로 할 일
 
-- 로그인 / 회원별 풀이 기록
+- 회원별 풀이 기록
 - 관리자 화면 (문제 등록·수정)
 - 랭킹, 오답 노트

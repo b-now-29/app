@@ -1,0 +1,6 @@
+# 로컬 개발 전용. 운영에서는 쓰지 않는다.
+app:
+  jwt:
+    secret: dev-only-jwt-secret-not-for-production-0123456789
+  auth:
+    cookie-secure: false

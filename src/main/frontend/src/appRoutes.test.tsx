@@ -1,0 +1,398 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getCategories } from "./api/categories";
+import { getQuestions } from "./api/questions";
+import type { QuestionResponse } from "./api/questions";
+import { ApiError, getCurrentUser, login, logout, signUp } from "./api/users";
+import type { UserResponse } from "./api/users";
+import { appRoutes } from "./appRoutes";
+
+vi.mock("./api/categories");
+
+// 에러 화면이 NotFoundError를 instanceof로 구분하므로 클래스는 진짜를 쓴다
+vi.mock("./api/questions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api/questions")>()),
+  getQuestions: vi.fn(),
+}));
+
+// 모듈 전체를 자동으로 대체하면 ApiError도 가짜가 되어 status와 message가 비게 된다
+vi.mock("./api/users", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api/users")>()),
+  getCurrentUser: vi.fn(),
+  login: vi.fn(),
+  logout: vi.fn(),
+  signUp: vi.fn(),
+}));
+
+const EMAIL = "user@example.com";
+const PASSWORD = "password1234";
+const USER: UserResponse = { id: 1, email: EMAIL };
+const CATEGORY_NAME = "Java";
+const QUIZ_PATH = "/categories/java";
+const QUESTION_CONTENT = "첫 번째 문제";
+const CHOICE_CONTENT = "가방";
+const QUESTIONS: readonly QuestionResponse[] = [
+  {
+    id: 101,
+    type: "MULTIPLE_CHOICE",
+    content: QUESTION_CONTENT,
+    choices: [
+      { id: 11, content: CHOICE_CONTENT },
+      { id: 12, content: "라면" },
+    ],
+  },
+];
+
+// 서버의 쿠키 상태를 흉내 낸다. 로그인 후 loader가 다시 실행되어야만 메뉴에 반영된다
+let currentUser: UserResponse | null;
+
+beforeEach(() => {
+  currentUser = null;
+  vi.mocked(getCategories).mockReset();
+  vi.mocked(getCategories).mockResolvedValue([
+    { slug: "java", name: CATEGORY_NAME },
+  ]);
+  vi.mocked(getQuestions).mockReset();
+  vi.mocked(getQuestions).mockResolvedValue(QUESTIONS);
+  vi.mocked(getCurrentUser).mockReset();
+  vi.mocked(getCurrentUser).mockImplementation(() =>
+    Promise.resolve(currentUser),
+  );
+  vi.mocked(login).mockReset();
+  vi.mocked(login).mockImplementation(() => {
+    currentUser = USER;
+    return Promise.resolve(USER);
+  });
+  vi.mocked(signUp).mockReset();
+  vi.mocked(signUp).mockImplementation(() => {
+    currentUser = USER;
+    return Promise.resolve(USER);
+  });
+  vi.mocked(logout).mockReset();
+  vi.mocked(logout).mockImplementation(() => {
+    currentUser = null;
+    return Promise.resolve();
+  });
+});
+
+function renderApp(path: string) {
+  const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
+  render(<RouterProvider router={router} />);
+}
+
+async function findMenu() {
+  return within(await screen.findByRole("navigation"));
+}
+
+async function fillCredentials(user: UserEvent) {
+  await user.type(await screen.findByLabelText("이메일"), EMAIL);
+  await user.type(screen.getByLabelText("비밀번호"), PASSWORD);
+}
+
+async function expectLoggedInMenu() {
+  const menu = await findMenu();
+  expect(await menu.findByText(EMAIL)).toBeInTheDocument();
+  expect(menu.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
+  expect(menu.queryByRole("link", { name: "로그인" })).not.toBeInTheDocument();
+}
+
+async function expectGuestMenu() {
+  const menu = await findMenu();
+  expect(await menu.findByRole("link", { name: "로그인" })).toBeInTheDocument();
+  expect(
+    menu.queryByRole("button", { name: "로그아웃" }),
+  ).not.toBeInTheDocument();
+  expect(menu.queryByText(EMAIL)).not.toBeInTheDocument();
+}
+
+async function expectHome() {
+  expect(
+    await screen.findByRole("link", { name: CATEGORY_NAME }),
+  ).toBeInTheDocument();
+}
+
+describe("메뉴 (R10)", () => {
+  it("비회원에게는 로그인 링크가 보이고 퀴즈 화면을 그대로 쓸 수 있다 (R8)", async () => {
+    renderApp("/");
+
+    await expectGuestMenu();
+    await expectHome();
+  });
+
+  it("로그인 사용자에게는 이메일과 로그아웃이 보인다", async () => {
+    currentUser = USER;
+
+    renderApp("/");
+
+    await expectLoggedInMenu();
+    await expectHome();
+  });
+
+  it("기존 메뉴(홈, 소개)는 로그인 여부와 상관없이 남아 있다", async () => {
+    renderApp("/");
+
+    const menu = await findMenu();
+    expect(await menu.findByRole("link", { name: "홈" })).toBeInTheDocument();
+    expect(menu.getByRole("link", { name: "소개" })).toBeInTheDocument();
+  });
+
+  it("로그인 링크를 누르면 로그인 화면으로 간다", async () => {
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const menu = await findMenu();
+    await user.click(await menu.findByRole("link", { name: "로그인" }));
+
+    expect(await screen.findByLabelText("비밀번호")).toBeInTheDocument();
+  });
+
+  it("사용자 조회가 실패해도 비회원으로 처리하고 퀴즈 화면을 막지 않는다 (D11)", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new Error("HTTP 500"));
+
+    renderApp("/");
+
+    await expectGuestMenu();
+    await expectHome();
+  });
+});
+
+describe("로그아웃 (R7)", () => {
+  it("로그아웃을 누르면 메뉴가 비회원 상태로 바뀐다", async () => {
+    currentUser = USER;
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const menu = await findMenu();
+    await user.click(await menu.findByRole("button", { name: "로그아웃" }));
+
+    expect(logout).toHaveBeenCalledTimes(1);
+    await expectGuestMenu();
+  });
+
+  // HttpOnly 쿠키는 프론트에서 지울 수 없으므로 서버 상태(currentUser)는 로그인 그대로다
+  it.each([
+    ["서버 오류", new ApiError(500, "서버 오류가 발생했습니다.")],
+    ["네트워크 오류", new TypeError("Failed to fetch")],
+  ])(
+    "%s로 로그아웃이 실패하면 로그인 메뉴를 유지하고 에러를 보여 준다 (D15)",
+    async (_description, failure) => {
+      currentUser = USER;
+      vi.mocked(logout).mockRejectedValue(failure);
+      const user = userEvent.setup();
+      renderApp("/");
+
+      const menu = await findMenu();
+      await user.click(await menu.findByRole("button", { name: "로그아웃" }));
+
+      expect(await screen.findByRole("alert")).not.toBeEmptyDOMElement();
+      expect(logout).toHaveBeenCalledTimes(1);
+      await expectLoggedInMenu();
+      await expectHome();
+    },
+  );
+
+  it("로그아웃 실패 에러는 다른 페이지로 이동하면 사라진다 (D20)", async () => {
+    currentUser = USER;
+    vi.mocked(logout).mockRejectedValue(new ApiError(500, "서버 오류"));
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const menu = await findMenu();
+    await user.click(await menu.findByRole("button", { name: "로그아웃" }));
+    await screen.findByRole("alert");
+
+    await user.click(menu.getByRole("link", { name: "소개" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "소개" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("퀴즈와 카테고리 loader를 다시 실행하지 않는다 (D17)", () => {
+    async function selectChoiceAndLogout(user: UserEvent) {
+      await user.click(
+        await screen.findByRole("radio", { name: CHOICE_CONTENT }),
+      );
+      await logoutFromMenu(user);
+    }
+
+    async function logoutFromMenu(user: UserEvent) {
+      const menu = await findMenu();
+      await user.click(await menu.findByRole("button", { name: "로그아웃" }));
+      // 메뉴가 바뀌면 action 뒤의 loader 재실행까지 끝난 것이다
+      await expectGuestMenu();
+    }
+
+    function expectQuizInProgress() {
+      expect(
+        screen.getByRole("heading", { name: QUESTION_CONTENT }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: CHOICE_CONTENT })).toBeChecked();
+    }
+
+    it("퀴즈 화면에서 로그아웃해도 문제 조회 API를 다시 호출하지 않고 풀던 화면을 유지한다", async () => {
+      currentUser = USER;
+      const user = userEvent.setup();
+      renderApp(QUIZ_PATH);
+
+      await selectChoiceAndLogout(user);
+
+      expect(getQuestions).toHaveBeenCalledTimes(1);
+      expectQuizInProgress();
+    });
+
+    it("문제 조회 API가 장애여도 로그아웃 후 풀던 화면이 에러 화면으로 바뀌지 않는다", async () => {
+      currentUser = USER;
+      vi.mocked(getQuestions)
+        .mockReset()
+        .mockResolvedValueOnce(QUESTIONS)
+        .mockRejectedValue(new Error("HTTP 500"));
+      const user = userEvent.setup();
+      renderApp(QUIZ_PATH);
+
+      await selectChoiceAndLogout(user);
+
+      expectQuizInProgress();
+    });
+
+    it("홈에서 로그아웃해도 카테고리 조회 API를 다시 호출하지 않는다", async () => {
+      currentUser = USER;
+      const user = userEvent.setup();
+      renderApp("/");
+      await expectHome();
+
+      await logoutFromMenu(user);
+
+      expect(getCategories).toHaveBeenCalledTimes(1);
+      await expectHome();
+    });
+  });
+});
+
+describe("로그인 화면", () => {
+  it("비밀번호 칸은 입력값을 가린다", async () => {
+    renderApp("/login");
+
+    expect(await screen.findByLabelText("비밀번호")).toHaveAttribute(
+      "type",
+      "password",
+    );
+  });
+
+  it("성공하면 홈으로 이동하고 메뉴가 로그인 상태로 바뀐다", async () => {
+    const user = userEvent.setup();
+    renderApp("/login");
+
+    await fillCredentials(user);
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    await expectHome();
+    expect(login).toHaveBeenCalledWith(EMAIL, PASSWORD);
+    await expectLoggedInMenu();
+    expect(screen.queryByLabelText("비밀번호")).not.toBeInTheDocument();
+  });
+
+  it("인증에 실패하면 폼에 서버 메시지를 보여 주고 이동하지 않는다 (R5)", async () => {
+    const message = "이메일 또는 비밀번호가 올바르지 않습니다.";
+    vi.mocked(login).mockRejectedValue(new ApiError(401, message));
+    const user = userEvent.setup();
+    renderApp("/login");
+
+    await fillCredentials(user);
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+    await expectGuestMenu();
+  });
+
+  it("네트워크 오류가 나도 에러 화면이 아니라 폼에 에러를 보여 준다", async () => {
+    vi.mocked(login).mockRejectedValue(new TypeError("Failed to fetch"));
+    const user = userEvent.setup();
+    renderApp("/login");
+
+    await fillCredentials(user);
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+  });
+
+  it("회원가입 링크를 누르면 가입 화면으로 간다", async () => {
+    const user = userEvent.setup();
+    renderApp("/login");
+
+    await user.click(await screen.findByRole("link", { name: "회원가입" }));
+
+    expect(
+      await screen.findByRole("button", { name: "회원가입" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("회원가입 화면", () => {
+  it("비밀번호 칸은 입력값을 가린다", async () => {
+    renderApp("/signup");
+
+    expect(await screen.findByLabelText("비밀번호")).toHaveAttribute(
+      "type",
+      "password",
+    );
+  });
+
+  it("성공하면 로그인 상태로 홈으로 이동한다 (R1)", async () => {
+    const user = userEvent.setup();
+    renderApp("/signup");
+
+    await fillCredentials(user);
+    await user.click(screen.getByRole("button", { name: "회원가입" }));
+
+    await expectHome();
+    expect(signUp).toHaveBeenCalledWith(EMAIL, PASSWORD);
+    await expectLoggedInMenu();
+  });
+
+  it("중복 이메일이면 폼에 서버 메시지를 보여 주고 이동하지 않는다", async () => {
+    const message = "이미 가입한 이메일입니다.";
+    vi.mocked(signUp).mockRejectedValue(new ApiError(409, message));
+    const user = userEvent.setup();
+    renderApp("/signup");
+
+    await fillCredentials(user);
+    await user.click(screen.getByRole("button", { name: "회원가입" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+  });
+
+  it("형식 오류면 폼에 에러를 보여 주고 이동하지 않는다", async () => {
+    vi.mocked(signUp).mockRejectedValue(
+      new ApiError(400, "Invalid request content."),
+    );
+    const user = userEvent.setup();
+    renderApp("/signup");
+
+    await fillCredentials(user);
+    await user.click(screen.getByRole("button", { name: "회원가입" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+  });
+});
+
+describe("이미 로그인한 사용자", () => {
+  it.each(["/login", "/signup"])("%s에 오면 홈으로 보낸다", async (path) => {
+    currentUser = USER;
+
+    renderApp(path);
+
+    await expectHome();
+    expect(screen.queryByLabelText("비밀번호")).not.toBeInTheDocument();
+  });
+});

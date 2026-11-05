@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.b.now._29"
-version = "0.2.0"
+version = "0.3.0"
 
 java {
     toolchain {
@@ -37,8 +37,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.security:spring-security-oauth2-jose")
     implementation("org.flywaydb:flyway-database-postgresql")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")
     runtimeOnly("org.postgresql:postgresql")
@@ -56,6 +58,11 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     asciidoctorExt("org.springframework.restdocs:spring-restdocs-asciidoctor")
+}
+
+// 개발용 JWT 비밀값과 테스트 계정은 dev 프로필에만 있다 (application-dev.yaml, TestAccountInitializer)
+tasks.bootRun {
+    systemProperty("spring.profiles.active", "dev")
 }
 
 // ── 테스트 ───────────────────────────────────────────────────────────────────

@@ -4,10 +4,23 @@ import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.question.InvalidChoiceException;
 import com.b.now._29.app.quiz.question.QuestionNotFoundException;
 import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
+import com.b.now._29.app.user.DuplicateEmailException;
+import com.b.now._29.app.user.InvalidCredentialsException;
+import com.b.now._29.app.user.UserNotFoundException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -26,6 +39,44 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler({InvalidChoiceException.class, UnsupportedAnswerTypeException.class})
     public ProblemDetail handleBadRequest(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
+    @ExceptionHandler({InvalidCredentialsException.class, UserNotFoundException.class})
+    public ProblemDetail handleUnauthorized(RuntimeException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
+    }
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    public ProblemDetail handleConflict(RuntimeException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    /**
+     * 가입 검증 실패는 실패한 필드를 알려 주는 한국어 문구로 응답한다 (D16). 입력값은 detail에 넣지 않는다.
+     * 알지 못하는 필드가 섞여 있으면 부모 클래스의 기본 응답을 쓴다.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        Set<String> failed = ex.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getField)
+                .collect(Collectors.toSet());
+        boolean email = failed.remove("email");
+        boolean password = failed.remove("password");
+        if ((!email && !password)
+                || !failed.isEmpty()
+                || !ex.getBindingResult().getGlobalErrors().isEmpty()) {
+            return super.handleMethodArgumentNotValid(ex, headers, status, request);
+        }
+        List<String> messages = new ArrayList<>();
+        if (email) {
+            messages.add("이메일 형식이 올바르지 않거나 255자를 넘습니다.");
+        }
+        if (password) {
+            messages.add("비밀번호는 8자 이상, UTF-8 72바이트 이하여야 합니다.");
+        }
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, String.join(" ", messages));
+        return handleExceptionInternal(ex, problem, headers, status, request);
     }
 
     /** 내부 정보가 새지 않도록 예외 메시지는 응답에 넣지 않고 로그에만 남긴다. */

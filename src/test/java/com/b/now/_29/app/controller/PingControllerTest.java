@@ -7,6 +7,7 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.response
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.b.now._29.app.support.WithAppSecurity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @DisplayName("Spring RESTDoc 확인용")
 @WebMvcTest(PingController.class)
 @AutoConfigureRestDocs
+@WithAppSecurity
 class PingControllerTest {
 
     @Autowired

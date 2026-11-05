@@ -14,7 +14,8 @@ paths:
 - 요청·응답은 JSON, 필드명은 camelCase. 날짜는 ISO-8601 (UTC).
 - 컨트롤러는 엔티티를 반환하지 않는다. 요청은 `XxxRequest`, 응답은 `XxxResponse` record DTO로 만든다.
 - 성공 응답은 래퍼 없이 본문을 그대로 반환한다 (목록은 JSON 배열).
-- 에러 응답은 ProblemDetail (RFC 9457). 상태 코드: 입력 검증 실패 400, 없는 리소스 404. 예외는 `@RestControllerAdvice`에서 ProblemDetail로 변환한다.
+- 에러 응답은 ProblemDetail (RFC 9457). 상태 코드: 입력 검증 실패 400, 인증 실패 401, 없는 리소스 404, 중복 등 충돌 409. 예외는 `@RestControllerAdvice`에서 ProblemDetail로 변환한다. 보안 필터의 401은 advice까지 오지 않으므로 `AuthenticationEntryPoint`가 같은 형식으로 쓴다.
+- 인증은 HttpOnly 쿠키 `access_token`의 JWT로 한다. API는 기본 공개이고, 인증이 필요한 경로만 `SecurityConfig`에 명시한다. 잘못되거나 만료된 토큰은 거부하지 않고 비회원으로 처리한다. 비밀번호 해시와 토큰은 응답 본문에 넣지 않는다.
 - 요청 검증은 Bean Validation (`@Valid`, `@NotNull` 등)으로 한다.
 - 모든 API는 REST Docs 테스트로 문서화하고 `src/docs/asciidoc/index.adoc`에 추가한다. 문서 없는 API를 만들지 않는다.
 - 응답 필드 추가는 괜찮지만, 삭제·이름 변경은 하지 않는다 (필요하면 `/api/v2`).
