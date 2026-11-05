@@ -2,6 +2,7 @@
 name: reviewer
 description: 퀴즈 앱의 backend-dev·frontend-dev 작업이 끝난 뒤 결과를 검증해 통과/실패를 판정할 때 사용한다. 작업 응답과 실제 변경을 대조하고, 테스트를 직접 실행하고, 요구사항과 프로젝트 규칙을 확인한다. 읽기 전용이며 코드 수정, 테스트 작성, 구현에는 쓰지 않는다.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Edit|Write|Bash"

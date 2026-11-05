@@ -2,6 +2,7 @@
 name: backend-dev
 description: 퀴즈 앱 백엔드 기능을 구현하거나 실패 테스트를 통과시킬 때 사용한다. Flyway 마이그레이션, 엔티티, Repository, Service, Controller, DTO 구현을 맡는다. 테스트 작성, REST Docs 문서, 프론트엔드 작업에는 쓰지 않는다.
 tools: Read, Grep, Glob, Edit, Write, Bash
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Edit|Write|Bash"
