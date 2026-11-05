@@ -94,6 +94,7 @@ bash_denied test-writer 'grep -n "\"version\"" package.json'
 bash_denied test-writer "grep 'a' \"b\""
 bash_denied test-writer "echo a > out.txt"
 bash_denied test-writer "cat a.txt | sh"
+bash_denied test-writer "cat a.txt" # 파일 읽기는 Read 도구로 한다
 bash_denied test-writer "rm a.txt"
 bash_allowed test-writer 'grep -rn "List<Question>" src/main/java'
 bash_allowed test-writer "./gradlew test 2>&1 | tail -n 5"
