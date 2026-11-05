@@ -22,6 +22,9 @@ public class Question {
     private String content;
 
     @Column(columnDefinition = "text")
+    private String modelAnswer;
+
+    @Column(columnDefinition = "text")
     private String explanation;
 
     private int sortOrder;
@@ -54,6 +57,13 @@ public class Question {
         return new GradingResult(submittedChoice.isCorrect(), correctChoice.getId(), explanation);
     }
 
+    public ModelAnswerResult revealModelAnswer() {
+        if (type != QuestionType.MULTIPLE_CHOICE) {
+            return new ModelAnswerResult(modelAnswer, explanation);
+        }
+        throw new UnsupportedAnswerTypeException(type);
+    }
+
     private Choice findSubmittedChoice(long choiceId) {
         return choices.stream()
                 .filter(choice -> choice.getId() == choiceId)
@@ -67,6 +77,10 @@ public class Question {
 
     public Long getId() {
         return id;
+    }
+
+    public QuestionType getType() {
+        return type;
     }
 
     public String getContent() {

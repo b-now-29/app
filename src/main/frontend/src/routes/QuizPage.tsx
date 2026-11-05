@@ -3,14 +3,21 @@ import { useId, useReducer } from "react";
 import { Link, useLoaderData, useParams } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Callout } from "seed-design/ui/callout";
-import { submitAnswer } from "../api/questions";
-import type { AnswerResponse, QuestionResponse } from "../api/questions";
+import { submitAnswer, submitTextAnswer } from "../api/questions";
+import type {
+  AnswerResponse,
+  QuestionResponse,
+  TextAnswerResponse,
+} from "../api/questions";
 import ChoiceList from "../components/ChoiceList";
+import SelfGradeButtons from "../components/SelfGradeButtons";
+import TextAnswerInput from "../components/TextAnswerInput";
 import {
   createInitialState,
   isLastQuestion,
   quizReducer,
 } from "../quiz/quizReducer";
+import { countQuestionsByType, scoreLines } from "../quiz/quizScore";
 import type { quizLoader } from "./quizLoader";
 
 export default function QuizPage() {
@@ -45,20 +52,29 @@ function QuizSession({
   const questionTitleId = useId();
 
   if (state.phase === "finished") {
+    const lines = scoreLines(
+      countQuestionsByType(questions),
+      state.correctCounts,
+    );
     return (
       <VStack gap="x4" alignItems="flex-start">
         <Text as="h1" textStyle="screenTitle">
-          {state.totalQuestions}문제 중 {state.correctCount}문제 정답
+          풀이 결과
         </Text>
+        {lines.map((line) => (
+          <Text key={line} as="p" textStyle="t5Medium">
+            {line}
+          </Text>
+        ))}
         <CategoryListLink />
       </VStack>
     );
   }
 
   const question = questions[state.currentIndex];
-  const { selectedChoiceId } = state;
+  const { selectedChoiceId, textAnswer } = state;
 
-  async function handleSubmit() {
+  async function submitChoice() {
     if (selectedChoiceId === null) return;
     dispatch({ type: "submitStart" });
     try {
@@ -69,6 +85,65 @@ function QuizSession({
     }
   }
 
+  async function submitText() {
+    if (textAnswer.trim() === "") return;
+    dispatch({ type: "submitStart" });
+    try {
+      const reveal = await submitTextAnswer(question.id, textAnswer);
+      dispatch({ type: "revealSuccess", reveal });
+    } catch {
+      dispatch({ type: "submitFailure" });
+    }
+  }
+
+  // 유형마다 화면과 동작이 달라지는 분기는 이 switch 한 곳에서만 한다.
+  // 값만 다르면 Record를 쓴다 (D10).
+  const questionType = question.type;
+  let answerArea: React.ReactNode;
+  let selfGradeArea: React.ReactNode;
+  let canSubmit: boolean;
+  let handleSubmit: () => Promise<void>;
+  switch (questionType) {
+    case "MULTIPLE_CHOICE":
+      answerArea = (
+        <ChoiceList
+          labelledBy={questionTitleId}
+          choices={question.choices}
+          selectedChoiceId={selectedChoiceId}
+          correctChoiceId={state.result?.correctChoiceId ?? null}
+          disabled={state.phase !== "answering"}
+          onSelect={(choiceId) => dispatch({ type: "select", choiceId })}
+        />
+      );
+      selfGradeArea = null; // 객관식은 서버가 채점하므로 자기 채점이 없다
+      canSubmit = selectedChoiceId !== null;
+      handleSubmit = submitChoice;
+      break;
+    case "SHORT_ANSWER":
+    case "ESSAY":
+      answerArea = (
+        <TextAnswerInput
+          value={textAnswer}
+          disabled={state.phase !== "answering"}
+          onChange={(text) => dispatch({ type: "inputText", text })}
+        />
+      );
+      selfGradeArea = (
+        <SelfGradeButtons
+          onSelect={(correct) =>
+            dispatch({ type: "selfGrade", questionType, correct })
+          }
+        />
+      );
+      canSubmit = textAnswer.trim() !== "";
+      handleSubmit = submitText;
+      break;
+    default:
+      // 문제 유형을 추가하고 여기 처리를 빠뜨리면 타입 검사에서 걸린다
+      questionType satisfies never;
+      return null;
+  }
+
   return (
     <VStack gap="x4">
       <Text as="p" textStyle="t4Medium" color="fg.neutralSubtle">
@@ -77,14 +152,7 @@ function QuizSession({
       <Text as="h1" id={questionTitleId} textStyle="screenTitle">
         {question.content}
       </Text>
-      <ChoiceList
-        labelledBy={questionTitleId}
-        choices={question.choices}
-        selectedChoiceId={selectedChoiceId}
-        correctChoiceId={state.result?.correctChoiceId ?? null}
-        disabled={state.phase !== "answering"}
-        onSelect={(choiceId) => dispatch({ type: "select", choiceId })}
-      />
+      {answerArea}
       {state.submitFailed && (
         <Callout
           role="alert"
@@ -93,7 +161,10 @@ function QuizSession({
         />
       )}
       {state.result !== null && <GradingResult result={state.result} />}
-      {state.phase === "graded" ? (
+      {state.reveal !== null && <ModelAnswer reveal={state.reveal} />}
+      {state.phase === "revealed" ? (
+        selfGradeArea
+      ) : state.phase === "graded" ? (
         <ActionButton
           variant="neutralSolid"
           onClick={(event) => {
@@ -110,11 +181,28 @@ function QuizSession({
           variant="neutralSolid"
           loading={state.phase === "submitting"}
           // SEED 버튼의 loading은 모양만 바꾸고 클릭을 막지 않으므로 disabled도 같이 준다
-          disabled={selectedChoiceId === null || state.phase === "submitting"}
+          disabled={!canSubmit || state.phase === "submitting"}
           onClick={handleSubmit}
         >
           제출
         </ActionButton>
+      )}
+    </VStack>
+  );
+}
+
+function ModelAnswer({ reveal }: { readonly reveal: TextAnswerResponse }) {
+  return (
+    <VStack gap="x2" alignItems="flex-start">
+      <Text as="h2" textStyle="t5Bold">
+        모범 답안
+      </Text>
+      {/* 줄바꿈이 있는 모범 답안을 그대로 보여 준다 */}
+      <Text as="p" textStyle="t5Regular" style={{ whiteSpace: "pre-wrap" }}>
+        {reveal.modelAnswer}
+      </Text>
+      {reveal.explanation !== null && (
+        <Callout tone="neutral" title="해설" description={reveal.explanation} />
       )}
     </VStack>
   );

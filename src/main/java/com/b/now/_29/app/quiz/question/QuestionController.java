@@ -28,4 +28,10 @@ public class QuestionController {
     public AnswerResponse submitAnswer(@PathVariable long questionId, @Valid @RequestBody AnswerRequest request) {
         return questionService.submitAnswer(questionId, request.choiceId());
     }
+
+    @PostMapping("/questions/{questionId}/text-answers")
+    public TextAnswerResponse submitTextAnswer(
+            @PathVariable long questionId, @Valid @RequestBody TextAnswerRequest request) {
+        return questionService.submitTextAnswer(questionId);
+    }
 }

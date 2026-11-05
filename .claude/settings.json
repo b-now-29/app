@@ -4,6 +4,39 @@
     "commit": "",
     "pr": ""
   },
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew test:*)",
+      "Bash(./gradlew check:*)",
+      "Bash(./gradlew integrationTest:*)",
+      "Bash(./gradlew bootJar:*)",
+      "Bash(./gradlew compileJava:*)",
+      "Bash(./gradlew spotlessApply:*)",
+      "Bash(./gradlew spotlessCheck:*)",
+      "Bash(npm run check:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run format:check:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(scripts/local-run-jar.sh:*)",
+      "Bash(scripts/api-smoke.sh:*)"
+    ],
+    "deny": [
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Read(./**/.env)",
+      "Edit(./**/.env)",
+      "Read(./**/application-local.yml)",
+      "Edit(./**/application-local.yml)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
