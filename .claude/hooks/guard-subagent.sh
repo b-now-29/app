@@ -105,7 +105,7 @@ check_segment() {
   read -r -a words <<< "$1"
   args=" ${words[*]:1} "
   case "${words[0]}" in
-    cd | ls | cat | head | tail | wc | grep | pwd | echo | diff)
+    cd | ls | head | tail | wc | grep | pwd | echo | diff)
       ;;
     sort)
       # -o는 파일에 쓰고 --compress-program은 프로그램을 실행한다. -ro처럼 붙여 써도 잡히도록 단어 단위로 본다.
