@@ -2,6 +2,7 @@ package com.b.now._29.app.quiz.question;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.quiz.category.Category;
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @Tag("integration")
 @DataJpaTest
@@ -93,6 +95,50 @@ class QuestionRepositoryTest {
     }
 
     @Test
+    @DisplayName("요청한 유형들을 유형과 상관없이 표시 순서로 함께 조회하고, 요청하지 않은 유형은 뺀다 (R1)")
+    void findsRequestedTypesTogetherInSortOrder() {
+        saveQuestion(saveCategory(SLUG), "객관식", 20);
+        insertShortAnswerAndEssay(SLUG);
+        entityManager.clear();
+
+        assertThat(findMultipleChoiceAndShortAnswer(SLUG))
+                .extracting(Question::getContent, Question::getType)
+                .containsExactly(tuple("주관식", QuestionType.SHORT_ANSWER), tuple("객관식", QuestionType.MULTIPLE_CHOICE));
+    }
+
+    // 목록 조회가 inner join이면 보기가 없는 주관식 문제가 결과에서 빠진다
+    @Test
+    @DisplayName("보기가 없는 문제도 결과에 포함하고 보기는 빈 목록으로 불러온다 (R2)")
+    void includesQuestionWithoutChoices() {
+        saveCategory(SLUG);
+        insertShortAnswerAndEssay(SLUG);
+        entityManager.clear();
+
+        List<Question> questions = findMultipleChoiceAndShortAnswer(SLUG);
+
+        assertThat(questions).extracting(Question::getContent).containsExactly("주관식");
+        assertThat(isChoicesLoaded(questions.getFirst())).isTrue();
+        assertThat(questions.getFirst().getChoices()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("보기가 없는 문제와 함께 조회해도 객관식 문제는 중복 없이 보기를 표시 순서로 돌려준다 (R10)")
+    void keepsChoicesOfMultipleChoiceWhenMixedWithShortAnswer() {
+        Question multipleChoice = new Question(saveCategory(SLUG), QuestionType.MULTIPLE_CHOICE, "객관식", null, 20);
+        addChoicesOutOfOrder(multipleChoice);
+        questionRepository.saveAndFlush(multipleChoice);
+        insertShortAnswerAndEssay(SLUG);
+        entityManager.clear();
+
+        List<Question> questions = findMultipleChoiceAndShortAnswer(SLUG);
+
+        assertThat(questions).extracting(Question::getContent).containsExactly("주관식", "객관식");
+        assertThat(questions.getLast().getChoices())
+                .extracting(Choice::getContent)
+                .containsExactly("표시 순서 10", "표시 순서 20 (먼저 저장)", "표시 순서 20 (나중에 저장)");
+    }
+
+    @Test
     @DisplayName("다른 카테고리의 문제는 조회하지 않는다")
     void findsOnlyQuestionsOfCategory() {
         saveQuestion(saveCategory(SLUG), "이 카테고리의 문제", 10);
@@ -152,6 +198,36 @@ class QuestionRepositoryTest {
         });
     }
 
+    // 객관식 시드 검사는 위 테스트가 맡고, 여기서는 V6가 더한 주관식 문제와 그 위치를 확인한다
+    @ParameterizedTest
+    @ValueSource(strings = {"java", "spring", "database"})
+    @DisplayName("시드 카테고리에는 주관식 1문제가 객관식 뒤에 있고, 보기 없이 모범 답안을 가진다 (R9)")
+    void seedHasOneShortAnswerAfterMultipleChoice(String slug) {
+        List<Question> questions = findMultipleChoiceAndShortAnswer(slug);
+
+        assertThat(questions)
+                .extracting(Question::getType)
+                .containsExactly(
+                        QuestionType.MULTIPLE_CHOICE,
+                        QuestionType.MULTIPLE_CHOICE,
+                        QuestionType.MULTIPLE_CHOICE,
+                        QuestionType.SHORT_ANSWER);
+        assertThat(questions.getLast().getChoices()).isEmpty();
+        assertThat(modelAnswerOf(questions.getLast())).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("model_answer 컬럼을 모범 답안 필드로 읽는다")
+    void mapsModelAnswerColumn() {
+        saveCategory(SLUG);
+        insertShortAnswerAndEssay(SLUG);
+        entityManager.clear();
+
+        Question found = findMultipleChoiceAndShortAnswer(SLUG).getFirst();
+
+        assertThat(modelAnswerOf(found)).isEqualTo("모범 답안");
+    }
+
     @Test
     @DisplayName("한 문제에 정답 보기를 둘 저장할 수 없다")
     void rejectsSecondCorrectChoice() {
@@ -166,8 +242,13 @@ class QuestionRepositoryTest {
     }
 
     private List<Question> findMultipleChoice(String slug) {
-        return questionRepository.findAllByCategorySlugAndTypeOrderBySortOrderAscIdAsc(
-                slug, QuestionType.MULTIPLE_CHOICE);
+        return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(
+                slug, List.of(QuestionType.MULTIPLE_CHOICE));
+    }
+
+    private List<Question> findMultipleChoiceAndShortAnswer(String slug) {
+        return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(
+                slug, List.of(QuestionType.MULTIPLE_CHOICE, QuestionType.SHORT_ANSWER));
     }
 
     private Category saveCategory(String slug) {
@@ -187,7 +268,7 @@ class QuestionRepositoryTest {
         question.addChoice("표시 순서 20 (나중에 저장)", false, 20);
     }
 
-    /** model_answer를 매핑하지 않으므로 chk_question_model_answer를 만족하는 행은 SQL로 넣는다. */
+    /** 생성자가 모범 답안을 받지 않으므로 chk_question_model_answer를 만족하는 행은 SQL로 넣는다. */
     private void insertShortAnswerAndEssay(String slug) {
         entityManager.createNativeQuery("""
                         INSERT INTO question (category_id, type, content, model_answer, sort_order)
@@ -196,6 +277,11 @@ class QuestionRepositoryTest {
                                                          ('ESSAY', '서술형', 30)) AS v (type, content, sort_order)
                         WHERE category.slug = :slug
                         """).setParameter("slug", slug).executeUpdate();
+    }
+
+    /** 공개 경로인 revealModelAnswer()는 도메인 규칙까지 함께 타므로, 매핑만 보도록 필드를 직접 읽는다. */
+    private static String modelAnswerOf(Question question) {
+        return (String) ReflectionTestUtils.getField(question, "modelAnswer");
     }
 
     private boolean isChoicesLoaded(Question question) {

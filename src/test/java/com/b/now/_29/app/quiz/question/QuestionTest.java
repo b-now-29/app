@@ -6,11 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.b.now._29.app.quiz.category.Category;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class QuestionTest {
 
     private static final String EXPLANATION = "equals()는 문자열 내용을 비교한다.";
+    private static final String MODEL_ANSWER = "문자열 내용은 equals()로 비교한다.";
 
     // Long 캐시(-128~127) 밖의 값을 써서 Long 참조 비교(==) 버그도 드러나게 한다
     private static final long FIRST_WRONG_CHOICE_ID = 1001L;
@@ -87,6 +90,56 @@ class QuestionTest {
         Question question = question(EXPLANATION);
 
         assertThatThrownBy(() -> question.grade(CORRECT_CHOICE_ID)).isInstanceOf(InvalidChoiceException.class);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = QuestionType.class,
+            names = {"SHORT_ANSWER", "ESSAY"})
+    @DisplayName("객관식이 아닌 문제는 모범 답안과 해설을 돌려준다 (D4)")
+    void revealsModelAnswer(QuestionType type) {
+        Question question = questionWithModelAnswer(type, EXPLANATION);
+
+        ModelAnswerResult result = question.revealModelAnswer();
+
+        assertThat(result).isEqualTo(new ModelAnswerResult(MODEL_ANSWER, EXPLANATION));
+    }
+
+    @Test
+    @DisplayName("해설이 없는 문제는 모범 답안과 null 해설을 돌려준다")
+    void revealsModelAnswerWithoutExplanation() {
+        Question question = questionWithModelAnswer(QuestionType.SHORT_ANSWER, null);
+
+        ModelAnswerResult result = question.revealModelAnswer();
+
+        assertThat(result).isEqualTo(new ModelAnswerResult(MODEL_ANSWER, null));
+    }
+
+    @Test
+    @DisplayName("객관식 문제에 모범 답안을 요청하면 UnsupportedAnswerTypeException을 던진다 (D4)")
+    void rejectsRevealOfMultipleChoice() {
+        Question question = questionWithCorrectChoice(EXPLANATION);
+
+        assertThatThrownBy(question::revealModelAnswer).isInstanceOf(UnsupportedAnswerTypeException.class);
+    }
+
+    // DB 제약은 객관식의 model_answer를 막지 않는다. 값의 유무가 아니라 유형으로 판단하는지 확인한다
+    @Test
+    @DisplayName("모범 답안 값이 있어도 객관식 문제면 UnsupportedAnswerTypeException을 던진다 (D4)")
+    void rejectsRevealOfMultipleChoiceWithModelAnswer() {
+        Question question = questionWithModelAnswer(QuestionType.MULTIPLE_CHOICE, EXPLANATION);
+
+        assertThatThrownBy(question::revealModelAnswer).isInstanceOf(UnsupportedAnswerTypeException.class);
+    }
+
+    /**
+     * 모범 답안은 DB 시드로만 들어가고 생성자가 받지 않으므로 필드에 직접 채운다.
+     */
+    private static Question questionWithModelAnswer(QuestionType type, String explanation) {
+        Category category = new Category("java", "Java", 10);
+        Question question = new Question(category, type, "문자열 내용은 어떻게 비교하는가?", explanation, 10);
+        ReflectionTestUtils.setField(question, "modelAnswer", MODEL_ANSWER);
+        return question;
     }
 
     private static Question questionWithCorrectChoice(String explanation) {

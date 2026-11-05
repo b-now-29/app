@@ -3,6 +3,7 @@ package com.b.now._29.app.config;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.question.InvalidChoiceException;
 import com.b.now._29.app.quiz.question.QuestionNotFoundException;
+import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,8 +23,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     }
 
-    @ExceptionHandler(InvalidChoiceException.class)
-    public ProblemDetail handleInvalidChoice(InvalidChoiceException exception) {
+    @ExceptionHandler({InvalidChoiceException.class, UnsupportedAnswerTypeException.class})
+    public ProblemDetail handleBadRequest(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
     }
 
