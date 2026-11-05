@@ -51,35 +51,31 @@ file_allowed test-writer "$FRONT/src/routes/A.test.tsx"
 file_denied test-writer "$ROOT/src/main/java/A.java"
 file_denied test-writer "$FRONT/src/routes/A.tsx"
 
-file_denied reviewer "$ROOT/src/main/java/A.java"
 
 # ── sort: 출력은 허용, 파일 쓰기와 프로그램 실행은 차단 ─────────────────────
-bash_allowed reviewer "find src -type f | sort"
-bash_allowed reviewer "sort -r a.txt"
-bash_allowed reviewer "sort -t, -k2 a.txt"
-bash_denied reviewer "sort -o out.txt a.txt"
-bash_denied reviewer "sort -ro out.txt a.txt"
-bash_denied reviewer "sort --output=out.txt a.txt"
-bash_denied reviewer "sort --compress-program=sh a.txt"
+bash_allowed test-writer "find src -type f | sort"
+bash_allowed test-writer "sort -r a.txt"
+bash_allowed test-writer "sort -t, -k2 a.txt"
+bash_denied test-writer "sort -o out.txt a.txt"
+bash_denied test-writer "sort -ro out.txt a.txt"
+bash_denied test-writer "sort --output=out.txt a.txt"
+bash_denied test-writer "sort --compress-program=sh a.txt"
 
 # ── git -C: 이 프로젝트의 읽기 전용 명령만 허용 ─────────────────────────────
-bash_allowed reviewer "git status --short"
-bash_allowed reviewer "git -C $ROOT status --short"
-bash_allowed reviewer "git -C $ROOT diff -- src/main/java/"
-bash_denied reviewer "git -C $ROOT push"
-bash_denied reviewer "git -C $ROOT diff --output=out.txt"
-bash_denied reviewer "git -C /tmp status"
-bash_denied reviewer "git -C"
-bash_denied reviewer "git push"
+bash_allowed test-writer "git status --short"
+bash_allowed test-writer "git -C $ROOT status --short"
+bash_allowed test-writer "git -C $ROOT diff -- src/main/java/"
+bash_denied test-writer "git -C $ROOT push"
+bash_denied test-writer "git -C $ROOT diff --output=out.txt"
+bash_denied test-writer "git -C /tmp status"
+bash_denied test-writer "git -C"
+bash_denied test-writer "git push"
 bash_denied backend-dev "git commit -m a"
 
 # ── Gradle ──────────────────────────────────────────────────────────────────
 bash_allowed backend-dev "./gradlew test"
 bash_allowed test-writer "./gradlew test --tests A"
-bash_allowed reviewer "./gradlew test pmdMain pmdTest"
 bash_denied frontend-dev "./gradlew test"
-bash_denied reviewer "./gradlew check"
-bash_denied reviewer "./gradlew spotlessA"
 bash_denied test-writer "./gradlew -p /tmp test"
 bash_denied test-writer "./gradlew -p $ROOT test"
 bash_denied test-writer "./gradlew wrapper --gradle-version 9.0"
@@ -92,18 +88,18 @@ bash_denied frontend-dev "npm install react"
 bash_denied frontend-dev "npm run lint -- --fix"
 
 # ── 셸 문법: 일부러 계속 막는 형식 ──────────────────────────────────────────
-bash_denied reviewer "for f in a b; do cat \$f; done"
-bash_denied reviewer "echo \$(rm a.txt)"
-bash_denied reviewer 'grep -n "\"version\"" package.json'
-bash_denied reviewer "grep 'a' \"b\""
-bash_denied reviewer "echo a > out.txt"
-bash_denied reviewer "cat a.txt | sh"
-bash_denied reviewer "rm a.txt"
-bash_allowed reviewer 'grep -rn "List<Question>" src/main/java'
-bash_allowed reviewer "./gradlew test 2>&1 | tail -n 5"
+bash_denied test-writer "for f in a b; do cat \$f; done"
+bash_denied test-writer "echo \$(rm a.txt)"
+bash_denied test-writer 'grep -n "\"version\"" package.json'
+bash_denied test-writer "grep 'a' \"b\""
+bash_denied test-writer "echo a > out.txt"
+bash_denied test-writer "cat a.txt | sh"
+bash_denied test-writer "rm a.txt"
+bash_allowed test-writer 'grep -rn "List<Question>" src/main/java'
+bash_allowed test-writer "./gradlew test 2>&1 | tail -n 5"
 
 # ── 그 외 입력 ──────────────────────────────────────────────────────────────
-expect 2 reviewer Read file_path "$ROOT/CLAUDE.md"
+expect 2 test-writer Read file_path "$ROOT/CLAUDE.md"
 expect 2 unknown-role Bash command "ls"
 
 if [ "$failed" -ne 0 ]; then
