@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class QuestionService {
 
     private static final List<QuestionType> SOLVABLE_TYPES =
-            List.of(QuestionType.MULTIPLE_CHOICE, QuestionType.SHORT_ANSWER);
+            List.of(QuestionType.MULTIPLE_CHOICE, QuestionType.SHORT_ANSWER, QuestionType.ESSAY);
 
     private final QuestionRepository questionRepository;
     private final CategoryRepository categoryRepository;
