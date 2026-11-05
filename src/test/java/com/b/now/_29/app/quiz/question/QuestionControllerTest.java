@@ -48,6 +48,8 @@ class QuestionControllerTest {
     private static final long CORRECT_CHOICE_ID = 11L;
     private static final long SHORT_ANSWER_QUESTION_ID = 2L;
     private static final String SHORT_ANSWER_CONTENT = "문자열 내용은 어떻게 비교하는가?";
+    private static final long ESSAY_QUESTION_ID = 3L;
+    private static final String ESSAY_CONTENT = "equals()와 ==를 비교해 서술하세요.";
     private static final String MODEL_ANSWER = "문자열 내용은 equals()로 비교한다.";
 
     // 디코딩 방식과 상관없이 응답에서 찾을 수 있도록 ASCII로만 쓴다
@@ -72,11 +74,12 @@ class QuestionControllerTest {
                                         new ChoiceResponse(WRONG_CHOICE_ID, "=="),
                                         new ChoiceResponse(CORRECT_CHOICE_ID, "equals()"))),
                         new QuestionResponse(
-                                SHORT_ANSWER_QUESTION_ID, QuestionType.SHORT_ANSWER, SHORT_ANSWER_CONTENT, List.of())));
+                                SHORT_ANSWER_QUESTION_ID, QuestionType.SHORT_ANSWER, SHORT_ANSWER_CONTENT, List.of()),
+                        new QuestionResponse(ESSAY_QUESTION_ID, QuestionType.ESSAY, ESSAY_CONTENT, List.of())));
 
         mvc.perform(get("/api/v1/categories/{slug}/questions", SLUG))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].keys()", containsInAnyOrder("id", "type", "content", "choices")))
                 .andExpect(jsonPath("$[0].id").value(QUESTION_ID))
                 .andExpect(jsonPath("$[0].type").value("MULTIPLE_CHOICE"))
@@ -86,6 +89,11 @@ class QuestionControllerTest {
                 .andExpect(jsonPath("$[1].type").value("SHORT_ANSWER"))
                 .andExpect(jsonPath("$[1].content").value(SHORT_ANSWER_CONTENT))
                 .andExpect(jsonPath("$[1].choices.length()").value(0))
+                .andExpect(jsonPath("$[2].keys()", containsInAnyOrder("id", "type", "content", "choices")))
+                .andExpect(jsonPath("$[2].id").value(ESSAY_QUESTION_ID))
+                .andExpect(jsonPath("$[2].type").value("ESSAY"))
+                .andExpect(jsonPath("$[2].content").value(ESSAY_CONTENT))
+                .andExpect(jsonPath("$[2].choices.length()").value(0))
                 .andExpect(jsonPath("$[0].choices.length()").value(2))
                 .andExpect(jsonPath("$[0].choices[0].keys()", containsInAnyOrder("id", "content")))
                 .andExpect(jsonPath("$[0].choices[0].id").value(WRONG_CHOICE_ID))
@@ -98,9 +106,9 @@ class QuestionControllerTest {
                         pathParameters(parameterWithName("slug").description("카테고리 식별자")),
                         responseFields(
                                 fieldWithPath("[].id").description("문제 ID"),
-                                fieldWithPath("[].type").description("문제 유형 (MULTIPLE_CHOICE, SHORT_ANSWER)"),
+                                fieldWithPath("[].type").description("문제 유형 (MULTIPLE_CHOICE, SHORT_ANSWER, ESSAY)"),
                                 fieldWithPath("[].content").description("문제 내용"),
-                                fieldWithPath("[].choices").description("보기 목록 (주관식은 빈 배열)"),
+                                fieldWithPath("[].choices").description("보기 목록 (주관식과 서술형은 빈 배열)"),
                                 fieldWithPath("[].choices[].id").description("보기 ID"),
                                 fieldWithPath("[].choices[].content").description("보기 내용"))));
     }

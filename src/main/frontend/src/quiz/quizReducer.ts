@@ -1,4 +1,8 @@
-import type { AnswerResponse, TextAnswerResponse } from "../api/questions";
+import type {
+  AnswerResponse,
+  QuestionType,
+  TextAnswerResponse,
+} from "../api/questions";
 
 export type QuizPhase =
   "answering" | "submitting" | "graded" | "revealed" | "finished";
@@ -11,10 +15,12 @@ export type QuizState = {
   readonly textAnswer: string;
   readonly result: AnswerResponse | null;
   readonly reveal: TextAnswerResponse | null;
-  readonly correctCount: number;
-  readonly selfGradeCorrectCount: number;
+  readonly correctCounts: Readonly<Record<QuestionType, number>>;
   readonly submitFailed: boolean;
 };
+
+// 객관식은 서버가 채점하므로 자기 채점 액션으로 받지 않는다
+export type SelfGradedQuestionType = Exclude<QuestionType, "MULTIPLE_CHOICE">;
 
 export type QuizAction =
   | { readonly type: "select"; readonly choiceId: number }
@@ -25,7 +31,11 @@ export type QuizAction =
       readonly type: "revealSuccess";
       readonly reveal: TextAnswerResponse;
     }
-  | { readonly type: "selfGrade"; readonly correct: boolean }
+  | {
+      readonly type: "selfGrade";
+      readonly questionType: SelfGradedQuestionType;
+      readonly correct: boolean;
+    }
   | { readonly type: "submitFailure" }
   | { readonly type: "next" };
 
@@ -38,8 +48,7 @@ export function createInitialState(totalQuestions: number): QuizState {
     textAnswer: "",
     result: null,
     reveal: null,
-    correctCount: 0,
-    selfGradeCorrectCount: 0,
+    correctCounts: { MULTIPLE_CHOICE: 0, SHORT_ANSWER: 0, ESSAY: 0 },
     submitFailed: false,
   };
 }
@@ -60,6 +69,16 @@ function advance(state: QuizState): QuizState {
     result: null,
     reveal: null,
   };
+}
+
+// 맞은 문제를 그 유형의 칸에 하나 더한다. 틀렸으면 그대로 둔다.
+function addCorrect(
+  correctCounts: QuizState["correctCounts"],
+  questionType: QuestionType,
+  correct: boolean,
+): QuizState["correctCounts"] {
+  if (!correct) return correctCounts;
+  return { ...correctCounts, [questionType]: correctCounts[questionType] + 1 };
 }
 
 // 흐름에 없는 전이는 예외 없이 state를 그대로 돌려준다.
@@ -90,7 +109,12 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
         ...state,
         phase: "graded",
         result: action.result,
-        correctCount: state.correctCount + (action.result.correct ? 1 : 0),
+        // 서버 채점 결과는 객관식에서만 온다
+        correctCounts: addCorrect(
+          state.correctCounts,
+          "MULTIPLE_CHOICE",
+          action.result.correct,
+        ),
       };
 
     case "revealSuccess":
@@ -101,8 +125,11 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
       if (state.phase !== "revealed") return state;
       return advance({
         ...state,
-        selfGradeCorrectCount:
-          state.selfGradeCorrectCount + (action.correct ? 1 : 0),
+        correctCounts: addCorrect(
+          state.correctCounts,
+          action.questionType,
+          action.correct,
+        ),
       });
 
     case "submitFailure":

@@ -216,6 +216,77 @@ class QuestionRepositoryTest {
         assertThat(modelAnswerOf(questions.getLast())).isNotBlank();
     }
 
+    // 위치와 개수를 함께 보려고 세 유형을 모두 조회한다. 위의 시드 테스트는 조회 유형을 좁혀 두어 V7의 영향을 받지 않는다
+    @ParameterizedTest
+    @ValueSource(strings = {"java", "spring", "database"})
+    @DisplayName("시드 카테고리에는 서술형 1문제가 주관식 뒤에 있고, 보기 없이 모범 답안을 가진다 (R6)")
+    void seedHasOneEssayAfterShortAnswer(String slug) {
+        List<Question> questions = findAllTypes(slug);
+
+        assertThat(questions)
+                .extracting(Question::getType)
+                .containsExactly(
+                        QuestionType.MULTIPLE_CHOICE,
+                        QuestionType.MULTIPLE_CHOICE,
+                        QuestionType.MULTIPLE_CHOICE,
+                        QuestionType.SHORT_ANSWER,
+                        QuestionType.ESSAY);
+        assertThat(questions.getLast().getChoices()).isEmpty();
+        assertThat(modelAnswerOf(questions.getLast())).isNotBlank();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"java", "spring", "database"})
+    @DisplayName("서술형 시드의 표시 순서는 50이다 (R6)")
+    void seedEssayHasSortOrderFifty(String slug) {
+        List<Question> essays = findEssay(slug);
+
+        assertThat(essays).hasSize(1);
+        assertThat(ReflectionTestUtils.getField(essays.getFirst(), "sortOrder")).isEqualTo(50);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"java", "spring", "database"})
+    @DisplayName("서술형 시드의 문제와 모범 답안에는 마크다운이 없다 (D3)")
+    void seedEssayHasNoMarkdown(String slug) {
+        List<Question> essays = findEssay(slug);
+
+        assertThat(essays).hasSize(1);
+        assertThat(List.of(essays.getFirst().getContent(), modelAnswerOf(essays.getFirst())))
+                .allSatisfy(text -> assertThat(text)
+                        .doesNotContain("`", "**", "](")
+                        .doesNotContainPattern("(?m)^\\s*(?:#|[-*+]\\s)"));
+    }
+
+    @Test
+    @DisplayName("서술형도 요청한 유형에 넣으면 다른 유형과 함께 표시 순서로 조회한다 (R1)")
+    void findsEssayTogetherInSortOrder() {
+        saveQuestion(saveCategory(SLUG), "객관식", 20);
+        insertShortAnswerAndEssay(SLUG);
+        entityManager.clear();
+
+        assertThat(findAllTypes(SLUG))
+                .extracting(Question::getContent, Question::getType)
+                .containsExactly(
+                        tuple("주관식", QuestionType.SHORT_ANSWER),
+                        tuple("객관식", QuestionType.MULTIPLE_CHOICE),
+                        tuple("서술형", QuestionType.ESSAY));
+    }
+
+    @Test
+    @DisplayName("보기가 없는 서술형도 결과에 포함하고 보기는 빈 목록으로 불러온다 (R2)")
+    void includesEssayWithoutChoices() {
+        saveCategory(SLUG);
+        insertShortAnswerAndEssay(SLUG);
+        entityManager.clear();
+
+        List<Question> essays = findEssay(SLUG);
+
+        assertThat(essays).extracting(Question::getContent).containsExactly("서술형");
+        assertThat(isChoicesLoaded(essays.getFirst())).isTrue();
+        assertThat(essays.getFirst().getChoices()).isEmpty();
+    }
+
     @Test
     @DisplayName("model_answer 컬럼을 모범 답안 필드로 읽는다")
     void mapsModelAnswerColumn() {
@@ -249,6 +320,16 @@ class QuestionRepositoryTest {
     private List<Question> findMultipleChoiceAndShortAnswer(String slug) {
         return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(
                 slug, List.of(QuestionType.MULTIPLE_CHOICE, QuestionType.SHORT_ANSWER));
+    }
+
+    private List<Question> findAllTypes(String slug) {
+        return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(
+                slug, List.of(QuestionType.MULTIPLE_CHOICE, QuestionType.SHORT_ANSWER, QuestionType.ESSAY));
+    }
+
+    private List<Question> findEssay(String slug) {
+        return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(
+                slug, List.of(QuestionType.ESSAY));
     }
 
     private Category saveCategory(String slug) {

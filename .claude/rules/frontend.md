@@ -20,6 +20,7 @@ paths:
 - 불변: state·props를 직접 수정하지 않는다 (spread, `map`, `filter`로 새 값을 만든다). 도메인 타입은 `readonly`.
 - 컴포넌트는 props → 화면만 담당한다. 계산 로직은 `src/quiz/` 함수로 빼서 테스트한다.
 - 문제 유형 분기는 union 타입 (`type: 'MULTIPLE_CHOICE' | 'SHORT_ANSWER' | 'ESSAY'`) + `switch` 한 곳에서 하고, `default`에서 `never` 검사로 빠진 유형이 없게 한다.
+- 유형마다 값만 다르면 `switch` 대신 `Record<QuestionType, ...>`을 쓴다. 빠진 유형은 타입 검사에서 걸린다.
 - 함수 컴포넌트 + hooks만 쓴다.
 
 ## 프론트엔드 테스트

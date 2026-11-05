@@ -54,8 +54,7 @@ function QuizSession({
   if (state.phase === "finished") {
     const lines = scoreLines(
       countQuestionsByType(questions),
-      state.correctCount,
-      state.selfGradeCorrectCount,
+      state.correctCounts,
     );
     return (
       <VStack gap="x4" alignItems="flex-start">
@@ -97,11 +96,14 @@ function QuizSession({
     }
   }
 
-  // 문제 유형에 따른 분기는 이 switch 한 곳에서만 한다
+  // 유형마다 화면과 동작이 달라지는 분기는 이 switch 한 곳에서만 한다.
+  // 값만 다르면 Record를 쓴다 (D10).
+  const questionType = question.type;
   let answerArea: React.ReactNode;
+  let selfGradeArea: React.ReactNode;
   let canSubmit: boolean;
   let handleSubmit: () => Promise<void>;
-  switch (question.type) {
+  switch (questionType) {
     case "MULTIPLE_CHOICE":
       answerArea = (
         <ChoiceList
@@ -113,6 +115,7 @@ function QuizSession({
           onSelect={(choiceId) => dispatch({ type: "select", choiceId })}
         />
       );
+      selfGradeArea = null; // 객관식은 서버가 채점하므로 자기 채점이 없다
       canSubmit = selectedChoiceId !== null;
       handleSubmit = submitChoice;
       break;
@@ -125,12 +128,19 @@ function QuizSession({
           onChange={(text) => dispatch({ type: "inputText", text })}
         />
       );
+      selfGradeArea = (
+        <SelfGradeButtons
+          onSelect={(correct) =>
+            dispatch({ type: "selfGrade", questionType, correct })
+          }
+        />
+      );
       canSubmit = textAnswer.trim() !== "";
       handleSubmit = submitText;
       break;
     default:
       // 문제 유형을 추가하고 여기 처리를 빠뜨리면 타입 검사에서 걸린다
-      question.type satisfies never;
+      questionType satisfies never;
       return null;
   }
 
@@ -153,9 +163,7 @@ function QuizSession({
       {state.result !== null && <GradingResult result={state.result} />}
       {state.reveal !== null && <ModelAnswer reveal={state.reveal} />}
       {state.phase === "revealed" ? (
-        <SelfGradeButtons
-          onSelect={(correct) => dispatch({ type: "selfGrade", correct })}
-        />
+        selfGradeArea
       ) : state.phase === "graded" ? (
         <ActionButton
           variant="neutralSolid"
