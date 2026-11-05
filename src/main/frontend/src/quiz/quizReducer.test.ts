@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AnswerResponse, TextAnswerResponse } from "../api/questions";
+import type {
+  AnswerResponse,
+  QuestionType,
+  TextAnswerResponse,
+} from "../api/questions";
 import { createInitialState, isLastQuestion, quizReducer } from "./quizReducer";
 import type { QuizAction, QuizPhase, QuizState } from "./quizReducer";
 
@@ -41,15 +45,32 @@ const REVEAL: TextAnswerResponse = {
 const inputText = (text: string): QuizAction => ({ type: "inputText", text });
 const INPUT = inputText(ANSWER);
 const REVEAL_SUCCESS: QuizAction = { type: "revealSuccess", reveal: REVEAL };
-const SELF_RIGHT: QuizAction = { type: "selfGrade", correct: true };
-const SELF_WRONG: QuizAction = { type: "selfGrade", correct: false };
+const selfGrade = (
+  questionType: "SHORT_ANSWER" | "ESSAY",
+  correct: boolean,
+): QuizAction => ({ type: "selfGrade", questionType, correct });
+const SHORT_ANSWER_RIGHT = selfGrade("SHORT_ANSWER", true);
+const SHORT_ANSWER_WRONG = selfGrade("SHORT_ANSWER", false);
+const ESSAY_RIGHT = selfGrade("ESSAY", true);
+const ESSAY_WRONG = selfGrade("ESSAY", false);
 
-// 얼린 상태를 넘겨서, reducer가 상태를 직접 수정하면 TypeError로 드러나게 한다
+// 값을 준 유형 말고는 모두 0인 맞은 수를 만든다
+const correctCountsOf = (
+  counts: Partial<Record<QuestionType, number>> = {},
+): Record<QuestionType, number> => ({
+  MULTIPLE_CHOICE: 0,
+  SHORT_ANSWER: 0,
+  ESSAY: 0,
+  ...counts,
+});
+
+// 얼린 상태를 넘겨서, reducer가 상태를 직접 수정하면 TypeError로 드러나게 한다.
+// Object.freeze는 한 단계만 얼리므로 안쪽의 correctCounts도 따로 얼린다.
 function run(state: QuizState, ...actions: readonly QuizAction[]): QuizState {
-  return actions.reduce(
-    (current, action) => quizReducer(Object.freeze(current), action),
-    state,
-  );
+  return actions.reduce((current, action) => {
+    Object.freeze(current.correctCounts);
+    return quizReducer(Object.freeze(current), action);
+  }, state);
 }
 
 const noChoice = () => createInitialState(3);
@@ -76,8 +97,7 @@ describe("quizReducer", () => {
         textAnswer: "",
         result: null,
         reveal: null,
-        correctCount: 0,
-        selfGradeCorrectCount: 0,
+        correctCounts: { MULTIPLE_CHOICE: 0, SHORT_ANSWER: 0, ESSAY: 0 },
         submitFailed: false,
       });
     });
@@ -184,68 +204,125 @@ describe("quizReducer", () => {
     });
   });
 
-  describe("selfGrade (R5, R6, D3, D9)", () => {
-    it("맞았어요를 고르면 자기 채점 맞은 수만 늘리고 다음 문제로 가서 답과 공개 내용을 비운다", () => {
-      expect(run(revealed(), SELF_RIGHT)).toEqual({
-        ...noChoice(),
-        currentIndex: 1,
-        selfGradeCorrectCount: 1,
-      });
-    });
+  describe("selfGrade (D2, R5)", () => {
+    const NO_SCORE = { correctCounts: correctCountsOf() };
+    const types = [
+      {
+        name: "주관식",
+        right: SHORT_ANSWER_RIGHT,
+        wrong: SHORT_ANSWER_WRONG,
+        scored: { correctCounts: correctCountsOf({ SHORT_ANSWER: 1 }) },
+      },
+      {
+        name: "서술형",
+        right: ESSAY_RIGHT,
+        wrong: ESSAY_WRONG,
+        scored: { correctCounts: correctCountsOf({ ESSAY: 1 }) },
+      },
+    ];
 
-    it("틀렸어요를 고르면 점수를 늘리지 않고 다음 문제로 가서 답과 공개 내용을 비운다", () => {
-      expect(run(revealed(), SELF_WRONG)).toEqual({
-        ...noChoice(),
-        currentIndex: 1,
-      });
-    });
+    it.each(types)(
+      "맞았어요를 고르면 그 유형의 맞은 수만 늘리고 다음 문제로 가서 답과 공개 내용을 비운다: $name",
+      ({ right, scored }) => {
+        expect(run(revealed(), right)).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+          ...scored,
+        });
+      },
+    );
 
-    it("마지막 문제에서 고르면 next 없이 바로 끝 단계로 가고 점수를 유지한다", () => {
-      const state = run(
-        createInitialState(1),
+    it.each(types)(
+      "틀렸어요를 고르면 점수를 늘리지 않고 다음 문제로 가서 답과 공개 내용을 비운다: $name",
+      ({ wrong }) => {
+        expect(run(revealed(), wrong)).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+          ...NO_SCORE,
+        });
+      },
+    );
+
+    it.each(types)(
+      "마지막 문제에서 맞았어요를 고르면 next 없이 바로 끝 단계로 가고 점수를 유지한다: $name",
+      ({ right, scored }) => {
+        const state = run(
+          createInitialState(1),
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          right,
+        );
+
+        expect(state).toMatchObject({
+          phase: "finished",
+          totalQuestions: 1,
+          ...scored,
+        });
+      },
+    );
+
+    it.each(types)(
+      "마지막 문제에서 틀렸어요를 고르면 점수 없이 끝 단계로 간다: $name",
+      ({ wrong }) => {
+        const state = run(
+          createInitialState(1),
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          wrong,
+        );
+
+        expect(state).toMatchObject({
+          phase: "finished",
+          ...NO_SCORE,
+        });
+      },
+    );
+
+    it.each(types)(
+      "넘어간 뒤 같은 동작이 또 와도 다음 문제의 점수로 세지 않는다: $name",
+      ({ right, scored }) => {
+        expect(run(revealed(), right, right)).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+          ...scored,
+        });
+      },
+    );
+
+    // reducer는 문제 유형을 모르므로, 이전 답이 남으면 다음 객관식을 보기 없이 제출할 수 있게 된다
+    it.each(types)(
+      "넘어간 뒤에는 이전 답이 남지 않아 입력 없이 제출할 수 없다: $name",
+      ({ right }) => {
+        expect(run(revealed(), right, SUBMIT_START)).toMatchObject({
+          phase: "answering",
+          currentIndex: 1,
+          textAnswer: "",
+        });
+      },
+    );
+
+    it("문제를 넘어가도 유형별 맞은 수가 각자 쌓인다", () => {
+      const answerAndGrade = (grade: QuizAction): readonly QuizAction[] => [
         INPUT,
         SUBMIT_START,
         REVEAL_SUCCESS,
-        SELF_RIGHT,
+        grade,
+      ];
+
+      const state = run(
+        createInitialState(5),
+        ...answerAndGrade(ESSAY_RIGHT),
+        ...answerAndGrade(SHORT_ANSWER_RIGHT),
+        ...answerAndGrade(ESSAY_RIGHT),
+        ...answerAndGrade(SHORT_ANSWER_WRONG),
+        ...answerAndGrade(ESSAY_WRONG),
       );
 
       expect(state).toMatchObject({
         phase: "finished",
-        totalQuestions: 1,
-        correctCount: 0,
-        selfGradeCorrectCount: 1,
-      });
-    });
-
-    it("마지막 문제에서 틀렸어요를 고르면 점수 없이 끝 단계로 간다", () => {
-      const state = run(
-        createInitialState(1),
-        INPUT,
-        SUBMIT_START,
-        REVEAL_SUCCESS,
-        SELF_WRONG,
-      );
-
-      expect(state).toMatchObject({
-        phase: "finished",
-        selfGradeCorrectCount: 0,
-      });
-    });
-
-    it("넘어간 뒤 같은 동작이 또 와도 다음 문제의 점수로 세지 않는다", () => {
-      expect(run(revealed(), SELF_RIGHT, SELF_RIGHT)).toEqual({
-        ...noChoice(),
-        currentIndex: 1,
-        selfGradeCorrectCount: 1,
-      });
-    });
-
-    // D7: reducer는 문제 유형을 모르므로, 이전 답이 남으면 다음 객관식을 보기 없이 제출할 수 있게 된다
-    it("넘어간 뒤에는 이전 답이 남지 않아 입력 없이 제출할 수 없다", () => {
-      expect(run(revealed(), SELF_RIGHT, SUBMIT_START)).toMatchObject({
-        phase: "answering",
-        currentIndex: 1,
-        textAnswer: "",
+        correctCounts: correctCountsOf({ SHORT_ANSWER: 1, ESSAY: 2 }),
       });
     });
   });
@@ -281,7 +358,7 @@ describe("quizReducer", () => {
         ...submitting(),
         phase: "graded",
         result: CORRECT_RESULT,
-        correctCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
       });
     });
 
@@ -290,7 +367,7 @@ describe("quizReducer", () => {
         ...submitting(),
         phase: "graded",
         result: WRONG_RESULT,
-        correctCount: 0,
+        correctCounts: correctCountsOf(),
       });
     });
   });
@@ -317,7 +394,7 @@ describe("quizReducer", () => {
         ...submitting(),
         phase: "graded",
         result: CORRECT_RESULT,
-        correctCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
         submitFailed: false,
       });
     });
@@ -342,7 +419,7 @@ describe("quizReducer", () => {
         currentIndex: 1,
         selectedChoiceId: null,
         result: null,
-        correctCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
       });
     });
 
@@ -361,7 +438,7 @@ describe("quizReducer", () => {
       expect(run(lastGraded, NEXT)).toMatchObject({
         phase: "finished",
         totalQuestions: 2,
-        correctCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
       });
     });
 
@@ -369,7 +446,7 @@ describe("quizReducer", () => {
       expect(finished()).toMatchObject({
         phase: "finished",
         totalQuestions: 1,
-        correctCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
       });
     });
   });
@@ -557,7 +634,13 @@ describe("quizReducer", () => {
         name: "모범 답안을 보기 전에는 자기 채점을 할 수 없다",
         phase: "answering",
         from: typed,
-        action: SELF_RIGHT,
+        action: SHORT_ANSWER_RIGHT,
+      },
+      {
+        name: "모범 답안을 보기 전에는 서술형 자기 채점을 할 수 없다",
+        phase: "answering",
+        from: typed,
+        action: ESSAY_RIGHT,
       },
       {
         name: "제출 중에는 답을 고칠 수 없다 (R3)",
@@ -575,7 +658,13 @@ describe("quizReducer", () => {
         name: "제출 중에는 자기 채점을 할 수 없다",
         phase: "submitting",
         from: submittingText,
-        action: SELF_RIGHT,
+        action: SHORT_ANSWER_RIGHT,
+      },
+      {
+        name: "제출 중에는 서술형 자기 채점을 할 수 없다",
+        phase: "submitting",
+        from: submittingText,
+        action: ESSAY_RIGHT,
       },
       {
         name: "모범 답안을 본 뒤에는 답을 고칠 수 없다 (R4)",
@@ -635,7 +724,13 @@ describe("quizReducer", () => {
         name: "객관식 채점 뒤에는 자기 채점으로 넘어가거나 점수가 오르지 않는다",
         phase: "graded",
         from: graded,
-        action: SELF_RIGHT,
+        action: SHORT_ANSWER_RIGHT,
+      },
+      {
+        name: "객관식 채점 뒤에는 서술형 자기 채점으로 넘어가거나 점수가 오르지 않는다",
+        phase: "graded",
+        from: graded,
+        action: ESSAY_RIGHT,
       },
       {
         name: "끝난 뒤에는 답을 입력할 수 없다",
@@ -653,7 +748,13 @@ describe("quizReducer", () => {
         name: "끝난 뒤의 자기 채점으로 점수가 오르지 않는다",
         phase: "finished",
         from: finished,
-        action: SELF_RIGHT,
+        action: SHORT_ANSWER_RIGHT,
+      },
+      {
+        name: "끝난 뒤의 서술형 자기 채점으로 점수가 오르지 않는다",
+        phase: "finished",
+        from: finished,
+        action: ESSAY_RIGHT,
       },
     ];
 
@@ -687,7 +788,7 @@ describe("quizReducer", () => {
       expect(state).toMatchObject({
         phase: "finished",
         totalQuestions: 3,
-        correctCount: 2,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 2 }),
       });
     });
 
@@ -707,7 +808,7 @@ describe("quizReducer", () => {
       expect(state).toMatchObject({
         phase: "finished",
         totalQuestions: 1,
-        correctCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
       });
     });
 
@@ -721,7 +822,7 @@ describe("quizReducer", () => {
         INPUT,
         SUBMIT_START,
         REVEAL_SUCCESS,
-        SELF_RIGHT,
+        SHORT_ANSWER_RIGHT,
         SELECT,
         SUBMIT_START,
         SUBMIT_WRONG,
@@ -729,32 +830,74 @@ describe("quizReducer", () => {
         INPUT,
         SUBMIT_START,
         REVEAL_SUCCESS,
-        SELF_WRONG,
+        SHORT_ANSWER_WRONG,
       );
 
       expect(state).toMatchObject({
         phase: "finished",
         totalQuestions: 4,
-        correctCount: 1,
-        selfGradeCorrectCount: 1,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1, SHORT_ANSWER: 1 }),
       });
     });
 
-    it("실패 후 다시 제출한 주관식은 자기 채점을 한 번만 센다", () => {
+    it("세 유형을 섞어 풀면 객관식, 주관식, 서술형을 합치지 않고 따로 센다 (D1, R5)", () => {
       const state = run(
-        createInitialState(1),
+        createInitialState(5),
+        SELECT,
+        SUBMIT_START,
+        SUBMIT_CORRECT,
+        NEXT,
+        SELECT,
+        SUBMIT_START,
+        SUBMIT_CORRECT,
+        NEXT,
+        SELECT,
+        SUBMIT_START,
+        SUBMIT_CORRECT,
+        NEXT,
         INPUT,
         SUBMIT_START,
-        SUBMIT_FAILURE,
+        REVEAL_SUCCESS,
+        SHORT_ANSWER_WRONG,
+        INPUT,
         SUBMIT_START,
         REVEAL_SUCCESS,
-        SELF_RIGHT,
+        ESSAY_RIGHT,
       );
 
       expect(state).toMatchObject({
         phase: "finished",
-        selfGradeCorrectCount: 1,
+        totalQuestions: 5,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 3, ESSAY: 1 }),
       });
     });
+
+    it.each([
+      {
+        name: "주관식",
+        right: SHORT_ANSWER_RIGHT,
+        scored: { correctCounts: correctCountsOf({ SHORT_ANSWER: 1 }) },
+      },
+      {
+        name: "서술형",
+        right: ESSAY_RIGHT,
+        scored: { correctCounts: correctCountsOf({ ESSAY: 1 }) },
+      },
+    ])(
+      "실패 후 다시 제출해도 자기 채점을 한 번만 센다: $name",
+      ({ right, scored }) => {
+        const state = run(
+          createInitialState(1),
+          INPUT,
+          SUBMIT_START,
+          SUBMIT_FAILURE,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          right,
+        );
+
+        expect(state).toMatchObject({ phase: "finished", ...scored });
+      },
+    );
   });
 });

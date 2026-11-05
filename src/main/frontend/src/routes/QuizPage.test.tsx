@@ -103,6 +103,17 @@ const SHORT_ANSWER_QUESTION: QuestionResponse = {
   choices: [],
 };
 
+const ESSAY_QUESTION: QuestionResponse = {
+  id: 501,
+  type: "ESSAY",
+  content: "서술형 문제",
+  choices: [],
+};
+const ESSAY_QUESTIONS: readonly QuestionResponse[] = [
+  ESSAY_QUESTION,
+  { id: 502, type: "ESSAY", content: "둘째 서술형 문제", choices: [] },
+];
+
 const MY_ANSWER = "내가 쓴 답";
 const MODEL_ANSWER = "모범 답안 내용";
 const REVEAL: TextAnswerResponse = {
@@ -472,7 +483,7 @@ describe("문제 풀이 화면", () => {
       expect(queryButton("다음 문제")).not.toBeInTheDocument();
     });
 
-    it("마지막 문제 다음에 풀이 결과 제목과 객관식 N문제 중 M문제 정답을 보여 준다 (D14)", async () => {
+    it("마지막 문제 다음에 풀이 결과 제목과 정답, 오답 수를 보여 준다 (R5, D11)", async () => {
       vi.mocked(submitAnswer)
         .mockResolvedValueOnce(correctAnswer(11))
         .mockResolvedValueOnce(wrongAnswer(22))
@@ -483,12 +494,12 @@ describe("문제 풀이 화면", () => {
 
       expect(heading(SCORE_TITLE)).toBeInTheDocument();
       expect(
-        screen.getByText("객관식 3문제 중 2문제 정답"),
+        screen.getByText("객관식 3문제 중 정답 2문제, 오답 1문제"),
       ).toBeInTheDocument();
       expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     });
 
-    it("모두 틀리면 0문제 정답을 보여 준다", async () => {
+    it("모두 틀리면 정답 0문제로 보여 준다", async () => {
       vi.mocked(submitAnswer)
         .mockResolvedValueOnce(wrongAnswer(12))
         .mockResolvedValueOnce(wrongAnswer(22))
@@ -498,7 +509,7 @@ describe("문제 풀이 화면", () => {
       await solveAllQuestions(user);
 
       expect(
-        screen.getByText("객관식 3문제 중 0문제 정답"),
+        screen.getByText("객관식 3문제 중 정답 0문제, 오답 3문제"),
       ).toBeInTheDocument();
     });
 
@@ -677,7 +688,7 @@ describe("문제 풀이 화면", () => {
         await user.keyboard(keys);
 
         expect(
-          screen.getByText("객관식 3문제 중 2문제 정답"),
+          screen.getByText("객관식 3문제 중 정답 2문제, 오답 1문제"),
         ).toBeInTheDocument();
       },
     );
@@ -896,10 +907,10 @@ describe("문제 풀이 화면", () => {
       });
 
       it.each([
-        { name: "맞았어요", line: "주관식 1문제 중 1문제 맞음" },
-        { name: "틀렸어요", line: "주관식 1문제 중 0문제 맞음" },
+        { name: "맞았어요", line: "주관식 1문제 중 정답 1문제, 오답 0문제" },
+        { name: "틀렸어요", line: "주관식 1문제 중 정답 0문제, 오답 1문제" },
       ])(
-        "마지막 문제에서 $name를 누르면 바로 점수 화면으로 간다",
+        "마지막 문제에서 누르면 바로 점수 화면으로 간다: $name",
         async ({ name, line }) => {
           const { user } = await startShortAnswerQuiz([SHORT_ANSWER_QUESTION]);
           await submitMyAnswer(user);
@@ -1007,7 +1018,7 @@ describe("문제 풀이 화면", () => {
         await user.click(button("틀렸어요"));
 
         expect(
-          screen.getByText("주관식 2문제 중 1문제 맞음"),
+          screen.getByText("주관식 2문제 중 정답 1문제, 오답 1문제"),
         ).toBeInTheDocument();
       });
 
@@ -1049,10 +1060,10 @@ describe("문제 풀이 화면", () => {
 
         expect(heading(SCORE_TITLE)).toBeInTheDocument();
         expect(
-          screen.getByText("객관식 1문제 중 0문제 정답"),
+          screen.getByText("객관식 1문제 중 정답 0문제, 오답 1문제"),
         ).toBeInTheDocument();
         expect(
-          screen.getByText("주관식 1문제 중 1문제 맞음"),
+          screen.getByText("주관식 1문제 중 정답 1문제, 오답 0문제"),
         ).toBeInTheDocument();
       });
 
@@ -1075,10 +1086,10 @@ describe("문제 풀이 화면", () => {
 
         expect(submitAnswer).toHaveBeenCalledWith(401, 61);
         expect(
-          screen.getByText("객관식 1문제 중 1문제 정답"),
+          screen.getByText("객관식 1문제 중 정답 1문제, 오답 0문제"),
         ).toBeInTheDocument();
         expect(
-          screen.getByText("주관식 1문제 중 0문제 맞음"),
+          screen.getByText("주관식 1문제 중 정답 0문제, 오답 1문제"),
         ).toBeInTheDocument();
       });
 
@@ -1091,7 +1102,7 @@ describe("문제 풀이 화면", () => {
         await user.click(button("결과 보기"));
 
         expect(
-          screen.getByText("객관식 1문제 중 1문제 정답"),
+          screen.getByText("객관식 1문제 중 정답 1문제, 오답 0문제"),
         ).toBeInTheDocument();
         expect(screen.queryByText(/주관식/)).not.toBeInTheDocument();
       });
@@ -1103,9 +1114,500 @@ describe("문제 풀이 화면", () => {
         await user.click(button("맞았어요"));
 
         expect(
-          screen.getByText("주관식 1문제 중 1문제 맞음"),
+          screen.getByText("주관식 1문제 중 정답 1문제, 오답 0문제"),
         ).toBeInTheDocument();
         expect(screen.queryByText(/객관식/)).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("서술형 풀이", () => {
+    const answerBox = () => screen.getByRole("textbox", { name: "내 답" });
+    const COUNT_PATTERN = /^\d+\s*\/\s*\d+$/;
+
+    // 글자 수는 숫자와 최대치가 서로 다른 태그에 나뉘어 있어, 둘을 함께 담은 가장 안쪽 요소를 찾는다
+    const isCounter = (_: string, element: Element | null) =>
+      element !== null &&
+      COUNT_PATTERN.test(element.textContent) &&
+      Array.from(element.children).every(
+        (child) => !COUNT_PATTERN.test(child.textContent),
+      );
+    const counter = () => screen.getByText(isCounter);
+
+    // 숫자가 맞는지만 본다. 공백까지 포함한 표시 형식은 형식 테스트 한 곳에서 확인한다
+    const expectCount = (current: number) =>
+      expect(counter().textContent.replace(/\s/g, "")).toBe(`${current}/5000`);
+
+    const scoreLineTexts = () =>
+      screen.getAllByText(/문제 중/).map((line) => line.textContent);
+
+    async function startEssayQuiz(
+      questions: readonly QuestionResponse[] = ESSAY_QUESTIONS,
+    ) {
+      vi.mocked(getQuestions).mockResolvedValue(questions);
+      vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+      const rendered = renderQuiz();
+      await screen.findByRole("textbox", { name: "내 답" });
+      return rendered;
+    }
+
+    async function pasteAnswer(user: UserEvent, text: string) {
+      await user.click(answerBox());
+      await user.paste(text);
+    }
+
+    async function submitMyAnswer(user: UserEvent) {
+      await user.type(answerBox(), MY_ANSWER);
+      await user.click(button("제출"));
+      await screen.findByRole("heading", { name: "모범 답안" });
+    }
+
+    describe("글자 수 표시 (R4)", () => {
+      it("글자 수를 0/5000 형식으로 표시한다", async () => {
+        await startEssayQuiz();
+
+        expect(counter().textContent).toBe("0/5000");
+      });
+
+      it("입력에 따라 글자 수가 늘고 지우면 준다", async () => {
+        const { user } = await startEssayQuiz();
+        expectCount(0);
+
+        await user.type(answerBox(), "가나다");
+        expectCount(3);
+
+        await user.type(answerBox(), "{Backspace}");
+        expectCount(2);
+
+        await user.clear(answerBox());
+        expectCount(0);
+      });
+
+      it.each([
+        { name: "한글 자모로 나뉜 글자", text: "가", count: 1 },
+        { name: "이모지", text: "😀", count: 1 },
+        { name: "여러 이모지를 이은 가족 이모지", text: "👨‍👩‍👧‍👦", count: 1 },
+        { name: "국기", text: "🇰🇷", count: 1 },
+        { name: "글자와 이모지 혼합", text: "a😀👨‍👩‍👧‍👦", count: 3 },
+      ])(
+        "코드 단위가 아니라 눈에 보이는 글자로 센다: $name (D7)",
+        async ({ text, count }) => {
+          const { user } = await startEssayQuiz();
+
+          await pasteAnswer(user, text);
+
+          expect(answerBox()).toHaveValue(text);
+          expectCount(count);
+        },
+      );
+
+      it("다음 문제로 넘어가면 글자 수가 0으로 돌아간다", async () => {
+        const { user } = await startEssayQuiz();
+        await submitMyAnswer(user);
+        expectCount(MY_ANSWER.length);
+
+        await user.click(button("틀렸어요"));
+
+        expect(heading("둘째 서술형 문제")).toBeInTheDocument();
+        expectCount(0);
+      });
+    });
+
+    describe("5000자 제한 (R4, D6, D7)", () => {
+      it("정확히 5000자를 붙여 넣으면 그대로 들어간다", async () => {
+        const { user } = await startEssayQuiz();
+        const text = "가".repeat(5000);
+
+        await pasteAnswer(user, text);
+
+        expect(answerBox()).toHaveValue(text);
+        expectCount(5000);
+      });
+
+      it("5000자를 넘게 붙여 넣으면 앞의 5000자까지만 들어간다", async () => {
+        const { user } = await startEssayQuiz();
+
+        await pasteAnswer(user, `${"가".repeat(5000)}넘친글자`);
+
+        expect(answerBox()).toHaveValue("가".repeat(5000));
+        expectCount(5000);
+      });
+
+      it("5000자가 찬 뒤에 입력하면 더 들어가지 않는다", async () => {
+        const { user } = await startEssayQuiz();
+        await pasteAnswer(user, "가".repeat(5000));
+
+        await user.keyboard("나");
+
+        expect(answerBox()).toHaveValue("가".repeat(5000));
+        expectCount(5000);
+      });
+
+      it("4999자에 여러 글자를 붙여 넣으면 한 글자만 더 들어간다", async () => {
+        const { user } = await startEssayQuiz();
+        await pasteAnswer(user, "가".repeat(4999));
+
+        await user.paste("나다");
+
+        expect(answerBox()).toHaveValue(`${"가".repeat(4999)}나`);
+        expectCount(5000);
+      });
+
+      it.each([
+        { name: "이모지", glyph: "😀" },
+        { name: "여러 이모지를 이은 가족 이모지", glyph: "👨‍👩‍👧‍👦" },
+        { name: "국기", glyph: "🇰🇷" },
+      ])(
+        "코드 단위가 큰 글자도 눈에 보이는 글자 기준으로 5000자까지 들어가고 글자 중간에서 잘리지 않는다: $name",
+        async ({ glyph }) => {
+          const { user } = await startEssayQuiz();
+
+          await pasteAnswer(user, glyph.repeat(5001));
+
+          expect(answerBox()).toHaveValue(glyph.repeat(5000));
+          expectCount(5000);
+        },
+      );
+
+      it("잘린 답을 그대로 제출한다", async () => {
+        const { user } = await startEssayQuiz();
+        await pasteAnswer(user, "가".repeat(5001));
+
+        await user.click(button("제출"));
+        await screen.findByRole("heading", { name: "모범 답안" });
+
+        expect(submitTextAnswer).toHaveBeenCalledWith(501, "가".repeat(5000));
+      });
+    });
+
+    describe("주관식도 같은 입력칸을 쓴다 (R4, D5, D6)", () => {
+      async function startShortAnswerQuiz() {
+        return startEssayQuiz([SHORT_ANSWER_QUESTION]);
+      }
+
+      it("주관식에도 글자 수를 표시하고 입력에 따라 바꾼다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        expect(counter().textContent).toBe("0/5000");
+
+        await user.type(answerBox(), "가나다");
+
+        expect(counter().textContent).toBe("3/5000");
+      });
+
+      it("5000자를 넘는 답을 5000자까지만 받아 제출한다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await pasteAnswer(user, "가".repeat(5001));
+
+        expect(answerBox()).toHaveValue("가".repeat(5000));
+        expectCount(5000);
+
+        await user.click(button("제출"));
+        await screen.findByRole("heading", { name: "모범 답안" });
+
+        expect(submitTextAnswer).toHaveBeenCalledWith(402, "가".repeat(5000));
+      });
+
+      it("코드 단위가 큰 글자도 눈에 보이는 글자 기준으로 5000자까지 들어간다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await pasteAnswer(user, "😀".repeat(5001));
+
+        expect(answerBox()).toHaveValue("😀".repeat(5000));
+        expectCount(5000);
+      });
+
+      it("서술형 다음 주관식으로 넘어가도 글자 수가 0부터 다시 시작하고 제한이 유지된다", async () => {
+        const { user } = await startEssayQuiz([
+          ESSAY_QUESTION,
+          SHORT_ANSWER_QUESTION,
+        ]);
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+
+        expect(heading("주관식 문제")).toBeInTheDocument();
+        expectCount(0);
+
+        await pasteAnswer(user, "가".repeat(5001));
+
+        expect(answerBox()).toHaveValue("가".repeat(5000));
+        expectCount(5000);
+      });
+
+      it("주관식 다음 서술형으로 넘어가도 글자 수를 표시하고 제한이 유지된다", async () => {
+        const { user } = await startEssayQuiz([
+          SHORT_ANSWER_QUESTION,
+          ESSAY_QUESTION,
+        ]);
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+
+        await pasteAnswer(user, "가".repeat(5001));
+
+        expect(heading("서술형 문제")).toBeInTheDocument();
+        expect(answerBox()).toHaveValue("가".repeat(5000));
+        expectCount(5000);
+      });
+    });
+
+    describe.each([
+      { name: "주관식", question: SHORT_ANSWER_QUESTION },
+      { name: "서술형", question: ESSAY_QUESTION },
+    ])("입력칸 조립: $name (R4, D14)", ({ question }) => {
+      it("입력칸을 내 답 라벨로 찾을 수 있다", async () => {
+        await startEssayQuiz([question]);
+
+        expect(screen.getByLabelText("내 답")).toBe(answerBox());
+      });
+
+      // 같은 줄에 보이는지는 레이아웃이 없는 jsdom에서 알 수 없어 문서 순서만 확인한다
+      it("문서 순서가 라벨, 글자 수, 입력칸이다", async () => {
+        await startEssayQuiz([question]);
+        const isBefore = (first: Element, second: Element) =>
+          (first.compareDocumentPosition(second) &
+            Node.DOCUMENT_POSITION_FOLLOWING) !==
+          0;
+
+        expect(isBefore(screen.getByText("내 답"), counter())).toBe(true);
+        expect(isBefore(counter(), answerBox())).toBe(true);
+      });
+    });
+
+    // 860px 값은 화면을 보고 조정할 수 있어 묶지 않는다. 실제 높이와 스크롤은 jsdom에서 알 수 없다.
+    it("입력한 뒤에도 입력칸에 최대 높이와 overflow auto가 남아 있다 (R4, D12, D13)", async () => {
+      const { user } = await startEssayQuiz();
+
+      await user.type(answerBox(), "첫 줄{Enter}둘째 줄");
+
+      const { maxHeight, overflow } = answerBox().style;
+      expect(overflow).toBe("auto");
+      expect(maxHeight).not.toBe("");
+    });
+
+    describe("제출과 자기 채점 (R3, R5)", () => {
+      it("보기 없이 입력칸만 보여 주고, 답을 쓰기 전에는 제출할 수 없다", async () => {
+        await startEssayQuiz();
+
+        expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+        expect(screen.queryByText(MODEL_ANSWER)).not.toBeInTheDocument();
+        expect(button("제출")).toBeDisabled();
+      });
+
+      it("공백과 줄바꿈만 입력하면 제출할 수 없다", async () => {
+        const { user } = await startEssayQuiz();
+
+        await user.type(answerBox(), "   {Enter}  ");
+
+        expect(button("제출")).toBeDisabled();
+      });
+
+      it("제출하면 문제 id와 답을 보내고 내 답, 모범 답안, 해설, 자기 채점 버튼을 보여 준다", async () => {
+        const { user } = await startEssayQuiz();
+
+        await submitMyAnswer(user);
+
+        expect(submitTextAnswer).toHaveBeenCalledTimes(1);
+        expect(submitTextAnswer).toHaveBeenCalledWith(501, MY_ANSWER);
+        expect(submitAnswer).not.toHaveBeenCalled();
+        expect(answerBox()).toHaveValue(MY_ANSWER);
+        expect(answerBox()).toBeDisabled();
+        expect(screen.getByText(MODEL_ANSWER)).toBeInTheDocument();
+        expect(screen.getByText(EXPLANATION)).toBeInTheDocument();
+        expect(button("맞았어요")).toBeEnabled();
+        expect(button("틀렸어요")).toBeEnabled();
+        expect(queryButton("제출")).not.toBeInTheDocument();
+      });
+
+      it.each([
+        { name: "맞았어요", line: "서술형 1문제 중 정답 1문제, 오답 0문제" },
+        { name: "틀렸어요", line: "서술형 1문제 중 정답 0문제, 오답 1문제" },
+      ])(
+        "마지막 문제에서 누르면 점수 화면에 서술형 줄만 보여 준다: $name",
+        async ({ name, line }) => {
+          const { user } = await startEssayQuiz([ESSAY_QUESTION]);
+          await submitMyAnswer(user);
+
+          await user.click(button(name));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(scoreLineTexts()).toEqual([line]);
+        },
+      );
+
+      it("서술형 두 문제의 결과를 합쳐 센다", async () => {
+        const { user } = await startEssayQuiz();
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+
+        await submitMyAnswer(user);
+        await user.click(button("틀렸어요"));
+
+        expect(submitTextAnswer).toHaveBeenLastCalledWith(502, MY_ANSWER);
+        expect(scoreLineTexts()).toEqual([
+          "서술형 2문제 중 정답 1문제, 오답 1문제",
+        ]);
+      });
+
+      it("맞았어요에 걸린 연속 클릭의 두 번째 클릭은 무시한다 (D4)", async () => {
+        const { user } = await startEssayQuiz();
+        await submitMyAnswer(user);
+
+        fireEvent.click(button("맞았어요"), { detail: 2 });
+
+        expect(screen.getByText("문제 1 / 2")).toBeInTheDocument();
+        expect(screen.getByText(MODEL_ANSWER)).toBeInTheDocument();
+      });
+    });
+
+    describe("제출 실패와 Enter (R3)", () => {
+      it("실패하면 답과 글자 수를 유지한 채 에러를 표시하고 다시 제출할 수 있다", async () => {
+        const { user } = await startEssayQuiz();
+        vi.mocked(submitTextAnswer)
+          .mockRejectedValueOnce(new Error("HTTP 500"))
+          .mockResolvedValueOnce(REVEAL);
+        await user.type(answerBox(), MY_ANSWER);
+
+        await user.click(button("제출"));
+
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+          "채점 요청에 실패했습니다. 다시 제출해 주세요.",
+        );
+        expect(answerBox()).toHaveValue(MY_ANSWER);
+        expect(answerBox()).toBeEnabled();
+        expectCount(MY_ANSWER.length);
+        expect(queryButton("맞았어요")).not.toBeInTheDocument();
+
+        await user.click(button("제출"));
+
+        expect(await screen.findByText(MODEL_ANSWER)).toBeInTheDocument();
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(submitTextAnswer).toHaveBeenCalledTimes(2);
+        expect(submitTextAnswer).toHaveBeenLastCalledWith(501, MY_ANSWER);
+      });
+
+      it("실패한 뒤 답을 고쳐 다시 제출하면 고친 답을 보낸다", async () => {
+        const { user } = await startEssayQuiz();
+        vi.mocked(submitTextAnswer)
+          .mockRejectedValueOnce(new Error("HTTP 400"))
+          .mockResolvedValueOnce(REVEAL);
+        await user.type(answerBox(), MY_ANSWER);
+        await user.click(button("제출"));
+        await screen.findByRole("alert");
+
+        await user.type(answerBox(), " 추가");
+        await user.click(button("제출"));
+        await screen.findByText(MODEL_ANSWER);
+
+        expect(submitTextAnswer).toHaveBeenLastCalledWith(
+          501,
+          `${MY_ANSWER} 추가`,
+        );
+      });
+
+      it("Enter는 줄바꿈만 하고 제출하지 않으며 줄바꿈도 한 글자로 센다", async () => {
+        const { user } = await startEssayQuiz();
+
+        await user.type(answerBox(), "첫 줄{Enter}둘째 줄");
+
+        expect(answerBox()).toHaveValue("첫 줄\n둘째 줄");
+        expectCount(8);
+        expect(submitTextAnswer).not.toHaveBeenCalled();
+        expect(queryButton("맞았어요")).not.toBeInTheDocument();
+      });
+    });
+
+    describe("유형이 섞인 카테고리 (R1, R5, D1)", () => {
+      const MIXED = [
+        MULTIPLE_CHOICE_QUESTION,
+        SHORT_ANSWER_QUESTION,
+        ESSAY_QUESTION,
+      ];
+
+      it.each([
+        {
+          name: "주관식만 맞으면",
+          shortAnswer: "맞았어요",
+          essay: "틀렸어요",
+          lines: [
+            "주관식 1문제 중 정답 1문제, 오답 0문제",
+            "서술형 1문제 중 정답 0문제, 오답 1문제",
+          ],
+        },
+        {
+          name: "서술형만 맞으면",
+          shortAnswer: "틀렸어요",
+          essay: "맞았어요",
+          lines: [
+            "주관식 1문제 중 정답 0문제, 오답 1문제",
+            "서술형 1문제 중 정답 1문제, 오답 0문제",
+          ],
+        },
+      ])(
+        "$name 점수 줄을 객관식, 주관식, 서술형 순서로 따로 보여 준다",
+        async ({ shortAnswer, essay, lines }) => {
+          vi.mocked(getQuestions).mockResolvedValue(MIXED);
+          vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61));
+          vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+          const { user } = await startQuiz();
+
+          await answer(user, "하나");
+          await user.click(button("다음 문제"));
+          await submitMyAnswer(user);
+          await user.click(button(shortAnswer));
+          await submitMyAnswer(user);
+          await user.click(button(essay));
+
+          expect(submitTextAnswer).toHaveBeenNthCalledWith(1, 402, MY_ANSWER);
+          expect(submitTextAnswer).toHaveBeenNthCalledWith(2, 501, MY_ANSWER);
+          expect(scoreLineTexts()).toEqual([
+            "객관식 1문제 중 정답 1문제, 오답 0문제",
+            ...lines,
+          ]);
+        },
+      );
+
+      it("서버가 준 순서가 달라도 점수 줄 순서는 객관식, 주관식, 서술형이다", async () => {
+        const { user } = await startEssayQuiz([
+          ESSAY_QUESTION,
+          SHORT_ANSWER_QUESTION,
+          MULTIPLE_CHOICE_QUESTION,
+        ]);
+        vi.mocked(submitAnswer).mockResolvedValue(wrongAnswer(62));
+
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+        await answer(user, "하나");
+        await user.click(button("결과 보기"));
+
+        expect(scoreLineTexts()).toEqual([
+          "객관식 1문제 중 정답 0문제, 오답 1문제",
+          "주관식 1문제 중 정답 1문제, 오답 0문제",
+          "서술형 1문제 중 정답 1문제, 오답 0문제",
+        ]);
+      });
+
+      it("서술형이 없으면 서술형 줄을 표시하지 않는다", async () => {
+        vi.mocked(getQuestions).mockResolvedValue([
+          MULTIPLE_CHOICE_QUESTION,
+          SHORT_ANSWER_QUESTION,
+        ]);
+        vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61));
+        vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+        const { user } = await startQuiz();
+
+        await answer(user, "하나");
+        await user.click(button("다음 문제"));
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+
+        expect(scoreLineTexts()).toEqual([
+          "객관식 1문제 중 정답 1문제, 오답 0문제",
+          "주관식 1문제 중 정답 1문제, 오답 0문제",
+        ]);
+        expect(screen.queryByText(/서술형/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/맞음|틀림/)).not.toBeInTheDocument();
       });
     });
   });
@@ -1149,7 +1651,7 @@ describe("문제 풀이 화면", () => {
       await user.click(button("결과 보기"));
 
       expect(
-        screen.getByText("객관식 2문제 중 0문제 정답"),
+        screen.getByText("객관식 2문제 중 정답 0문제, 오답 2문제"),
       ).toBeInTheDocument();
     });
 
