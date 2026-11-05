@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # PreToolUse (역할별 서브에이전트 전용): 담당 범위 밖의 파일 수정과 명령을 막는다.
-# 사용법: guard-subagent.sh <backend-dev|frontend-dev|test-writer|reviewer>
+# 사용법: guard-subagent.sh <backend-dev|frontend-dev|test-writer>
 #   Edit|Write → 역할별 허용 경로 안의 파일만 허용
 #     backend-dev:  src/main/java/, src/main/resources/ (static/ 제외)
 #     frontend-dev: 프론트의 src/ (테스트, src/seed-design/ 제외), public/, index.html
 #     test-writer:  src/test/, src/docs/asciidoc/, 프론트의 *.test.ts(x), src/main/frontend/src/test/
-#     reviewer:     없음 (읽기 전용)
 #   Bash       → 읽기 전용 명령과 역할별 실행 명령만 허용 (파일 수정은 Edit|Write로만)
 #     backend-dev:  ./gradlew
 #     frontend-dev: 프론트 테스트·검사용 npm
 #     test-writer:  ./gradlew, 프론트 테스트·검사용 npm
-#     reviewer:     ./gradlew test·integrationTest·pmdMain·pmdTest, 프론트 테스트·검사용 npm
 # exit 2 = 도구 호출을 막고 stderr 내용을 서브에이전트에게 전달한다.
 # exit 1 같은 다른 오류로는 호출이 막히지 않으므로, 정상 판정이 아니면 모두 exit 2로 바꾼다.
 # 실수와 지름길을 막는 장치이며 샌드박스는 아니다 (코드를 실행하면 그 코드는 제한받지 않는다).
@@ -88,26 +86,7 @@ check_file() {
     backend-dev) check_backend_file "$1" ;;
     frontend-dev) check_frontend_file "$1" ;;
     test-writer) check_test_file "$1" ;;
-    reviewer) deny "리뷰어는 파일을 수정하지 않습니다 ($1)" ;;
   esac
-}
-
-# 로컬에서는 spotlessJavaCheck가 spotlessJavaApply에 의존해 (build.gradle.kts) check도 소스를 고친다.
-# Gradle은 spotlessA 같은 줄임말도 받으므로 금지 목록이 아니라 허용 목록으로 검사한다.
-check_reviewer_gradle() {
-  local word after_tests=false
-  for word in "$@"; do
-    if [ "$after_tests" = true ]; then
-      after_tests=false
-      continue
-    fi
-    case "$word" in
-      test | integrationTest | pmdMain | pmdTest) ;;
-      --tests) after_tests=true ;;
-      -*) ;;
-      *) deny "소스를 고치지 않는 Gradle 작업만 쓸 수 있습니다 ($word)" ;;
-    esac
-  done
 }
 
 check_npm() {
@@ -159,7 +138,6 @@ check_segment() {
       esac ;;
     ./gradlew | "$ROOT"/gradlew)
       [ "$ROLE" != frontend-dev ] || deny "frontend-dev는 ./gradlew를 쓸 수 없습니다"
-      [ "$ROLE" != reviewer ] || check_reviewer_gradle "${words[@]:1}"
       case "$args" in
         *' -I'* | *' --init-script'* | *' -c '* | *' --settings-file'* | *' -b '* | *' --build-file'* | *' -p '* | *' --project-dir'*)
           deny "Gradle의 스크립트·프로젝트 지정 옵션은 쓸 수 없습니다. 프로젝트 루트에서 ./gradlew로 실행하세요" ;;
@@ -200,7 +178,7 @@ check_command() {
 }
 
 case "$ROLE" in
-  backend-dev | frontend-dev | test-writer | reviewer) ;;
+  backend-dev | frontend-dev | test-writer) ;;
   *) deny "알 수 없는 역할입니다 ($ROLE)" ;;
 esac
 
