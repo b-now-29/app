@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getQuestions, NotFoundError, submitAnswer } from "./questions";
-import type { AnswerResponse, QuestionResponse } from "./questions";
+import {
+  getQuestions,
+  NotFoundError,
+  submitAnswer,
+  submitTextAnswer,
+} from "./questions";
+import type {
+  AnswerResponse,
+  QuestionResponse,
+  TextAnswerResponse,
+} from "./questions";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 
@@ -21,8 +30,15 @@ describe("getQuestions", () => {
     const questions: readonly QuestionResponse[] = [
       {
         id: 1,
+        type: "MULTIPLE_CHOICE",
         content: "문제 내용",
         choices: [{ id: 10, content: "보기 내용" }],
+      },
+      {
+        id: 2,
+        type: "SHORT_ANSWER",
+        content: "주관식 문제 내용",
+        choices: [],
       },
     ];
     fetchMock.mockResolvedValue(jsonResponse(questions));
@@ -103,5 +119,42 @@ describe("submitAnswer", () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
 
     await expect(submitAnswer(7, 10)).rejects.toThrow();
+  });
+});
+
+describe("submitTextAnswer", () => {
+  const reveal: TextAnswerResponse = {
+    modelAnswer: "모범 답안",
+    explanation: null,
+  };
+
+  it("입력한 답을 그대로 해당 문제의 text-answers 주소에 JSON POST로 보낸다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(reveal));
+
+    await submitTextAnswer(7, "  첫 줄\n둘째 줄  ");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/questions/7/text-answers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer: "  첫 줄\n둘째 줄  " }),
+    });
+  });
+
+  it("응답 본문을 돌려준다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(reveal));
+
+    await expect(submitTextAnswer(7, "답")).resolves.toEqual(reveal);
+  });
+
+  it.each([400, 404, 500])("%i 응답이면 예외를 던진다 (R7)", async (status) => {
+    fetchMock.mockResolvedValue(problemResponse(status));
+
+    await expect(submitTextAnswer(7, "답")).rejects.toThrow();
+  });
+
+  it("네트워크 실패면 예외를 던진다 (R7)", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(submitTextAnswer(7, "답")).rejects.toThrow();
   });
 });

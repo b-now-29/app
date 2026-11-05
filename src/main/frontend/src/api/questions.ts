@@ -3,8 +3,16 @@ export type ChoiceResponse = {
   readonly content: string;
 };
 
+export type QuestionType = "MULTIPLE_CHOICE" | "SHORT_ANSWER" | "ESSAY";
+
+export type TextAnswerResponse = {
+  readonly modelAnswer: string;
+  readonly explanation: string | null;
+};
+
 export type QuestionResponse = {
   readonly id: number;
+  readonly type: QuestionType;
   readonly content: string;
   readonly choices: readonly ChoiceResponse[];
 };
@@ -47,4 +55,19 @@ export async function submitAnswer(
     throw new Error(`채점 요청 실패: HTTP ${response.status}`);
   }
   return (await response.json()) as AnswerResponse;
+}
+
+export async function submitTextAnswer(
+  questionId: number,
+  answer: string,
+): Promise<TextAnswerResponse> {
+  const response = await fetch(`/api/v1/questions/${questionId}/text-answers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer }),
+  });
+  if (!response.ok) {
+    throw new Error(`답 제출 실패: HTTP ${response.status}`);
+  }
+  return (await response.json()) as TextAnswerResponse;
 }

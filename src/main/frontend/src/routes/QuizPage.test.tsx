@@ -1,10 +1,19 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getQuestions, NotFoundError, submitAnswer } from "../api/questions";
-import type { AnswerResponse, QuestionResponse } from "../api/questions";
+import {
+  getQuestions,
+  NotFoundError,
+  submitAnswer,
+  submitTextAnswer,
+} from "../api/questions";
+import type {
+  AnswerResponse,
+  QuestionResponse,
+  TextAnswerResponse,
+} from "../api/questions";
 import QuizErrorPage from "./QuizErrorPage";
 import QuizPage from "./QuizPage";
 import { quizLoader } from "./quizLoader";
@@ -14,12 +23,16 @@ vi.mock("../api/questions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/questions")>()),
   getQuestions: vi.fn(),
   submitAnswer: vi.fn(),
+  submitTextAnswer: vi.fn(),
 }));
+
+const EXPLANATION = "해설 내용";
 
 // 첫 문제의 보기는 id로 정렬해도, 글자로 정렬해도 서버 순서와 달라지도록 섞었다
 const QUESTIONS: readonly QuestionResponse[] = [
   {
     id: 101,
+    type: "MULTIPLE_CHOICE",
     content: "첫 번째 문제",
     choices: [
       { id: 13, content: "다람쥐" },
@@ -30,6 +43,7 @@ const QUESTIONS: readonly QuestionResponse[] = [
   },
   {
     id: 102,
+    type: "MULTIPLE_CHOICE",
     content: "두 번째 문제",
     choices: [
       { id: 21, content: "사과" },
@@ -38,6 +52,7 @@ const QUESTIONS: readonly QuestionResponse[] = [
   },
   {
     id: 103,
+    type: "MULTIPLE_CHOICE",
     content: "세 번째 문제",
     choices: [
       { id: 31, content: "연필" },
@@ -49,6 +64,7 @@ const QUESTIONS: readonly QuestionResponse[] = [
 const OTHER_CATEGORY_QUESTIONS: readonly QuestionResponse[] = [
   {
     id: 201,
+    type: "MULTIPLE_CHOICE",
     content: "다른 카테고리의 첫 문제",
     choices: [
       { id: 41, content: "바다" },
@@ -57,6 +73,7 @@ const OTHER_CATEGORY_QUESTIONS: readonly QuestionResponse[] = [
   },
   {
     id: 202,
+    type: "MULTIPLE_CHOICE",
     content: "다른 카테고리의 둘째 문제",
     choices: [
       { id: 51, content: "구름" },
@@ -65,10 +82,38 @@ const OTHER_CATEGORY_QUESTIONS: readonly QuestionResponse[] = [
   },
 ];
 
-const EXPLANATION = "해설 내용";
+const SHORT_ANSWER_QUESTIONS: readonly QuestionResponse[] = [
+  { id: 301, type: "SHORT_ANSWER", content: "첫 주관식 문제", choices: [] },
+  { id: 302, type: "SHORT_ANSWER", content: "둘째 주관식 문제", choices: [] },
+];
+
+const MULTIPLE_CHOICE_QUESTION: QuestionResponse = {
+  id: 401,
+  type: "MULTIPLE_CHOICE",
+  content: "객관식 문제",
+  choices: [
+    { id: 61, content: "하나" },
+    { id: 62, content: "둘" },
+  ],
+};
+const SHORT_ANSWER_QUESTION: QuestionResponse = {
+  id: 402,
+  type: "SHORT_ANSWER",
+  content: "주관식 문제",
+  choices: [],
+};
+
+const MY_ANSWER = "내가 쓴 답";
+const MODEL_ANSWER = "모범 답안 내용";
+const REVEAL: TextAnswerResponse = {
+  modelAnswer: MODEL_ANSWER,
+  explanation: EXPLANATION,
+};
+
 const NOT_FOUND_TITLE = "페이지를 찾을 수 없습니다";
 const LIST_LINK = "카테고리 목록";
 const LIST_SCREEN = "카테고리 목록 화면";
+const SCORE_TITLE = "풀이 결과";
 
 function correctAnswer(correctChoiceId: number): AnswerResponse {
   return { correct: true, correctChoiceId, explanation: EXPLANATION };
@@ -427,7 +472,7 @@ describe("문제 풀이 화면", () => {
       expect(queryButton("다음 문제")).not.toBeInTheDocument();
     });
 
-    it("마지막 문제 다음에 N문제 중 M문제 정답을 보여 준다", async () => {
+    it("마지막 문제 다음에 풀이 결과 제목과 객관식 N문제 중 M문제 정답을 보여 준다 (D14)", async () => {
       vi.mocked(submitAnswer)
         .mockResolvedValueOnce(correctAnswer(11))
         .mockResolvedValueOnce(wrongAnswer(22))
@@ -436,7 +481,10 @@ describe("문제 풀이 화면", () => {
 
       await solveAllQuestions(user);
 
-      expect(heading("3문제 중 2문제 정답")).toBeInTheDocument();
+      expect(heading(SCORE_TITLE)).toBeInTheDocument();
+      expect(
+        screen.getByText("객관식 3문제 중 2문제 정답"),
+      ).toBeInTheDocument();
       expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     });
 
@@ -449,7 +497,9 @@ describe("문제 풀이 화면", () => {
 
       await solveAllQuestions(user);
 
-      expect(heading("3문제 중 0문제 정답")).toBeInTheDocument();
+      expect(
+        screen.getByText("객관식 3문제 중 0문제 정답"),
+      ).toBeInTheDocument();
     });
 
     it("점수 화면의 링크로 카테고리 목록에 돌아간다", async () => {
@@ -626,7 +676,9 @@ describe("문제 풀이 화면", () => {
 
         await user.keyboard(keys);
 
-        expect(heading("3문제 중 2문제 정답")).toBeInTheDocument();
+        expect(
+          screen.getByText("객관식 3문제 중 2문제 정답"),
+        ).toBeInTheDocument();
       },
     );
 
@@ -678,6 +730,386 @@ describe("문제 풀이 화면", () => {
     });
   });
 
+  describe("주관식 풀이", () => {
+    const answerBox = () => screen.getByRole("textbox", { name: "내 답" });
+
+    async function startShortAnswerQuiz(
+      questions: readonly QuestionResponse[] = SHORT_ANSWER_QUESTIONS,
+    ) {
+      vi.mocked(getQuestions).mockResolvedValue(questions);
+      vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+      const rendered = renderQuiz();
+      await screen.findByRole("textbox", { name: "내 답" });
+      return rendered;
+    }
+
+    async function submitMyAnswer(user: UserEvent) {
+      await user.type(answerBox(), MY_ANSWER);
+      await user.click(button("제출"));
+      await screen.findByRole("heading", { name: "모범 답안" });
+    }
+
+    describe("입력과 제출 조건 (R3, D11)", () => {
+      it("답을 입력하기 전에는 제출할 수 없고 모범 답안도 보이지 않는다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+        expect(screen.queryByText(MODEL_ANSWER)).not.toBeInTheDocument();
+        expect(button("제출")).toBeDisabled();
+
+        await user.click(button("제출"));
+
+        expect(submitTextAnswer).not.toHaveBeenCalled();
+      });
+
+      it("공백과 줄바꿈만 입력하면 제출할 수 없다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await user.type(answerBox(), "   {Enter}  ");
+
+        expect(answerBox()).toHaveValue("   \n  ");
+        expect(button("제출")).toBeDisabled();
+      });
+
+      it("공백이 아닌 답을 입력하면 제출할 수 있고, 다 지우면 다시 제출할 수 없다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await user.type(answerBox(), MY_ANSWER);
+        expect(button("제출")).toBeEnabled();
+
+        await user.clear(answerBox());
+        expect(button("제출")).toBeDisabled();
+      });
+
+      it("Enter는 줄바꿈만 하고 제출하지 않는다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await user.type(answerBox(), "첫 줄{Enter}둘째 줄");
+
+        expect(answerBox()).toHaveValue("첫 줄\n둘째 줄");
+        expect(submitTextAnswer).not.toHaveBeenCalled();
+        expect(queryButton("맞았어요")).not.toBeInTheDocument();
+      });
+
+      it("응답을 기다리는 동안에는 입력칸과 제출 버튼이 비활성이고 다시 요청하지 않는다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        let resolve: (reveal: TextAnswerResponse) => void = () => {};
+        vi.mocked(submitTextAnswer).mockReturnValue(
+          new Promise((done) => {
+            resolve = done;
+          }),
+        );
+        await user.type(answerBox(), MY_ANSWER);
+        // loading 중에는 버튼 안 구조가 바뀌어 이름으로 못 찾을 수 있으므로 미리 잡아 둔다
+        const submit = button("제출");
+
+        await user.click(submit);
+
+        expect(submit).toBeDisabled();
+        expect(answerBox()).toBeDisabled();
+
+        await user.click(submit);
+
+        expect(submitTextAnswer).toHaveBeenCalledTimes(1);
+
+        resolve(REVEAL);
+        await screen.findByRole("heading", { name: "모범 답안" });
+      });
+    });
+
+    describe("제출 결과 (R4)", () => {
+      it("현재 문제의 id와 입력한 답을 그대로 보낸다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await user.type(answerBox(), "  첫 줄{Enter}둘째 줄 ");
+        await user.click(button("제출"));
+        await screen.findByRole("heading", { name: "모범 답안" });
+
+        expect(submitTextAnswer).toHaveBeenCalledTimes(1);
+        expect(submitTextAnswer).toHaveBeenCalledWith(301, "  첫 줄\n둘째 줄 ");
+        expect(submitAnswer).not.toHaveBeenCalled();
+      });
+
+      it("내 답, 모범 답안, 해설을 함께 보여 주고 입력칸을 비활성으로 둔다", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await submitMyAnswer(user);
+
+        expect(answerBox()).toHaveValue(MY_ANSWER);
+        expect(answerBox()).toBeDisabled();
+        expect(screen.getByText(MODEL_ANSWER)).toBeInTheDocument();
+        expect(screen.getByText(EXPLANATION)).toBeInTheDocument();
+      });
+
+      it("해설이 null이면 해설 없이 모범 답안만 보여 준다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        vi.mocked(submitTextAnswer).mockResolvedValue({
+          modelAnswer: MODEL_ANSWER,
+          explanation: null,
+        });
+
+        await submitMyAnswer(user);
+
+        expect(screen.getByText(MODEL_ANSWER)).toBeInTheDocument();
+        expect(screen.queryByText("해설")).not.toBeInTheDocument();
+      });
+
+      it("자기 채점 전에는 제출과 다음으로 가는 버튼 없이 두 버튼만 보여 준다 (R5)", async () => {
+        const { user } = await startShortAnswerQuiz();
+
+        await submitMyAnswer(user);
+
+        expect(button("맞았어요")).toBeEnabled();
+        expect(button("틀렸어요")).toBeEnabled();
+        expect(queryButton("제출")).not.toBeInTheDocument();
+        expect(queryButton("다음 문제")).not.toBeInTheDocument();
+        expect(queryButton("결과 보기")).not.toBeInTheDocument();
+      });
+    });
+
+    describe("자기 채점 (R5, D9)", () => {
+      it.each(["맞았어요", "틀렸어요"])(
+        "%s를 누르면 바로 다음 문제로 가서 입력칸과 모범 답안을 비운다",
+        async (name) => {
+          const { user } = await startShortAnswerQuiz();
+          await submitMyAnswer(user);
+
+          await user.click(button(name));
+
+          expect(screen.getByText("문제 2 / 2")).toBeInTheDocument();
+          expect(heading("둘째 주관식 문제")).toBeInTheDocument();
+          expect(answerBox()).toHaveValue("");
+          expect(answerBox()).toBeEnabled();
+          expect(button("제출")).toBeDisabled();
+          expect(screen.queryByText(MODEL_ANSWER)).not.toBeInTheDocument();
+        },
+      );
+
+      it("다음 문제의 제출은 그 문제의 id로 요청한다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        await submitMyAnswer(user);
+        await user.click(button("틀렸어요"));
+
+        await submitMyAnswer(user);
+
+        expect(submitTextAnswer).toHaveBeenLastCalledWith(302, MY_ANSWER);
+      });
+
+      it.each([
+        { name: "맞았어요", line: "주관식 1문제 중 1문제 맞음" },
+        { name: "틀렸어요", line: "주관식 1문제 중 0문제 맞음" },
+      ])(
+        "마지막 문제에서 $name를 누르면 바로 점수 화면으로 간다",
+        async ({ name, line }) => {
+          const { user } = await startShortAnswerQuiz([SHORT_ANSWER_QUESTION]);
+          await submitMyAnswer(user);
+
+          await user.click(button(name));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(screen.getByText(line)).toBeInTheDocument();
+          expect(link(LIST_LINK)).toHaveAttribute("href", "/");
+        },
+      );
+    });
+
+    describe("제출 실패 (R7, D6)", () => {
+      it("실패하면 답을 유지한 채 에러를 표시하고 다시 제출할 수 있다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        vi.mocked(submitTextAnswer).mockRejectedValue(new Error("HTTP 500"));
+        await user.type(answerBox(), MY_ANSWER);
+
+        await user.click(button("제출"));
+
+        expect(await screen.findByRole("alert")).toHaveTextContent("실패");
+        expect(answerBox()).toHaveValue(MY_ANSWER);
+        expect(answerBox()).toBeEnabled();
+        expect(button("제출")).toBeEnabled();
+        expect(queryButton("맞았어요")).not.toBeInTheDocument();
+      });
+
+      it("다시 제출해 성공하면 에러가 사라지고 모범 답안을 보여 준다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        vi.mocked(submitTextAnswer)
+          .mockRejectedValueOnce(new Error("HTTP 500"))
+          .mockResolvedValueOnce(REVEAL);
+        await user.type(answerBox(), MY_ANSWER);
+        await user.click(button("제출"));
+        await screen.findByRole("alert");
+
+        await user.click(button("제출"));
+
+        expect(await screen.findByText(MODEL_ANSWER)).toBeInTheDocument();
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(submitTextAnswer).toHaveBeenCalledTimes(2);
+        expect(submitTextAnswer).toHaveBeenLastCalledWith(301, MY_ANSWER);
+      });
+
+      it("실패한 뒤에는 답을 고쳐 제출할 수 있다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        vi.mocked(submitTextAnswer)
+          .mockRejectedValueOnce(new Error("HTTP 400"))
+          .mockResolvedValueOnce(REVEAL);
+        await user.type(answerBox(), MY_ANSWER);
+        await user.click(button("제출"));
+        await screen.findByRole("alert");
+
+        await user.type(answerBox(), " 추가");
+        await user.click(button("제출"));
+        await screen.findByText(MODEL_ANSWER);
+
+        expect(submitTextAnswer).toHaveBeenLastCalledWith(
+          301,
+          `${MY_ANSWER} 추가`,
+        );
+      });
+    });
+
+    describe("더블클릭과 키보드 입력 구분 (D5)", () => {
+      // 더블클릭의 두 번째 클릭이 새로 나타난 버튼에 걸리는 상황은 jsdom의 user-event로 재현되지 않는다
+      // (같은 요소를 두 번 누른다). 그래서 두 번째 클릭에 해당하는 detail 2 클릭을 직접 보낸다.
+      it.each(["맞았어요", "틀렸어요"])(
+        "%s에 걸린 연속 클릭의 두 번째 클릭은 무시한다",
+        async (name) => {
+          const { user } = await startShortAnswerQuiz();
+          await submitMyAnswer(user);
+
+          fireEvent.click(button(name), { detail: 2 });
+
+          expect(screen.getByText("문제 1 / 2")).toBeInTheDocument();
+          expect(screen.getByText(MODEL_ANSWER)).toBeInTheDocument();
+          expect(button(name)).toBeEnabled();
+        },
+      );
+
+      it("제출을 더블클릭해도 모범 답안이 남아 있고 요청은 한 번이다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        await user.type(answerBox(), MY_ANSWER);
+
+        await user.dblClick(button("제출"));
+
+        expect(await screen.findByText(MODEL_ANSWER)).toBeInTheDocument();
+        expect(screen.getByText("문제 1 / 2")).toBeInTheDocument();
+        expect(button("맞았어요")).toBeEnabled();
+        expect(submitTextAnswer).toHaveBeenCalledTimes(1);
+      });
+
+      it("맞았어요를 더블클릭해도 한 문제만 넘어가고 한 번만 센다", async () => {
+        const { user } = await startShortAnswerQuiz();
+        await submitMyAnswer(user);
+
+        await user.dblClick(button("맞았어요"));
+
+        expect(screen.getByText("문제 2 / 2")).toBeInTheDocument();
+        expect(answerBox()).toHaveValue("");
+
+        await submitMyAnswer(user);
+        await user.click(button("틀렸어요"));
+
+        expect(
+          screen.getByText("주관식 2문제 중 1문제 맞음"),
+        ).toBeInTheDocument();
+      });
+
+      it.each([
+        { name: "Enter", keys: "{Enter}" },
+        { name: "Space", keys: " " },
+      ])(
+        "자기 채점 버튼에 포커스를 두고 $name 키를 누르면 다음 문제로 넘어간다",
+        async ({ keys }) => {
+          const { user } = await startShortAnswerQuiz();
+          await submitMyAnswer(user);
+          act(() => button("맞았어요").focus());
+
+          await user.keyboard(keys);
+
+          expect(screen.getByText("문제 2 / 2")).toBeInTheDocument();
+        },
+      );
+    });
+
+    describe("유형이 섞인 카테고리 (R1, R6, D10)", () => {
+      it("객관식 다음 주관식이면 입력칸으로 바뀌고 유형별 점수 줄을 따로 보여 준다", async () => {
+        vi.mocked(getQuestions).mockResolvedValue([
+          MULTIPLE_CHOICE_QUESTION,
+          SHORT_ANSWER_QUESTION,
+        ]);
+        vi.mocked(submitAnswer).mockResolvedValue(wrongAnswer(62));
+        vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+        const { user } = await startQuiz();
+
+        await answer(user, "하나");
+        await user.click(button("다음 문제"));
+
+        expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+        expect(answerBox()).toHaveValue("");
+
+        await submitMyAnswer(user);
+        await user.click(button("맞았어요"));
+
+        expect(heading(SCORE_TITLE)).toBeInTheDocument();
+        expect(
+          screen.getByText("객관식 1문제 중 0문제 정답"),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText("주관식 1문제 중 1문제 맞음"),
+        ).toBeInTheDocument();
+      });
+
+      it("주관식 다음 객관식이면 이전 답이 남지 않아 보기를 고르기 전에는 제출할 수 없다 (D7)", async () => {
+        const { user } = await startShortAnswerQuiz([
+          SHORT_ANSWER_QUESTION,
+          MULTIPLE_CHOICE_QUESTION,
+        ]);
+        vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61));
+        await submitMyAnswer(user);
+
+        await user.click(button("틀렸어요"));
+
+        expect(radioGroup()).toHaveAccessibleName("객관식 문제");
+        expect(checkedRadio()).not.toBeInTheDocument();
+        expect(button("제출")).toBeDisabled();
+
+        await answer(user, "하나");
+        await user.click(button("결과 보기"));
+
+        expect(submitAnswer).toHaveBeenCalledWith(401, 61);
+        expect(
+          screen.getByText("객관식 1문제 중 1문제 정답"),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText("주관식 1문제 중 0문제 맞음"),
+        ).toBeInTheDocument();
+      });
+
+      it("객관식만 있는 카테고리에는 주관식 줄을 표시하지 않는다", async () => {
+        vi.mocked(getQuestions).mockResolvedValue([MULTIPLE_CHOICE_QUESTION]);
+        vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61));
+        const { user } = await startQuiz();
+
+        await answer(user, "하나");
+        await user.click(button("결과 보기"));
+
+        expect(
+          screen.getByText("객관식 1문제 중 1문제 정답"),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/주관식/)).not.toBeInTheDocument();
+      });
+
+      it("주관식만 있는 카테고리에는 객관식 줄을 표시하지 않는다", async () => {
+        const { user } = await startShortAnswerQuiz([SHORT_ANSWER_QUESTION]);
+        await submitMyAnswer(user);
+
+        await user.click(button("맞았어요"));
+
+        expect(
+          screen.getByText("주관식 1문제 중 1문제 맞음"),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/객관식/)).not.toBeInTheDocument();
+      });
+    });
+  });
+
   describe("카테고리 변경 (D9)", () => {
     it("다른 카테고리로 이동하면 첫 문제부터 새로 시작한다", async () => {
       mockQuestionsBySlug();
@@ -716,7 +1148,9 @@ describe("문제 풀이 화면", () => {
       await answer(user, "구름");
       await user.click(button("결과 보기"));
 
-      expect(heading("2문제 중 0문제 정답")).toBeInTheDocument();
+      expect(
+        screen.getByText("객관식 2문제 중 0문제 정답"),
+      ).toBeInTheDocument();
     });
 
     it("응답을 기다리는 중에 이동하면 늦게 온 응답이 새 풀이에 섞이지 않는다", async () => {
