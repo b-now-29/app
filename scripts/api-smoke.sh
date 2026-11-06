@@ -83,19 +83,31 @@ case "$BASE" in
     cookies=$(mktemp)
     trap 'rm -f "$cookies"' EXIT
 
-    check_auth() { # 이름, 기대 상태 코드, 메서드, 경로, JSON 본문(선택). 쿠키 파일을 보내고 갱신한다
+    admin_cookies=$(mktemp)
+    trap 'rm -f "$cookies" "$admin_cookies"' EXIT
+
+    check_with() { # 쿠키 파일, 이름, 기대 상태 코드, 메서드, 경로, JSON 본문(선택). 쿠키 파일을 보내고 갱신한다
       local status
       total=$((total + 1))
-      if [ -n "${5:-}" ]; then
-        status=$(printf '%s' "$5" | curl -s -o /dev/null -w '%{http_code}' -b "$cookies" -c "$cookies" -X "$3" -H 'Content-Type: application/json' -d @- "$BASE$4")
+      if [ -n "${6:-}" ]; then
+        status=$(printf '%s' "$6" | curl -s -o /dev/null -w '%{http_code}' -b "$1" -c "$1" -X "$4" -H 'Content-Type: application/json' -d @- "$BASE$5")
       else
-        status=$(curl -s -o /dev/null -w '%{http_code}' -b "$cookies" -c "$cookies" -X "$3" "$BASE$4")
+        status=$(curl -s -o /dev/null -w '%{http_code}' -b "$1" -c "$1" -X "$4" "$BASE$5")
       fi
-      if [ "$status" = "$2" ]; then
-        echo "OK   $1: $status"
+      if [ "$status" = "$3" ]; then
+        echo "OK   $2: $status"
       else
         failed=$((failed + 1))
-        echo "실패 $1: $status (기대 $2)"
+        echo "실패 $2: $status (기대 $3)"
+      fi
+    }
+    check_auth() { check_with "$cookies" "$@"; }
+    check_admin() { check_with "$admin_cookies" "$@"; }
+    admin_call() { # 메서드, 경로, JSON 본문(선택). 관리자 쿠키로 호출하고 응답 본문을 출력한다
+      if [ -n "${3:-}" ]; then
+        printf '%s' "$3" | curl -s -b "$admin_cookies" -X "$1" -H 'Content-Type: application/json' -d @- "$BASE$2"
+      else
+        curl -s -b "$admin_cookies" -X "$1" "$BASE$2"
       fi
     }
 
@@ -111,7 +123,8 @@ case "$BASE" in
     check_auth "가입" 201 POST /users "$credentials"
     check_auth "가입 후 /users/me" 200 GET /users/me
     me=$(curl -s -b "$cookies" "$BASE/users/me")
-    check_true "/users/me 응답은 id, email만" "$(jq 'keys == ["email","id"]' <<< "$me")"
+    check_true "/users/me 응답은 id, email, role만" "$(jq 'keys == ["email","id","role"]' <<< "$me")"
+    check_true "가입한 회원은 USER" "$(jq '.role == "USER"' <<< "$me")"
     check "대문자만 다른 이메일로 가입" 409 POST /users "{\"email\":\"$(tr '[:lower:]' '[:upper:]' <<< "$email")\",\"password\":\"$password\"}"
 
     check_auth "로그아웃" 204 POST /auth/logout
@@ -155,6 +168,46 @@ case "$BASE" in
     forged_me=$(curl -s -o /dev/null -w '%{http_code}' -b 'access_token=forged' "$BASE/users/me")
     check_true "위조 쿠키로 공개 API는 200" "$([ "$forged_public" = 200 ] && echo true || echo false)"
     check_true "위조 쿠키로 /users/me는 401" "$([ "$forged_me" = 401 ] && echo true || echo false)"
+
+    # 관리자 API: 비회원 401, USER 403, ADMIN만 통과 (관리자 D3, D4). 관리자 계정은 dev 프로필에만 있다
+    check "비로그인 관리자 카테고리 목록" 401 GET /admin/categories
+    check_auth "USER로 관리자 카테고리 목록" 403 GET /admin/categories
+    check_true "403 응답은 ProblemDetail" "$(curl -s -b "$cookies" "$BASE/admin/categories" | jq '.status == 403 and (.detail | type == "string")')"
+
+    check_admin "관리자 로그인" 200 POST /auth/login '{"email":"admin@example.com","password":"admin1234!"}'
+    check_true "관리자 /users/me는 ADMIN" "$(admin_call GET /users/me | jq '.role == "ADMIN"')"
+    check_admin "관리자 카테고리 목록" 200 GET /admin/categories
+
+    smoke_slug="smoke-$(date +%s)-$$"
+    category_body="{\"slug\":\"$smoke_slug\",\"name\":\"스모크\",\"description\":null,\"sortOrder\":999}"
+    check_admin "카테고리 추가" 201 POST /admin/categories "$category_body"
+    check_admin "같은 slug로 추가" 409 POST /admin/categories "$category_body"
+    check_admin "slug 형식 오류" 400 POST /admin/categories '{"slug":"Bad Slug","name":"x","description":null,"sortOrder":0}'
+    check_true "검증 실패 detail은 한글 항목 목록 (D14)" "$(admin_call POST /admin/categories '{"slug":"","name":"","description":null,"sortOrder":0}' | jq '.detail == "입력값이 올바르지 않습니다. (항목: name, slug)"')"
+    check_true "깨진 JSON detail (D14)" "$(admin_call POST /admin/categories '{"slug":' | jq '.detail == "요청 형식이 올바르지 않습니다."')"
+    check_admin "카테고리 수정" 200 PUT "/admin/categories/$smoke_slug" '{"name":"스모크 수정","description":"설명","sortOrder":999}'
+
+    mc_question() { # 보기 JSON 배열
+      echo "{\"categorySlug\":\"$smoke_slug\",\"type\":\"MULTIPLE_CHOICE\",\"content\":\"스모크 문제\",\"explanation\":null,\"modelAnswer\":null,\"sortOrder\":0,\"choices\":$1}"
+    }
+    created=$(admin_call POST /admin/questions "$(mc_question '[{"content":"A","correct":true},{"content":"B","correct":false}]')")
+    smoke_question=$(jq -r '.id' <<< "$created")
+    check_true "문제 추가 응답에 정답 포함 (R8)" "$(jq '[.choices[] | [.content, .correct]] == [["A",true],["B",false]]' <<< "$created")"
+    check_admin "객관식 정답 2개" 400 POST /admin/questions "$(mc_question '[{"content":"A","correct":true},{"content":"B","correct":true}]')"
+    check_admin "주관식 모범 답안 없음" 400 POST /admin/questions "{\"categorySlug\":\"$smoke_slug\",\"type\":\"SHORT_ANSWER\",\"content\":\"q\",\"explanation\":null,\"modelAnswer\":null,\"sortOrder\":0,\"choices\":[]}"
+    check_admin "정답이 바뀌게 보기 교체 (D16)" 200 PUT "/admin/questions/$smoke_question" "$(mc_question '[{"content":"C","correct":false},{"content":"D","correct":true}]')"
+    check_true "교체 후 새 보기만 남고 정답은 D" "$(admin_call GET "/admin/questions/$smoke_question" | jq '[.choices[] | [.content, .correct]] == [["C",false],["D",true]]')"
+    check_true "공개 문제 목록에는 정답 정보 없음" "$(curl -s "$BASE/categories/$smoke_slug/questions" | jq '[.. | objects | keys[]] | unique - ["id","type","content","choices"] == []')"
+
+    check_admin "문제가 남은 카테고리 삭제 (R7)" 409 DELETE "/admin/categories/$smoke_slug"
+    check_admin "문제 삭제" 204 DELETE "/admin/questions/$smoke_question"
+    check_admin "삭제한 문제 관리자 조회" 404 GET "/admin/questions/$smoke_question"
+    check "삭제한 문제에 답 제출 (R6)" 404 POST "/questions/$smoke_question/answers" '{"choiceId":1}'
+    check_true "삭제한 문제는 공개 목록에서 빠짐 (R6)" "$(curl -s "$BASE/categories/$smoke_slug/questions" | jq 'length == 0')"
+    check_admin "카테고리 삭제" 204 DELETE "/admin/categories/$smoke_slug"
+    check "삭제한 카테고리의 공개 문제 목록 (R6)" 404 GET "/categories/$smoke_slug/questions"
+    check_true "삭제한 카테고리는 공개 목록에서 빠짐 (R6)" "$(curl -s "$BASE/categories" | jq --arg s "$smoke_slug" 'map(.slug) | index($s) == null')"
+    check_admin "삭제한 slug 재사용 (D7)" 409 POST /admin/categories "$category_body"
     ;;
   *)
     echo "건너뜀 로그인 검사: 로컬 주소가 아닙니다 ($BASE)"
