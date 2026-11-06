@@ -56,6 +56,6 @@ public class UserService {
     }
 
     private static UserResponse toResponse(User user) {
-        return new UserResponse(user.getId(), user.getEmail());
+        return new UserResponse(user.getId(), user.getEmail(), user.getRole());
     }
 }

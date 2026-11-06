@@ -8,6 +8,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface QuestionAttemptRepository extends JpaRepository<QuestionAttempt, Long> {
 
+    boolean existsByQuestionId(Long questionId);
+
     /** 문제마다 가장 최근 기록(시각이 같으면 id가 큰 것)만 세어 카테고리·유형별로 집계한다. */
     @Query("""
             select new com.b.now._29.app.quiz.attempt.CategoryTypeStat(

@@ -37,6 +37,7 @@ class TestAccountDefaultProfileIntegrationTest {
     void testAccountDoesNotExist() throws Exception {
         assertThat(context.getBeansOfType(TestAccountInitializer.class)).isEmpty();
         assertThat(userRepository.existsByEmail("test@example.com")).isFalse();
+        assertThat(userRepository.existsByEmail("admin@example.com")).isFalse();
 
         mvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

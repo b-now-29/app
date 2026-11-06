@@ -21,4 +21,23 @@ class UserTest {
         assertThat(user.getEmail()).isEqualTo("user@example.com");
         assertThat(user.getPasswordHash()).isEqualTo("hash");
     }
+
+    @Test
+    @DisplayName("새로 만든 사용자의 role은 USER이고 관리자가 아니다 (R1)")
+    void newUserIsUser() {
+        User user = new User("user@example.com", "hash");
+
+        assertThat(user.getRole()).isEqualTo(Role.USER);
+        assertThat(user.isAdmin()).isFalse();
+    }
+
+    @Test
+    @DisplayName("role을 ADMIN으로 만든 사용자는 관리자다 (R9)")
+    void adminUserIsAdmin() {
+        User user = new User("  Admin@Example.COM ", "hash", Role.ADMIN);
+
+        assertThat(user.getEmail()).isEqualTo("admin@example.com");
+        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(user.isAdmin()).isTrue();
+    }
 }

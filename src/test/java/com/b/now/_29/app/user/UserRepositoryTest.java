@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.b.now._29.app.TestcontainersConfiguration;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,9 @@ class UserRepositoryTest {
 
     @Autowired
     UserRepository userRepository;
+
+    @PersistenceContext
+    EntityManager entityManager;
 
     @Test
     @DisplayName("저장한 사용자를 이메일로 찾는다")
@@ -52,5 +57,38 @@ class UserRepositoryTest {
 
         assertThatThrownBy(() -> userRepository.saveAndFlush(duplicate))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("role 컬럼을 role 필드로 읽고 쓴다 (R1, D1)")
+    void mapsRoleColumn() {
+        userRepository.saveAndFlush(new User(EMAIL, HASH));
+        userRepository.saveAndFlush(new User("admin-repository@example.com", HASH, Role.ADMIN));
+        entityManager.clear();
+
+        assertThat(userRepository.findByEmail(EMAIL).orElseThrow().getRole()).isEqualTo(Role.USER);
+        assertThat(userRepository
+                        .findByEmail("admin-repository@example.com")
+                        .orElseThrow()
+                        .getRole())
+                .isEqualTo(Role.ADMIN);
+        assertThat(entityManager
+                        .createNativeQuery("SELECT role FROM users WHERE email = :email")
+                        .setParameter("email", "admin-repository@example.com")
+                        .getSingleResult())
+                .isEqualTo("ADMIN");
+    }
+
+    @Test
+    @DisplayName("role 없이 넣은 기존 회원 행은 USER다 (R1, 마이그레이션 기본값)")
+    void existingRowsDefaultToUser() {
+        entityManager
+                .createNativeQuery("INSERT INTO users (email, password_hash) VALUES (:email, :hash)")
+                .setParameter("email", EMAIL)
+                .setParameter("hash", HASH)
+                .executeUpdate();
+        entityManager.clear();
+
+        assertThat(userRepository.findByEmail(EMAIL).orElseThrow().getRole()).isEqualTo(Role.USER);
     }
 }

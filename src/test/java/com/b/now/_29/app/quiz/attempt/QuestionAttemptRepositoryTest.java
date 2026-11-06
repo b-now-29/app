@@ -282,6 +282,47 @@ class QuestionAttemptRepositoryTest {
         assertThat(isLoaded(found.getFirst().getQuestion(), "category")).isTrue();
     }
 
+    // 삭제한 문제·카테고리 (관리자 R6)
+
+    @Test
+    @DisplayName("문제를 삭제해도 그 문제의 풀이 기록은 최근 풀이 목록과 집계에 그대로 남는다 (관리자 R6, D2)")
+    void keepsAttemptsOfDeletedQuestion() {
+        Category category = saveCategory("attempt-a", "카테고리 A", 1000);
+        Question question = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "삭제할 문제");
+        long id = attempt(me, question, true, BASE);
+        question.delete();
+        questionRepository.saveAndFlush(question);
+        category.delete(0);
+        categoryRepository.saveAndFlush(category);
+        entityManager.clear();
+
+        assertThat(findRecent(me)).singleElement().satisfies(found -> {
+            assertThat(found.getId()).isEqualTo(id);
+            assertThat(found.getQuestion().getContent()).isEqualTo("삭제할 문제");
+            assertThat(found.getQuestion().getCategory().getName()).isEqualTo("카테고리 A");
+        });
+        assertThat(attemptRepository.findCategoryTypeStats(me.getId()))
+                .containsExactly(new CategoryTypeStat("attempt-a", "카테고리 A", 1000, QuestionType.MULTIPLE_CHOICE, 1, 1));
+    }
+
+    // 유형 변경 잠금 (관리자 D17). 구현할 API: boolean existsByQuestionId(Long questionId)
+
+    @Test
+    @DisplayName("누구든 그 문제를 푼 기록이 있으면 existsByQuestionId는 참이고, 다른 문제의 기록은 세지 않는다 (D17)")
+    void existsByQuestionId() {
+        Category category = saveCategory("attempt-a", "카테고리 A", 1000);
+        Question attempted = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "푼 문제");
+        Question untouched = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "안 푼 문제");
+        Question selfGraded = saveQuestion(category, QuestionType.ESSAY, "자기 채점한 서술형");
+        attempt(other, attempted, false, BASE);
+        attempt(me, selfGraded, true, BASE);
+        entityManager.clear();
+
+        assertThat(attemptRepository.existsByQuestionId(attempted.getId())).isTrue();
+        assertThat(attemptRepository.existsByQuestionId(selfGraded.getId())).isTrue();
+        assertThat(attemptRepository.existsByQuestionId(untouched.getId())).isFalse();
+    }
+
     private List<QuestionAttempt> findRecent(User user) {
         return attemptRepository.findTop20ByUserIdOrderByAttemptedAtDescIdDesc(user.getId());
     }
