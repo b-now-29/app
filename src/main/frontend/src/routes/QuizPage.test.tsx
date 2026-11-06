@@ -30,7 +30,11 @@ vi.mock("../api/questions", async (importOriginal) => ({
   submitSelfGrade: vi.fn(),
 }));
 
-const MEMBER: UserResponse = { id: 1, email: "user@example.com" };
+const MEMBER: UserResponse = {
+  id: 1,
+  email: "user@example.com",
+  role: "USER",
+};
 
 // root loader가 돌려줄 현재 사용자. 기본은 비회원이고, 회원 테스트에서만 바꾼다
 let currentUser: UserResponse | null = null;

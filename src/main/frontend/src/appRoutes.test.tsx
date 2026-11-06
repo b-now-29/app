@@ -42,7 +42,7 @@ vi.mock("./api/users", async (importOriginal) => ({
 
 const EMAIL = "user@example.com";
 const PASSWORD = "password1234";
-const USER: UserResponse = { id: 1, email: EMAIL };
+const USER: UserResponse = { id: 1, email: EMAIL, role: "USER" };
 const CATEGORY_NAME = "Java";
 const QUIZ_PATH = "/categories/java";
 const QUESTION_CONTENT = "첫 번째 문제";

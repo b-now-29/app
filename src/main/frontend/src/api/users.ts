@@ -1,6 +1,7 @@
 export type UserResponse = {
   readonly id: number;
   readonly email: string;
+  readonly role: "USER" | "ADMIN";
 };
 
 // 서버가 준 상태 코드(401, 409 등)와 메시지를 화면까지 전달하기 위한 에러
@@ -12,6 +13,13 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
   }
+}
+
+// 화면에 보여 줄 에러 문구. 서버 메시지(ApiError)는 그대로, 그 밖은 기본 문구 (D22)
+export function errorMessage(thrown: unknown): string {
+  return thrown instanceof ApiError
+    ? thrown.message
+    : "요청에 실패했습니다. 다시 시도해 주세요.";
 }
 
 // 실패 응답(ProblemDetail)의 detail을 메시지로 쓰고, 읽을 수 없으면 기본 문구를 쓴다
