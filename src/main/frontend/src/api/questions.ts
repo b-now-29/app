@@ -1,3 +1,5 @@
+import { toApiError } from "./users";
+
 export type ChoiceResponse = {
   readonly id: number;
   readonly content: string;
@@ -21,6 +23,8 @@ export type AnswerResponse = {
   readonly correct: boolean;
   readonly correctChoiceId: number;
   readonly explanation: string | null;
+  // 회원의 풀이 기록으로 저장됐는지. false면 비회원이거나 로그인이 만료된 것이다 (D13)
+  readonly recorded: boolean;
 };
 
 // 없는 카테고리(404)와 서버 장애를 화면에서 다르게 보여 주기 위한 구분용 에러
@@ -55,6 +59,21 @@ export async function submitAnswer(
     throw new Error(`채점 요청 실패: HTTP ${response.status}`);
   }
   return (await response.json()) as AnswerResponse;
+}
+
+// 회원의 자기 채점 결과를 기록으로 저장한다. 화면이 401(로그인 만료)을 따로 처리하므로 상태 코드를 담아 던진다 (D9)
+export async function submitSelfGrade(
+  questionId: number,
+  correct: boolean,
+): Promise<void> {
+  const response = await fetch(`/api/v1/questions/${questionId}/self-grades`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ correct }),
+  });
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
 }
 
 export async function submitTextAnswer(

@@ -40,6 +40,9 @@ export default function RootLayout() {
         </ActionButton>
         {user ? (
           <>
+            <ActionButton asChild variant="ghost" size="small">
+              <Link to="/history">내 기록</Link>
+            </ActionButton>
             <Text textStyle="t4Regular">{user.email}</Text>
             <logoutFetcher.Form method="post">
               <ActionButton type="submit" variant="ghost" size="small">

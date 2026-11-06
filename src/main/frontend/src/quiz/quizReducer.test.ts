@@ -14,11 +14,13 @@ const CORRECT_RESULT: AnswerResponse = {
   correct: true,
   correctChoiceId: CHOICE_ID,
   explanation: "해설",
+  recorded: true,
 };
 const WRONG_RESULT: AnswerResponse = {
   correct: false,
   correctChoiceId: OTHER_CHOICE_ID,
   explanation: null,
+  recorded: true,
 };
 
 const SELECT: QuizAction = { type: "select", choiceId: CHOICE_ID };
@@ -86,6 +88,28 @@ const submittingText = () => run(typed(), SUBMIT_START);
 const failedText = () => run(submittingText(), SUBMIT_FAILURE);
 const revealed = () => run(submittingText(), REVEAL_SUCCESS);
 
+// 회원의 자기 채점 저장 (R2, D9)
+const SAVE_START: QuizAction = { type: "selfGradeSaveStart" };
+const SAVE_FAILURE: QuizAction = { type: "selfGradeSaveFailure" };
+// 401이면 고른 결과를 점수에 넣고 바로 넘어가야 하므로 자기 채점 결과를 함께 싣는다 (D12)
+const saveUnauthorized = (
+  questionType: "SHORT_ANSWER" | "ESSAY",
+  correct: boolean,
+): QuizAction => ({ type: "selfGradeSaveUnauthorized", questionType, correct });
+const SAVE_UNAUTHORIZED = saveUnauthorized("SHORT_ANSWER", true);
+const savingSelfGrade = () => run(revealed(), SAVE_START);
+const saveFailed = () => run(savingSelfGrade(), SAVE_FAILURE);
+// 첫 문제에서 401을 받아 둘째 문제로 넘어온 상태
+const loginExpired = () => run(savingSelfGrade(), SAVE_UNAUTHORIZED);
+// 로그인 만료 뒤 다음 문제에서 모범 답안까지 본 상태
+const revealedAfterLoginExpired = () =>
+  run(loginExpired(), INPUT, SUBMIT_START, REVEAL_SUCCESS);
+
+// 회원인데 객관식 제출 응답이 recorded: false라서 화면이 로그인 만료로 본 경우 (D13)
+const LOGIN_EXPIRED: QuizAction = { type: "loginExpired" };
+// 첫 문제(객관식) 채점 뒤 만료를 감지한 상태
+const gradedLoginExpired = () => run(graded(), LOGIN_EXPIRED);
+
 describe("quizReducer", () => {
   describe("초기 상태", () => {
     it("첫 문제에서 보기를 고르지 않고 답도 쓰지 않은 채 0점으로 시작한다", () => {
@@ -99,6 +123,8 @@ describe("quizReducer", () => {
         reveal: null,
         correctCounts: { MULTIPLE_CHOICE: 0, SHORT_ANSWER: 0, ESSAY: 0 },
         submitFailed: false,
+        selfGradeSaveFailed: false,
+        loginExpiredAt: null,
       });
     });
   });
@@ -324,6 +350,345 @@ describe("quizReducer", () => {
         phase: "finished",
         correctCounts: correctCountsOf({ SHORT_ANSWER: 1, ESSAY: 2 }),
       });
+    });
+  });
+
+  describe("자기 채점 저장 (R2, D9)", () => {
+    const REVEALED_FIRST = {
+      ...noChoice(),
+      phase: "revealed" as const,
+      textAnswer: ANSWER,
+      reveal: REVEAL,
+    };
+
+    describe("selfGradeSaveStart", () => {
+      it("모범 답안 단계에서 저장 중 단계로 가고 답, 공개 내용, 점수를 그대로 둔다", () => {
+        expect(run(revealed(), SAVE_START)).toEqual({
+          ...REVEALED_FIRST,
+          phase: "savingSelfGrade",
+        });
+      });
+
+      it("저장에 실패한 뒤 다시 시도하면 실패 표시를 지우고 저장 중 단계로 간다", () => {
+        expect(run(saveFailed(), SAVE_START)).toEqual({
+          ...REVEALED_FIRST,
+          phase: "savingSelfGrade",
+          selfGradeSaveFailed: false,
+        });
+      });
+    });
+
+    describe("저장 성공 뒤 selfGrade", () => {
+      it.each([
+        {
+          name: "주관식 맞았어요",
+          grade: SHORT_ANSWER_RIGHT,
+          counts: correctCountsOf({ SHORT_ANSWER: 1 }),
+        },
+        {
+          name: "서술형 맞았어요",
+          grade: ESSAY_RIGHT,
+          counts: correctCountsOf({ ESSAY: 1 }),
+        },
+        {
+          name: "주관식 틀렸어요",
+          grade: SHORT_ANSWER_WRONG,
+          counts: correctCountsOf(),
+        },
+      ])(
+        "저장 중 단계에서 받으면 점수를 세고 다음 문제로 간다: $name",
+        ({ grade, counts }) => {
+          expect(run(savingSelfGrade(), grade)).toEqual({
+            ...noChoice(),
+            currentIndex: 1,
+            correctCounts: counts,
+          });
+        },
+      );
+
+      it("마지막 문제에서 저장이 끝나면 끝 단계로 간다", () => {
+        const state = run(
+          createInitialState(1),
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          SAVE_START,
+          ESSAY_RIGHT,
+        );
+
+        expect(state).toMatchObject({
+          phase: "finished",
+          correctCounts: correctCountsOf({ ESSAY: 1 }),
+        });
+      });
+
+      it("저장 성공 뒤 같은 동작이 또 와도 다음 문제의 점수로 세지 않는다", () => {
+        expect(run(savingSelfGrade(), ESSAY_RIGHT, ESSAY_RIGHT)).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+          correctCounts: correctCountsOf({ ESSAY: 1 }),
+        });
+      });
+    });
+
+    describe("selfGradeSaveFailure (통신 오류, 500, 400, 404)", () => {
+      it("모범 답안 단계로 돌아가 답과 공개 내용을 유지하고 실패를 표시하며 점수는 그대로 둔다", () => {
+        expect(run(savingSelfGrade(), SAVE_FAILURE)).toEqual({
+          ...REVEALED_FIRST,
+          selfGradeSaveFailed: true,
+        });
+      });
+
+      it("실패해도 다음 문제로 넘어가지 않는다", () => {
+        expect(saveFailed()).toMatchObject({
+          phase: "revealed",
+          currentIndex: 0,
+        });
+      });
+
+      it("다시 시도해 성공하면 점수를 한 번만 세고 다음 문제에서는 실패 표시가 없다", () => {
+        expect(
+          run(
+            saveFailed(),
+            SAVE_START,
+            SAVE_FAILURE,
+            SAVE_START,
+            SHORT_ANSWER_RIGHT,
+          ),
+        ).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+          correctCounts: correctCountsOf({ SHORT_ANSWER: 1 }),
+        });
+      });
+
+      it("실패 뒤 저장 없이 넘어가는 동작이 와도 다음 문제에 실패 표시를 남기지 않는다", () => {
+        expect(run(saveFailed(), SHORT_ANSWER_WRONG)).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+        });
+      });
+
+      it("저장 실패는 로그인 만료가 아니므로 이후 저장을 막지 않는다", () => {
+        expect(saveFailed().loginExpiredAt).toBeNull();
+        expect(run(saveFailed(), SAVE_START).phase).toBe("savingSelfGrade");
+      });
+    });
+
+    describe("selfGradeSaveUnauthorized (로그인 만료, D12)", () => {
+      it.each([
+        {
+          name: "주관식 맞았어요",
+          action: saveUnauthorized("SHORT_ANSWER", true),
+          counts: correctCountsOf({ SHORT_ANSWER: 1 }),
+        },
+        {
+          name: "서술형 맞았어요",
+          action: saveUnauthorized("ESSAY", true),
+          counts: correctCountsOf({ ESSAY: 1 }),
+        },
+        {
+          name: "서술형 틀렸어요",
+          action: saveUnauthorized("ESSAY", false),
+          counts: correctCountsOf(),
+        },
+      ])(
+        "고른 결과를 점수에 넣고 추가 동작 없이 다음 문제로 넘어가며 401이 난 문제 번호를 기억한다: $name",
+        ({ action, counts }) => {
+          expect(run(savingSelfGrade(), action)).toEqual({
+            ...noChoice(),
+            currentIndex: 1,
+            correctCounts: counts,
+            loginExpiredAt: 0,
+          });
+        },
+      );
+
+      it("앞서 실패 표시가 있었어도 다음 문제에는 남기지 않는다", () => {
+        expect(run(saveFailed(), SAVE_START, SAVE_UNAUTHORIZED)).toEqual({
+          ...noChoice(),
+          currentIndex: 1,
+          correctCounts: correctCountsOf({ SHORT_ANSWER: 1 }),
+          loginExpiredAt: 0,
+        });
+      });
+
+      it("둘째 문제에서 401이 나면 넘어간 뒤에도 401이 난 둘째 문제의 위치를 기억한다 (D13)", () => {
+        const state = run(
+          graded(),
+          NEXT,
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          SAVE_START,
+          SAVE_UNAUTHORIZED,
+        );
+
+        expect(state).toMatchObject({
+          phase: "answering",
+          currentIndex: 2,
+          loginExpiredAt: 1,
+        });
+      });
+
+      it("마지막 문제에서 받으면 점수를 넣고 끝 단계로 간다", () => {
+        const state = run(
+          createInitialState(1),
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          SAVE_START,
+          saveUnauthorized("ESSAY", false),
+        );
+
+        expect(state).toMatchObject({
+          phase: "finished",
+          correctCounts: correctCountsOf(),
+          loginExpiredAt: 0,
+        });
+      });
+
+      it("넘어간 뒤 같은 응답이 또 와도 다음 문제의 점수로 세지 않는다", () => {
+        expect(run(loginExpired(), SAVE_UNAUTHORIZED)).toEqual(loginExpired());
+      });
+
+      it("로그인 만료는 문제가 바뀌어도 그 퀴즈 끝까지 유지된다", () => {
+        expect(revealedAfterLoginExpired()).toMatchObject({
+          phase: "revealed",
+          currentIndex: 1,
+          loginExpiredAt: 0,
+        });
+
+        const state = run(revealedAfterLoginExpired(), SHORT_ANSWER_WRONG);
+
+        expect(state).toMatchObject({
+          phase: "answering",
+          currentIndex: 2,
+          loginExpiredAt: 0,
+          correctCounts: correctCountsOf({ SHORT_ANSWER: 1 }),
+        });
+
+        const lastQuestion = run(
+          state,
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          ESSAY_RIGHT,
+        );
+
+        expect(lastQuestion).toMatchObject({
+          phase: "finished",
+          loginExpiredAt: 0,
+          correctCounts: correctCountsOf({ SHORT_ANSWER: 1, ESSAY: 1 }),
+        });
+      });
+
+      it("객관식 문제를 거쳐도 로그인 만료가 유지된다", () => {
+        const state = run(
+          createInitialState(3),
+          INPUT,
+          SUBMIT_START,
+          REVEAL_SUCCESS,
+          SAVE_START,
+          SAVE_UNAUTHORIZED,
+          SELECT,
+          SUBMIT_START,
+          SUBMIT_CORRECT,
+          NEXT,
+        );
+
+        expect(state).toMatchObject({
+          phase: "answering",
+          currentIndex: 2,
+          loginExpiredAt: 0,
+        });
+      });
+
+      it("이미 로그인 만료를 감지했으면 뒤 문제의 객관식 만료 감지로 번호가 바뀌지 않는다 (D13)", () => {
+        const gradedAfterLoginExpired = run(
+          loginExpired(),
+          SELECT,
+          SUBMIT_START,
+          SUBMIT_CORRECT,
+        );
+
+        expect(gradedAfterLoginExpired).toMatchObject({
+          phase: "graded",
+          currentIndex: 1,
+          loginExpiredAt: 0,
+        });
+        expect(run(gradedAfterLoginExpired, LOGIN_EXPIRED)).toEqual(
+          gradedAfterLoginExpired,
+        );
+      });
+    });
+  });
+
+  describe("loginExpired (객관식 recorded: false, D13)", () => {
+    it("객관식 채점 단계에서 받으면 채점 결과와 점수를 그대로 두고 그 문제의 위치를 기억한다", () => {
+      expect(run(graded(), LOGIN_EXPIRED)).toEqual({
+        ...graded(),
+        loginExpiredAt: 0,
+      });
+    });
+
+    it("둘째 문제에서 받으면 둘째 문제의 위치를 기억한다", () => {
+      const secondGraded = run(
+        graded(),
+        NEXT,
+        SELECT,
+        SUBMIT_START,
+        SUBMIT_WRONG,
+      );
+
+      expect(run(secondGraded, LOGIN_EXPIRED)).toEqual({
+        ...secondGraded,
+        loginExpiredAt: 1,
+      });
+    });
+
+    it("다음 문제로 넘어가도 위치가 유지된다", () => {
+      expect(run(gradedLoginExpired(), NEXT)).toMatchObject({
+        phase: "answering",
+        currentIndex: 1,
+        loginExpiredAt: 0,
+      });
+    });
+
+    it("이후 주관식·서술형에서는 자기 채점 저장을 시작하지 않는다", () => {
+      const revealedNext = run(
+        gradedLoginExpired(),
+        NEXT,
+        INPUT,
+        SUBMIT_START,
+        REVEAL_SUCCESS,
+      );
+
+      expect(revealedNext.phase).toBe("revealed");
+      expect(run(revealedNext, SAVE_START)).toEqual(revealedNext);
+    });
+
+    it("마지막 문제에서 받으면 끝 단계까지 위치가 유지된다", () => {
+      const state = run(
+        createInitialState(1),
+        SELECT,
+        SUBMIT_START,
+        SUBMIT_CORRECT,
+        LOGIN_EXPIRED,
+        NEXT,
+      );
+
+      expect(state).toMatchObject({
+        phase: "finished",
+        loginExpiredAt: 0,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
+      });
+    });
+
+    it("같은 문제에서 또 받아도 그대로다", () => {
+      expect(run(gradedLoginExpired(), LOGIN_EXPIRED)).toEqual(
+        gradedLoginExpired(),
+      );
     });
   });
 
@@ -755,6 +1120,170 @@ describe("quizReducer", () => {
         phase: "finished",
         from: finished,
         action: ESSAY_RIGHT,
+      },
+      // 자기 채점 저장 (R2, R3, D9)
+      {
+        name: "저장 중에는 다시 저장을 시작하지 않는다 (연속 클릭으로 중복 저장 방지, R3)",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: SAVE_START,
+      },
+      {
+        name: "저장 중에는 답을 고칠 수 없다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: inputText(OTHER_ANSWER),
+      },
+      {
+        name: "저장 중에는 보기를 고를 수 없다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: SELECT,
+      },
+      {
+        name: "저장 중에는 다시 제출할 수 없다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: SUBMIT_START,
+      },
+      {
+        name: "저장 중에는 다음으로 갈 수 없다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: NEXT,
+      },
+      {
+        name: "저장 중의 공개 응답은 무시한다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: REVEAL_SUCCESS,
+      },
+      {
+        name: "저장 중의 채점 응답으로 점수가 오르지 않는다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: SUBMIT_CORRECT,
+      },
+      {
+        name: "저장 중의 답 제출 실패 응답은 무시한다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: SUBMIT_FAILURE,
+      },
+      {
+        name: "저장을 시작하지 않았을 때의 저장 실패 응답은 무시한다",
+        phase: "revealed",
+        from: revealed,
+        action: SAVE_FAILURE,
+      },
+      {
+        name: "저장을 시작하지 않았을 때의 로그인 만료 응답은 무시한다",
+        phase: "revealed",
+        from: revealed,
+        action: SAVE_UNAUTHORIZED,
+      },
+      {
+        name: "실패를 표시한 뒤 늦게 온 실패 응답은 무시한다",
+        phase: "revealed",
+        from: saveFailed,
+        action: SAVE_FAILURE,
+      },
+      {
+        name: "로그인 만료로 넘어간 다음 문제에서 답을 쓰기 전에는 저장을 시작하지 않는다",
+        phase: "answering",
+        from: loginExpired,
+        action: SAVE_START,
+      },
+      {
+        name: "모범 답안 단계의 로그인 만료 응답은 저장을 시작하지 않았으므로 무시한다",
+        phase: "revealed",
+        from: revealedAfterLoginExpired,
+        action: SAVE_UNAUTHORIZED,
+      },
+      {
+        name: "로그인 만료 뒤 다음 문제에서도 저장을 시작하지 않는다",
+        phase: "revealed",
+        from: revealedAfterLoginExpired,
+        action: SAVE_START,
+      },
+      {
+        name: "모범 답안을 보기 전에는 저장을 시작할 수 없다",
+        phase: "answering",
+        from: typed,
+        action: SAVE_START,
+      },
+      {
+        name: "답 제출 중에는 저장을 시작할 수 없다",
+        phase: "submitting",
+        from: submittingText,
+        action: SAVE_START,
+      },
+      {
+        name: "객관식 채점 뒤에는 자기 채점 저장을 시작할 수 없다",
+        phase: "graded",
+        from: graded,
+        action: SAVE_START,
+      },
+      {
+        name: "객관식 채점 뒤의 저장 실패 응답은 무시한다",
+        phase: "graded",
+        from: graded,
+        action: SAVE_FAILURE,
+      },
+      {
+        name: "끝난 뒤에는 저장을 시작할 수 없다",
+        phase: "finished",
+        from: finished,
+        action: SAVE_START,
+      },
+      {
+        name: "끝난 뒤의 저장 실패 응답은 무시한다",
+        phase: "finished",
+        from: finished,
+        action: SAVE_FAILURE,
+      },
+      {
+        name: "끝난 뒤의 로그인 만료 응답은 무시한다",
+        phase: "finished",
+        from: finished,
+        action: SAVE_UNAUTHORIZED,
+      },
+      {
+        name: "다음 문제로 넘어간 뒤 늦게 온 저장 실패 응답은 무시한다",
+        phase: "answering",
+        from: () => run(savingSelfGrade(), SHORT_ANSWER_RIGHT),
+        action: SAVE_FAILURE,
+      },
+      // 객관식 로그인 만료 감지는 채점 직후에만 받는다 (D13)
+      {
+        name: "채점 전에는 객관식 로그인 만료를 받지 않는다",
+        phase: "answering",
+        from: chosen,
+        action: LOGIN_EXPIRED,
+      },
+      {
+        name: "제출 중에는 객관식 로그인 만료를 받지 않는다",
+        phase: "submitting",
+        from: submitting,
+        action: LOGIN_EXPIRED,
+      },
+      {
+        name: "모범 답안 단계에서는 객관식 로그인 만료를 받지 않는다",
+        phase: "revealed",
+        from: revealed,
+        action: LOGIN_EXPIRED,
+      },
+      {
+        name: "자기 채점 저장 중에는 객관식 로그인 만료를 받지 않는다",
+        phase: "savingSelfGrade",
+        from: savingSelfGrade,
+        action: LOGIN_EXPIRED,
+      },
+      {
+        name: "끝난 뒤에는 객관식 로그인 만료를 받지 않는다",
+        phase: "finished",
+        from: finished,
+        action: LOGIN_EXPIRED,
       },
     ];
 
