@@ -3,8 +3,10 @@ import {
   getQuestions,
   NotFoundError,
   submitAnswer,
+  submitSelfGrade,
   submitTextAnswer,
 } from "./questions";
+import { ApiError } from "./users";
 import type {
   AnswerResponse,
   QuestionResponse,
@@ -89,6 +91,7 @@ describe("submitAnswer", () => {
     correct: false,
     correctChoiceId: 11,
     explanation: null,
+    recorded: false,
   };
 
   it("고른 보기를 해당 문제의 채점 주소에 JSON POST로 보낸다", async () => {
@@ -107,6 +110,14 @@ describe("submitAnswer", () => {
     fetchMock.mockResolvedValue(jsonResponse(answer));
 
     await expect(submitAnswer(7, 10)).resolves.toEqual(answer);
+  });
+
+  it("기록 저장 여부 recorded를 그대로 돌려준다 (D13)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...answer, recorded: true }));
+
+    await expect(submitAnswer(7, 10)).resolves.toMatchObject({
+      recorded: true,
+    });
   });
 
   it.each([400, 404, 500])("%i 응답이면 예외를 던진다 (R7)", async (status) => {
@@ -156,5 +167,52 @@ describe("submitTextAnswer", () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
 
     await expect(submitTextAnswer(7, "답")).rejects.toThrow();
+  });
+});
+
+describe("submitSelfGrade", () => {
+  it.each([true, false])(
+    "자기 채점 결과 %s를 해당 문제의 self-grades 주소에 JSON POST로 보낸다 (R2)",
+    async (correct) => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+      await submitSelfGrade(7, correct);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/questions/7/self-grades",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ correct }),
+        },
+      );
+    },
+  );
+
+  it("204 응답이면 본문 없이 끝난다", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(submitSelfGrade(7, true)).resolves.toBeUndefined();
+  });
+
+  // 화면이 401(로그인 만료)과 그 밖의 실패를 다르게 처리하므로 상태 코드를 담아 던진다 (D9)
+  it.each([400, 401, 404, 500])(
+    "%i 응답이면 상태 코드를 담은 ApiError를 던진다 (D9)",
+    async (status) => {
+      fetchMock.mockResolvedValue(problemResponse(status));
+
+      const error: unknown = await submitSelfGrade(7, true).catch(
+        (thrown: unknown) => thrown,
+      );
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status });
+    },
+  );
+
+  it("네트워크 실패면 예외를 던진다 (D9)", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(submitSelfGrade(7, true)).rejects.toThrow();
   });
 });

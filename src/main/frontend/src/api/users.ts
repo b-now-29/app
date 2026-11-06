@@ -15,7 +15,7 @@ export class ApiError extends Error {
 }
 
 // 실패 응답(ProblemDetail)의 detail을 메시지로 쓰고, 읽을 수 없으면 기본 문구를 쓴다
-async function toApiError(response: Response): Promise<ApiError> {
+export async function toApiError(response: Response): Promise<ApiError> {
   const fallback = `요청에 실패했습니다. (HTTP ${response.status})`;
   const body: unknown = await response.json().catch(() => null);
   if (typeof body === "object" && body !== null && "detail" in body) {

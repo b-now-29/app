@@ -6,6 +6,8 @@ import ErrorPage from "./routes/ErrorPage";
 import QuizPage from "./routes/QuizPage";
 import QuizErrorPage from "./routes/QuizErrorPage";
 import { quizLoader } from "./routes/quizLoader";
+import HistoryPage from "./routes/HistoryPage";
+import { historyLoader } from "./routes/historyLoader";
 import AboutPage from "./routes/AboutPage";
 import NotFoundPage from "./routes/NotFoundPage";
 import LoginPage from "./routes/LoginPage";
@@ -51,6 +53,13 @@ export const appRoutes: RouteObject[] = [
         loader: quizLoader,
         shouldRevalidate: skipAfterLogout,
         ErrorBoundary: QuizErrorPage,
+      },
+      {
+        // skipAfterLogout을 붙이지 않는다. 로그아웃 뒤 loader가 다시 실행되어 401로 /login에 간다
+        path: "history",
+        Component: HistoryPage,
+        loader: historyLoader,
+        ErrorBoundary: ErrorPage,
       },
       { path: "login", Component: LoginPage, action: loginAction },
       { path: "signup", Component: SignUpPage, action: signUpAction },

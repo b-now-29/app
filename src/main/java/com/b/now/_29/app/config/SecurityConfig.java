@@ -12,6 +12,7 @@ import java.net.URI;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -31,7 +32,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * {@code /api/v1/users/me}만 인증을 요구하고 나머지는 모두 허용한다 (D4).
+ * {@code /api/v1/users/me}와 그 하위 경로, 자기 채점 저장만 인증을 요구하고 나머지는 모두 허용한다 (D4).
  *
  * <p>토큰 검증은 직접 만든 필터로 한다. 잘못된 토큰은 거부하지 않고 비회원으로 처리한다 (D3).
  */
@@ -45,7 +46,9 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, TokenService tokenService, JsonMapper jsonMapper) {
-        http.authorizeHttpRequests(auth -> auth.requestMatchers("/api/v1/users/me")
+        http.authorizeHttpRequests(auth -> auth.requestMatchers("/api/v1/users/me", "/api/v1/users/me/**")
+                        .authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/questions/*/self-grades")
                         .authenticated()
                         .anyRequest()
                         .permitAll())

@@ -57,6 +57,7 @@ essay=$(type_id ESSAY)
 long_5000=$(printf '가%.0s' $(seq 1 5000))
 
 check "객관식 제출" 200 POST "/questions/$mc/answers" "{\"choiceId\":$mc_choice}"
+check_true "비회원 객관식 제출은 recorded=false" "$(curl -s -H 'Content-Type: application/json' -d "{\"choiceId\":$mc_choice}" "$BASE/questions/$mc/answers" | jq '.recorded == false')"
 check "객관식 choiceId 누락" 400 POST "/questions/$mc/answers" '{}'
 check "객관식에 text-answers" 400 POST "/questions/$mc/text-answers" '{"answer":"내 답"}'
 check "없는 문제에 text-answers" 404 POST /questions/999999/text-answers '{"answer":"내 답"}'
@@ -70,6 +71,11 @@ for pair in "주관식:$short" "서술형:$essay"; do
   check "$name 공백만" 400 POST "/questions/$id/text-answers" '{"answer":"   "}'
   check "$name에 answers" 400 POST "/questions/$id/answers" '{"choiceId":1}'
 done
+
+# 풀이 기록: 비회원은 저장·조회 모두 401
+check "비로그인 자기 채점" 401 POST "/questions/$short/self-grades" '{"correct":true}'
+check "비로그인 정답률" 401 GET /users/me/category-stats
+check "비로그인 최근 풀이" 401 GET /users/me/attempts
 
 # 로그인: 가입 검사는 계정을 만들고 테스트 계정은 dev 프로필에만 있으므로 로컬에서만 실행한다
 case "$BASE" in
@@ -117,6 +123,25 @@ case "$BASE" in
 
     check_auth "로그인" 200 POST /auth/login "$credentials"
     check_auth "로그인 후 /users/me" 200 GET /users/me
+
+    # 풀이 기록: 새로 가입한 계정이라 기록이 비어 있다. 비회원으로 제출한 객관식도 남지 않는다
+    check_true "새 회원의 최근 풀이는 빈 목록" "$(curl -s -b "$cookies" "$BASE/users/me/attempts" | jq '. == []')"
+    check_true "새 회원의 정답률은 빈 목록" "$(curl -s -b "$cookies" "$BASE/users/me/category-stats" | jq '. == []')"
+    check_true "회원 객관식 제출은 recorded=true" "$(curl -s -b "$cookies" -H 'Content-Type: application/json' -d "{\"choiceId\":$mc_choice}" "$BASE/questions/$mc/answers" | jq '.recorded == true')"
+    check_auth "주관식 자기 채점 (맞음)" 204 POST "/questions/$short/self-grades" '{"correct":true}'
+    check_auth "서술형 자기 채점 (틀림)" 204 POST "/questions/$essay/self-grades" '{"correct":false}'
+    check_auth "객관식에 자기 채점" 400 POST "/questions/$mc/self-grades" '{"correct":true}'
+    check_auth "자기 채점 correct 누락" 400 POST "/questions/$short/self-grades" '{}'
+    check_auth "없는 문제에 자기 채점" 404 POST /questions/999999/self-grades '{"correct":true}'
+    attempts=$(curl -s -b "$cookies" "$BASE/users/me/attempts")
+    stats=$(curl -s -b "$cookies" "$BASE/users/me/category-stats")
+    check_true "최근 풀이 3건, 최신순" "$(jq --argjson e "$essay" --argjson s "$short" --argjson m "$mc" '[.[].questionId] == [$e, $s, $m]' <<< "$attempts")"
+    check_true "최근 풀이 응답에 정답 정보 없음" "$(jq '[.[] | keys] | unique == [["attemptedAt","categoryName","correct","id","questionContent","questionId","questionType"]]' <<< "$attempts")"
+    check_true "정답률은 유형별, 객관식·주관식·서술형 순" "$(jq '[.[] | select(.slug == "java") | .types[] | .type] == ["MULTIPLE_CHOICE","SHORT_ANSWER","ESSAY"]' <<< "$stats")"
+    check_true "정답률 자기 채점 반영" "$(jq '[.[] | select(.slug == "java") | .types[] | select(.type != "MULTIPLE_CHOICE") | [.solvedQuestions, .correctQuestions]] == [[1,1],[1,0]]' <<< "$stats")"
+    forged_self_grade=$(curl -s -o /dev/null -w '%{http_code}' -b 'access_token=forged' -H 'Content-Type: application/json' -d '{"correct":true}' "$BASE/questions/$short/self-grades")
+    check_true "위조 쿠키로 자기 채점은 401" "$([ "$forged_self_grade" = 401 ] && echo true || echo false)"
+
     check "테스트 계정 로그인" 200 POST /auth/login '{"email":"test@example.com","password":"test1234!"}'
 
     wrong_password=$(curl -s -H 'Content-Type: application/json' -d "{\"email\":\"$email\",\"password\":\"wrong-password\"}" "$BASE/auth/login")
