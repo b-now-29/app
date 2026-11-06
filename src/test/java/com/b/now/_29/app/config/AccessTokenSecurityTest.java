@@ -15,6 +15,7 @@ import com.b.now._29.app.controller.PingController;
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
 import com.b.now._29.app.user.AuthController;
+import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.UserController;
 import com.b.now._29.app.user.UserNotFoundException;
 import com.b.now._29.app.user.UserResponse;
@@ -87,7 +88,7 @@ class AccessTokenSecurityTest {
     @MethodSource("invalidTokens")
     @DisplayName("잘못된 쿠키가 남아 있어도 다시 로그인할 수 있다 (R9)")
     void loginWorksWithInvalidCookie(String description, String token) throws Exception {
-        given(userService.login(EMAIL, "password1234")).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.login(EMAIL, "password1234")).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         mvc.perform(post("/api/v1/auth/login")
                         .cookie(accessToken(token))
@@ -112,7 +113,7 @@ class AccessTokenSecurityTest {
     @Test
     @DisplayName("유효한 쿠키면 /users/me는 200이고 토큰의 sub로 사용자를 찾는다 (R6, D2)")
     void meWithValidCookie() throws Exception {
-        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         mvc.perform(get(ME).cookie(accessToken(TestJwts.valid(USER_ID))))
                 .andExpect(status().isOk())
@@ -157,7 +158,7 @@ class AccessTokenSecurityTest {
     @Test
     @DisplayName("세션을 만들지 않는다 (D5)")
     void doesNotCreateSession() throws Exception {
-        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         MvcResult result = mvc.perform(get(ME).cookie(accessToken(TestJwts.valid(USER_ID))))
                 .andExpect(status().isOk())

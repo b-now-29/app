@@ -4,7 +4,11 @@ import type { UserResponse } from "./users";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 
-const USER: UserResponse = { id: 1, email: "user@example.com" };
+const USER: UserResponse = {
+  id: 1,
+  email: "user@example.com",
+  role: "USER",
+};
 const EMAIL = "user@example.com";
 const PASSWORD = "password1234";
 

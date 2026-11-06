@@ -2,11 +2,14 @@ package com.b.now._29.app.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.support.SetCookieHeader;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -55,9 +58,33 @@ class TestAccountDevProfileIntegrationTest {
         login().andExpect(status().isOk());
     }
 
+    @Test
+    @DisplayName("dev 프로필의 관리자 테스트 계정은 관리자 API를 쓸 수 있고, 기존 테스트 계정은 USER라 403이다 (R9, D9)")
+    void adminTestAccountCanUseAdminApi() throws Exception {
+        MvcResult admin = login("admin@example.com", "admin1234!")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andReturn();
+        MvcResult user = login().andExpect(status().isOk()).andReturn();
+
+        mvc.perform(get("/api/v1/admin/categories").cookie(cookieFrom(admin))).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/admin/categories").cookie(cookieFrom(user))).andExpect(status().isForbidden());
+        assertThat(userRepository.findByEmail("test@example.com").orElseThrow().getRole())
+                .isEqualTo(Role.USER);
+    }
+
     private ResultActions login() throws Exception {
+        return login("test@example.com", "test1234!");
+    }
+
+    private ResultActions login(String email, String password) throws Exception {
         return mvc.perform(post("/api/v1/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\": \"test@example.com\", \"password\": \"test1234!\"}"));
+                .content("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(email, password)));
+    }
+
+    private static Cookie cookieFrom(MvcResult result) {
+        SetCookieHeader header = SetCookieHeader.from(result);
+        return new Cookie(header.name(), header.value());
     }
 }

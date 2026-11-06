@@ -312,6 +312,152 @@ class QuestionRepositoryTest {
                 .hasMessageContaining("uq_choice_one_correct");
     }
 
+    // 관리자 기능: soft delete (R6, D2)와 수정 (D6)
+
+    @Test
+    @DisplayName("공개 문제 목록은 삭제한 문제를 뺀다 (R6)")
+    void questionListExcludesDeletedQuestion() {
+        Category category = saveCategory(SLUG);
+        saveQuestion(category, "남은 문제", 10);
+        deleteQuestion(saveQuestion(category, "삭제한 문제", 20));
+        entityManager.clear();
+
+        assertThat(findAllTypes(SLUG)).extracting(Question::getContent).containsExactly("남은 문제");
+    }
+
+    @Test
+    @DisplayName("보기와 함께 단건 조회하면 삭제한 문제는 빈 Optional이다 (R6)")
+    void findWithChoicesByIdExcludesDeletedQuestion() {
+        Long id = deleteQuestion(saveQuestion(saveCategory(SLUG), "삭제한 문제", 10));
+        entityManager.clear();
+
+        assertThat(questionRepository.findWithChoicesById(id)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByIdAndDeletedAtIsNull은 남은 문제만 찾는다 (R6: 모범 답안·자기 채점)")
+    void findsOnlyActiveQuestionById() {
+        Category category = saveCategory(SLUG);
+        Long active = saveQuestion(category, "남은 문제", 10).getId();
+        Long deleted = deleteQuestion(saveQuestion(category, "삭제한 문제", 20));
+        entityManager.clear();
+
+        assertThat(questionRepository.findByIdAndDeletedAtIsNull(active)).isPresent();
+        assertThat(questionRepository.findByIdAndDeletedAtIsNull(deleted)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("countByCategoryAndDeletedAtIsNull은 삭제 안 된 문제만 센다 (R7)")
+    void countsOnlyActiveQuestionsOfCategory() {
+        Category category = saveCategory(SLUG);
+        saveQuestion(category, "남은 문제 1", 10);
+        saveQuestion(category, "남은 문제 2", 20);
+        deleteQuestion(saveQuestion(category, "삭제한 문제", 30));
+        saveQuestion(saveCategory(OTHER_SLUG), "다른 카테고리 문제", 10);
+
+        assertThat(questionRepository.countByCategoryAndDeletedAtIsNull(category))
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("삭제하면 deleted_at에 시각이 들어가고 행은 남는다 (D2)")
+    void mapsDeletedAtColumn() {
+        Long id = deleteQuestion(saveQuestion(saveCategory(SLUG), "삭제한 문제", 10));
+        entityManager.clear();
+
+        Object deletedAt = entityManager
+                .createNativeQuery("SELECT deleted_at FROM question WHERE id = :id")
+                .setParameter("id", id)
+                .getSingleResult();
+        assertThat(deletedAt).isNotNull();
+        assertThat(questionRepository.findById(id))
+                .hasValueSatisfying(found -> assertThat(found.isDeleted()).isTrue());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SHORT_ANSWER", "ESSAY"})
+    @DisplayName("팩토리로 만든 주관식·서술형은 모범 답안 제약을 지켜 저장되고 model_answer를 읽는다 (R5)")
+    void savesTextQuestionCreatedByFactory(String type) {
+        Question question = questionRepository.saveAndFlush(Question.create(
+                saveCategory(SLUG), new QuestionDraft(QuestionType.valueOf(type), "문제", "해설", "모범 답안", 10, List.of())));
+        entityManager.clear();
+
+        Question found =
+                questionRepository.findWithChoicesById(question.getId()).orElseThrow();
+        assertThat(found.getModelAnswer()).isEqualTo("모범 답안");
+        assertThat(found.getExplanation()).isEqualTo("해설");
+        assertThat(found.getChoices()).isEmpty();
+    }
+
+    // 보기를 통째로 바꿀 때 새 정답 INSERT가 옛 정답 DELETE보다 먼저 나가면 uq_choice_one_correct에 걸린다
+    @Test
+    @DisplayName("정답이 바뀌도록 보기를 통째로 교체해도 제약 위반 없이 저장되고 새 보기만 남는다 (D6)")
+    void replacesChoicesWithDifferentCorrectChoice() {
+        Category category = saveCategory(SLUG);
+        Question question = questionRepository.saveAndFlush(Question.create(
+                category,
+                new QuestionDraft(
+                        QuestionType.MULTIPLE_CHOICE,
+                        "문제",
+                        null,
+                        null,
+                        10,
+                        List.of(new ChoiceDraft("옛 정답", true), new ChoiceDraft("옛 오답", false)))));
+        entityManager.clear();
+
+        Question loaded =
+                questionRepository.findWithChoicesById(question.getId()).orElseThrow();
+        // AdminQuestionService.update와 같은 순서 (D16): 옛 보기 DELETE를 먼저 반영해야 uq_choice_one_correct를 어기지 않는다
+        loaded.clearChoices();
+        questionRepository.flush();
+        loaded.update(
+                category,
+                new QuestionDraft(
+                        QuestionType.MULTIPLE_CHOICE,
+                        "문제",
+                        null,
+                        null,
+                        10,
+                        List.of(new ChoiceDraft("새 오답", false), new ChoiceDraft("새 정답", true))));
+        questionRepository.saveAndFlush(loaded);
+        entityManager.clear();
+
+        assertThat(questionRepository
+                        .findWithChoicesById(question.getId())
+                        .orElseThrow()
+                        .getChoices())
+                .extracting(Choice::getContent, Choice::isCorrect)
+                .containsExactly(tuple("새 오답", false), tuple("새 정답", true));
+        assertThat(entityManager
+                        .createNativeQuery("SELECT count(*) FROM choice WHERE question_id = :id")
+                        .setParameter("id", question.getId())
+                        .getSingleResult())
+                .isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("객관식을 서술형으로 바꾸면 보기 행이 지워지고 모범 답안이 저장된다 (D6)")
+    void changesTypeAndRemovesChoiceRows() {
+        Category category = saveCategory(SLUG);
+        Long id = saveQuestion(category, "객관식", 10).getId();
+        entityManager.clear();
+
+        Question loaded = questionRepository.findWithChoicesById(id).orElseThrow();
+        loaded.update(category, new QuestionDraft(QuestionType.ESSAY, "서술형", null, "모범 답안", 10, List.of()));
+        questionRepository.saveAndFlush(loaded);
+        entityManager.clear();
+
+        Question found = questionRepository.findWithChoicesById(id).orElseThrow();
+        assertThat(found.getType()).isEqualTo(QuestionType.ESSAY);
+        assertThat(found.getChoices()).isEmpty();
+        assertThat(found.getModelAnswer()).isEqualTo("모범 답안");
+    }
+
+    private Long deleteQuestion(Question question) {
+        question.delete();
+        return questionRepository.saveAndFlush(question).getId();
+    }
+
     private List<Question> findMultipleChoice(String slug) {
         return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(
                 slug, List.of(QuestionType.MULTIPLE_CHOICE));

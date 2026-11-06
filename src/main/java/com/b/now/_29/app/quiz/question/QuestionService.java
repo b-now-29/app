@@ -34,7 +34,7 @@ public class QuestionService {
     }
 
     public List<QuestionResponse> getQuestions(String slug) {
-        if (!categoryRepository.existsBySlug(slug)) {
+        if (!categoryRepository.existsBySlugAndDeletedAtIsNull(slug)) {
             throw new CategoryNotFoundException(slug);
         }
         return questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(slug, SOLVABLE_TYPES).stream()
@@ -59,15 +59,17 @@ public class QuestionService {
 
     @Transactional
     public void selfGrade(long questionId, boolean correct, long userId) {
-        Question question =
-                questionRepository.findById(questionId).orElseThrow(() -> new QuestionNotFoundException(questionId));
+        Question question = questionRepository
+                .findByIdAndDeletedAtIsNull(questionId)
+                .orElseThrow(() -> new QuestionNotFoundException(questionId));
         questionAttemptRepository.save(
                 QuestionAttempt.selfGraded(userRepository.getReferenceById(userId), question, correct));
     }
 
     public TextAnswerResponse submitTextAnswer(long questionId) {
-        Question question =
-                questionRepository.findById(questionId).orElseThrow(() -> new QuestionNotFoundException(questionId));
+        Question question = questionRepository
+                .findByIdAndDeletedAtIsNull(questionId)
+                .orElseThrow(() -> new QuestionNotFoundException(questionId));
         return TextAnswerResponse.from(question.revealModelAnswer());
     }
 }

@@ -1,8 +1,12 @@
 package com.b.now._29.app.config;
 
+import com.b.now._29.app.quiz.category.CategoryNotEmptyException;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
+import com.b.now._29.app.quiz.category.DuplicateCategorySlugException;
 import com.b.now._29.app.quiz.question.InvalidChoiceException;
+import com.b.now._29.app.quiz.question.InvalidQuestionException;
 import com.b.now._29.app.quiz.question.QuestionNotFoundException;
+import com.b.now._29.app.quiz.question.QuestionTypeChangeNotAllowedException;
 import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
 import com.b.now._29.app.user.DuplicateEmailException;
 import com.b.now._29.app.user.InvalidCredentialsException;
@@ -10,12 +14,14 @@ import com.b.now._29.app.user.UserNotFoundException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -36,7 +42,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     }
 
-    @ExceptionHandler({InvalidChoiceException.class, UnsupportedAnswerTypeException.class})
+    @ExceptionHandler({
+        InvalidChoiceException.class,
+        UnsupportedAnswerTypeException.class,
+        InvalidQuestionException.class
+    })
     public ProblemDetail handleBadRequest(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
     }
@@ -46,27 +56,36 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
     }
 
-    @ExceptionHandler(DuplicateEmailException.class)
+    @ExceptionHandler({
+        DuplicateEmailException.class,
+        DuplicateCategorySlugException.class,
+        CategoryNotEmptyException.class,
+        QuestionTypeChangeNotAllowedException.class
+    })
     public ProblemDetail handleConflict(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
     }
 
     /**
-     * 가입 검증 실패는 실패한 필드를 알려 주는 한국어 문구로 응답한다 (D16). 입력값은 detail에 넣지 않는다.
-     * 알지 못하는 필드가 섞여 있으면 부모 클래스의 기본 응답을 쓴다.
+     * 가입 검증 실패는 실패한 필드를 알려 주는 한국어 문구로 응답한다 (D16). 그 밖의 검증 실패는 실패한 필드 경로를 정렬해 알려 준다 (D14).
+     * 어느 쪽이든 입력값은 detail에 넣지 않는다.
      */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         Set<String> failed = ex.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getField)
-                .collect(Collectors.toSet());
-        boolean email = failed.remove("email");
-        boolean password = failed.remove("password");
+                .collect(Collectors.toCollection(TreeSet::new));
+        Set<String> remaining = new TreeSet<>(failed);
+        boolean email = remaining.remove("email");
+        boolean password = remaining.remove("password");
         if ((!email && !password)
-                || !failed.isEmpty()
+                || !remaining.isEmpty()
                 || !ex.getBindingResult().getGlobalErrors().isEmpty()) {
-            return super.handleMethodArgumentNotValid(ex, headers, status, request);
+            String detail =
+                    failed.isEmpty() ? "입력값이 올바르지 않습니다." : "입력값이 올바르지 않습니다. (항목: " + String.join(", ", failed) + ")";
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
+            return handleExceptionInternal(ex, problem, headers, status, request);
         }
         List<String> messages = new ArrayList<>();
         if (email) {
@@ -76,6 +95,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             messages.add("비밀번호는 8자 이상, UTF-8 72바이트 이하여야 합니다.");
         }
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, String.join(" ", messages));
+        return handleExceptionInternal(ex, problem, headers, status, request);
+    }
+
+    /** 깨진 JSON, 없는 enum 값, 타입 불일치. 파서 메시지에 입력값이 섞이므로 고정 문구만 응답한다 (D14). */
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "요청 형식이 올바르지 않습니다.");
         return handleExceptionInternal(ex, problem, headers, status, request);
     }
 

@@ -62,9 +62,9 @@ class QuestionServiceTest {
     QuestionService questionService;
 
     @Test
-    @DisplayName("없는 slug면 CategoryNotFoundException을 던지고 문제를 조회하지 않는다")
+    @DisplayName("없거나 삭제한 slug면 CategoryNotFoundException을 던지고 문제를 조회하지 않는다 (관리자 R6)")
     void getQuestionsOfUnknownCategory() {
-        given(categoryRepository.existsBySlug(SLUG)).willReturn(false);
+        given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(false);
 
         assertThatThrownBy(() -> questionService.getQuestions(SLUG)).isInstanceOf(CategoryNotFoundException.class);
 
@@ -74,7 +74,7 @@ class QuestionServiceTest {
     @Test
     @DisplayName("있는 slug에 세 유형의 문제가 모두 없으면 빈 목록을 돌려준다")
     void getQuestionsReturnsEmptyListWhenNoSolvableQuestions() {
-        given(categoryRepository.existsBySlug(SLUG)).willReturn(true);
+        given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(true);
         given(questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(SLUG, SOLVABLE_TYPES))
                 .willReturn(List.of());
 
@@ -84,7 +84,7 @@ class QuestionServiceTest {
     @Test
     @DisplayName("있는 slug면 리포지토리에 객관식, 주관식, 서술형을 넘기고 결과를 유형이 담긴 응답 DTO로 바꾼다 (R1, R2)")
     void getQuestionsRequestsAllSolvableTypes() {
-        given(categoryRepository.existsBySlug(SLUG)).willReturn(true);
+        given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(true);
         given(questionRepository.findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(SLUG, SOLVABLE_TYPES))
                 .willReturn(List.of(question(), shortAnswerQuestion(), essayQuestion()));
 
@@ -208,7 +208,7 @@ class QuestionServiceTest {
     void selfGradeSavesAttempt(boolean correct) {
         Question question = essayQuestion();
         User user = user();
-        given(questionRepository.findById(ESSAY_QUESTION_ID)).willReturn(Optional.of(question));
+        given(questionRepository.findByIdAndDeletedAtIsNull(ESSAY_QUESTION_ID)).willReturn(Optional.of(question));
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
 
         questionService.selfGrade(ESSAY_QUESTION_ID, correct, USER_ID);
@@ -223,7 +223,8 @@ class QuestionServiceTest {
     @Test
     @DisplayName("주관식도 자기 채점을 저장한다 (R2)")
     void selfGradeOfShortAnswerSavesAttempt() {
-        given(questionRepository.findById(SHORT_ANSWER_QUESTION_ID)).willReturn(Optional.of(shortAnswerQuestion()));
+        given(questionRepository.findByIdAndDeletedAtIsNull(SHORT_ANSWER_QUESTION_ID))
+                .willReturn(Optional.of(shortAnswerQuestion()));
         given(userRepository.getReferenceById(USER_ID)).willReturn(user());
 
         questionService.selfGrade(SHORT_ANSWER_QUESTION_ID, true, USER_ID);
@@ -232,9 +233,9 @@ class QuestionServiceTest {
     }
 
     @Test
-    @DisplayName("없는 문제를 자기 채점하면 QuestionNotFoundException이고 저장하지 않는다")
+    @DisplayName("없거나 삭제한 문제를 자기 채점하면 QuestionNotFoundException이고 저장하지 않는다 (관리자 R6)")
     void selfGradeOfUnknownQuestion() {
-        given(questionRepository.findById(QUESTION_ID)).willReturn(Optional.empty());
+        given(questionRepository.findByIdAndDeletedAtIsNull(QUESTION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> questionService.selfGrade(QUESTION_ID, true, USER_ID))
                 .isInstanceOf(QuestionNotFoundException.class);
@@ -245,7 +246,7 @@ class QuestionServiceTest {
     @Test
     @DisplayName("객관식 문제를 자기 채점하면 UnsupportedAnswerTypeException이고 저장하지 않는다")
     void selfGradeOfMultipleChoiceIsRejected() {
-        given(questionRepository.findById(QUESTION_ID)).willReturn(Optional.of(question()));
+        given(questionRepository.findByIdAndDeletedAtIsNull(QUESTION_ID)).willReturn(Optional.of(question()));
         lenient().when(userRepository.getReferenceById(USER_ID)).thenReturn(user());
 
         assertThatThrownBy(() -> questionService.selfGrade(QUESTION_ID, true, USER_ID))
@@ -272,9 +273,9 @@ class QuestionServiceTest {
     }
 
     @Test
-    @DisplayName("없는 문제의 모범 답안을 요청하면 QuestionNotFoundException을 던진다 (R8)")
+    @DisplayName("없거나 삭제한 문제의 모범 답안을 요청하면 QuestionNotFoundException을 던진다 (R8, 관리자 R6)")
     void submitTextAnswerToUnknownQuestion() {
-        given(questionRepository.findById(QUESTION_ID)).willReturn(Optional.empty());
+        given(questionRepository.findByIdAndDeletedAtIsNull(QUESTION_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> questionService.submitTextAnswer(QUESTION_ID))
                 .isInstanceOf(QuestionNotFoundException.class);

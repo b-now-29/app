@@ -13,7 +13,7 @@ beforeEach(() => {
 
 describe("rootLoader", () => {
   it("로그인 상태면 사용자를 돌려준다", async () => {
-    const user = { id: 1, email: "user@example.com" };
+    const user = { id: 1, email: "user@example.com", role: "USER" } as const;
     vi.mocked(getCurrentUser).mockResolvedValue(user);
 
     await expect(rootLoader()).resolves.toEqual(user);

@@ -65,13 +65,14 @@ class AuthControllerTest {
     @Test
     @DisplayName("로그인하면 200, UserResponse, 인증 쿠키를 응답한다")
     void login() throws Exception {
-        given(userService.login(EMAIL, PASSWORD)).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.login(EMAIL, PASSWORD)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         MvcResult result = postLogin(CREDENTIALS)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email")))
+                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email", "role")))
                 .andExpect(jsonPath("$.id").value(USER_ID))
                 .andExpect(jsonPath("$.email").value(EMAIL))
+                .andExpect(jsonPath("$.role").value("USER"))
                 .andExpect(content().string(not(containsString(PASSWORD))))
                 .andDo(document(
                         "auth-login",
@@ -81,7 +82,8 @@ class AuthControllerTest {
                         responseHeaders(headerWithName(HttpHeaders.SET_COOKIE).description("인증 쿠키 access_token")),
                         responseFields(
                                 fieldWithPath("id").description("사용자 ID"),
-                                fieldWithPath("email").description("이메일"))))
+                                fieldWithPath("email").description("이메일"),
+                                fieldWithPath("role").description("권한 (USER, ADMIN)"))))
                 .andReturn();
 
         SetCookieHeader cookie = SetCookieHeader.from(result);
@@ -93,7 +95,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("앞뒤 공백과 대문자가 있는 이메일은 형식 오류가 아니다 (R2)")
     void loginAcceptsUnnormalizedEmail() throws Exception {
-        given(userService.login(anyString(), eq(PASSWORD))).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.login(anyString(), eq(PASSWORD))).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         postLogin("{\"email\": \"  User@Example.COM \", \"password\": \"password1234\"}")
                 .andExpect(status().isOk());
