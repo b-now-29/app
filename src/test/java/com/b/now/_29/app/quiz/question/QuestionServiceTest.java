@@ -2,21 +2,32 @@ package com.b.now._29.app.quiz.question;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 
+import com.b.now._29.app.quiz.attempt.QuestionAttempt;
+import com.b.now._29.app.quiz.attempt.QuestionAttemptRepository;
 import com.b.now._29.app.quiz.category.Category;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.CategoryRepository;
+import com.b.now._29.app.user.User;
+import com.b.now._29.app.user.UserRepository;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 @ExtendWith(MockitoExtension.class)
 class QuestionServiceTest {
@@ -24,6 +35,7 @@ class QuestionServiceTest {
     private static final String SLUG = "java";
     private static final String QUESTION_CONTENT = "문자열 내용을 비교할 때 쓰는 것은?";
     private static final String EXPLANATION = "equals()는 문자열 내용을 비교한다.";
+    private static final long USER_ID = 7L;
     private static final long QUESTION_ID = 1L;
     private static final long WRONG_CHOICE_ID = 10L;
     private static final long CORRECT_CHOICE_ID = 11L;
@@ -39,6 +51,12 @@ class QuestionServiceTest {
 
     @Mock
     CategoryRepository categoryRepository;
+
+    @Mock
+    QuestionAttemptRepository questionAttemptRepository;
+
+    @Mock
+    UserRepository userRepository;
 
     @InjectMocks
     QuestionService questionService;
@@ -92,18 +110,165 @@ class QuestionServiceTest {
     void submitAnswerToUnknownQuestion() {
         given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID))
+        assertThatThrownBy(() -> questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, null))
                 .isInstanceOf(QuestionNotFoundException.class);
     }
 
     @Test
-    @DisplayName("답을 제출하면 채점 결과를 응답 DTO로 바꾼다")
+    @DisplayName("답을 제출하면 채점 결과를 응답 DTO로 바꾼다. 비회원이라 recorded는 false다 (D13)")
     void submitAnswerReturnsGradingResult() {
         given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question()));
 
-        AnswerResponse response = questionService.submitAnswer(QUESTION_ID, WRONG_CHOICE_ID);
+        AnswerResponse response = questionService.submitAnswer(QUESTION_ID, WRONG_CHOICE_ID, null);
 
-        assertThat(response).isEqualTo(new AnswerResponse(false, CORRECT_CHOICE_ID, EXPLANATION));
+        assertThat(response).isEqualTo(new AnswerResponse(false, CORRECT_CHOICE_ID, EXPLANATION, false));
+    }
+
+    @Test
+    @DisplayName("회원이 객관식을 제출하면 채점 결과를 풀이 기록 1건으로 저장하고 recorded true로 응답한다 (R1, D13)")
+    void submitAnswerOfMemberSavesAttempt() {
+        Question question = question();
+        User user = user();
+        given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question));
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+
+        AnswerResponse response = questionService.submitAnswer(QUESTION_ID, WRONG_CHOICE_ID, USER_ID);
+
+        assertThat(response).isEqualTo(new AnswerResponse(false, CORRECT_CHOICE_ID, EXPLANATION, true));
+        ArgumentCaptor<QuestionAttempt> saved = ArgumentCaptor.forClass(QuestionAttempt.class);
+        then(questionAttemptRepository).should(times(1)).save(saved.capture());
+        assertThat(saved.getValue().getUser()).isSameAs(user);
+        assertThat(saved.getValue().getQuestion()).isSameAs(question);
+        assertThat(saved.getValue().isCorrect()).isFalse();
+    }
+
+    @Test
+    @DisplayName("회원이 정답을 고르면 맞음으로 저장하고 recorded true로 응답한다 (R1, D13)")
+    void submitCorrectAnswerOfMemberSavesCorrectAttempt() {
+        given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question()));
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user());
+
+        AnswerResponse response = questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, USER_ID);
+
+        assertThat(response).isEqualTo(new AnswerResponse(true, CORRECT_CHOICE_ID, EXPLANATION, true));
+        ArgumentCaptor<QuestionAttempt> saved = ArgumentCaptor.forClass(QuestionAttempt.class);
+        then(questionAttemptRepository).should().save(saved.capture());
+        assertThat(saved.getValue().isCorrect()).isTrue();
+    }
+
+    @Test
+    @DisplayName("비회원이 제출하면 채점 결과만 돌려주고 기록을 저장하지 않으며 recorded false로 응답한다 (R5, D13)")
+    void submitAnswerOfGuestDoesNotSaveAttempt() {
+        given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question()));
+
+        AnswerResponse response = questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, null);
+
+        assertThat(response).isEqualTo(new AnswerResponse(true, CORRECT_CHOICE_ID, EXPLANATION, false));
+        then(questionAttemptRepository).shouldHaveNoInteractions();
+        then(userRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("회원이 없는 문제에 제출하면 QuestionNotFoundException이고 기록을 저장하지 않는다 (R1)")
+    void submitAnswerOfMemberToUnknownQuestionDoesNotSaveAttempt() {
+        given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, USER_ID))
+                .isInstanceOf(QuestionNotFoundException.class);
+
+        then(questionAttemptRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("회원이 그 문제의 보기가 아닌 값으로 제출하면 InvalidChoiceException이고 기록을 저장하지 않는다 (R1)")
+    void submitAnswerOfMemberWithInvalidChoiceDoesNotSaveAttempt() {
+        given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question()));
+        lenient().when(userRepository.getReferenceById(USER_ID)).thenReturn(user());
+
+        assertThatThrownBy(() -> questionService.submitAnswer(QUESTION_ID, 999L, USER_ID))
+                .isInstanceOf(InvalidChoiceException.class);
+
+        then(questionAttemptRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("채점과 저장은 한 쓰기 트랜잭션이다 (D7)")
+    void submitAnswerIsWriteTransaction() throws NoSuchMethodException {
+        Transactional transactional = QuestionService.class
+                .getMethod("submitAnswer", long.class, long.class, Long.class)
+                .getAnnotation(Transactional.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.readOnly()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("회원이 주관식·서술형을 자기 채점하면 보낸 값을 풀이 기록 1건으로 저장한다 (R2, D8)")
+    void selfGradeSavesAttempt(boolean correct) {
+        Question question = essayQuestion();
+        User user = user();
+        given(questionRepository.findById(ESSAY_QUESTION_ID)).willReturn(Optional.of(question));
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+
+        questionService.selfGrade(ESSAY_QUESTION_ID, correct, USER_ID);
+
+        ArgumentCaptor<QuestionAttempt> saved = ArgumentCaptor.forClass(QuestionAttempt.class);
+        then(questionAttemptRepository).should(times(1)).save(saved.capture());
+        assertThat(saved.getValue().getUser()).isSameAs(user);
+        assertThat(saved.getValue().getQuestion()).isSameAs(question);
+        assertThat(saved.getValue().isCorrect()).isEqualTo(correct);
+    }
+
+    @Test
+    @DisplayName("주관식도 자기 채점을 저장한다 (R2)")
+    void selfGradeOfShortAnswerSavesAttempt() {
+        given(questionRepository.findById(SHORT_ANSWER_QUESTION_ID)).willReturn(Optional.of(shortAnswerQuestion()));
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user());
+
+        questionService.selfGrade(SHORT_ANSWER_QUESTION_ID, true, USER_ID);
+
+        then(questionAttemptRepository).should(times(1)).save(any(QuestionAttempt.class));
+    }
+
+    @Test
+    @DisplayName("없는 문제를 자기 채점하면 QuestionNotFoundException이고 저장하지 않는다")
+    void selfGradeOfUnknownQuestion() {
+        given(questionRepository.findById(QUESTION_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> questionService.selfGrade(QUESTION_ID, true, USER_ID))
+                .isInstanceOf(QuestionNotFoundException.class);
+
+        then(questionAttemptRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("객관식 문제를 자기 채점하면 UnsupportedAnswerTypeException이고 저장하지 않는다")
+    void selfGradeOfMultipleChoiceIsRejected() {
+        given(questionRepository.findById(QUESTION_ID)).willReturn(Optional.of(question()));
+        lenient().when(userRepository.getReferenceById(USER_ID)).thenReturn(user());
+
+        assertThatThrownBy(() -> questionService.selfGrade(QUESTION_ID, true, USER_ID))
+                .isInstanceOf(UnsupportedAnswerTypeException.class);
+
+        then(questionAttemptRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("자기 채점 저장은 쓰기 트랜잭션이다")
+    void selfGradeIsWriteTransaction() throws NoSuchMethodException {
+        Transactional transactional = QuestionService.class
+                .getMethod("selfGrade", long.class, boolean.class, long.class)
+                .getAnnotation(Transactional.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.readOnly()).isFalse();
+    }
+
+    private static User user() {
+        User user = new User("user@example.com", "$2a$10$hash");
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        return user;
     }
 
     @Test

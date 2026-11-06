@@ -7,6 +7,9 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.restdocs.cookies.CookieDocumentation.cookieWithName;
+import static org.springframework.restdocs.cookies.CookieDocumentation.requestCookies;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
 import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.get;
 import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.post;
@@ -20,7 +23,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
+import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
+import jakarta.servlet.http.Cookie;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +41,7 @@ import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.ResultMatcher;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @WebMvcTest(QuestionController.class)
 @AutoConfigureRestDocs
@@ -45,6 +51,8 @@ class QuestionControllerTest {
     private static final String SLUG = "java";
     private static final String QUESTION_CONTENT = "문자열 내용을 비교할 때 쓰는 것은?";
     private static final String EXPLANATION = "equals()는 문자열 내용을 비교한다.";
+    private static final long USER_ID = 7L;
+    private static final String COOKIE_NAME = "access_token";
     private static final long QUESTION_ID = 1L;
     private static final long WRONG_CHOICE_ID = 10L;
     private static final long CORRECT_CHOICE_ID = 11L;
@@ -138,17 +146,19 @@ class QuestionControllerTest {
     }
 
     @Test
-    @DisplayName("답을 제출하면 채점 결과를 응답한다")
+    @DisplayName("비회원이 답을 제출하면 userId 없이 채점하고 채점 결과와 recorded false를 응답한다 (R5, D13)")
     void submitAnswer() throws Exception {
-        given(questionService.submitAnswer(QUESTION_ID, WRONG_CHOICE_ID))
-                .willReturn(new AnswerResponse(false, CORRECT_CHOICE_ID, EXPLANATION));
+        given(questionService.submitAnswer(QUESTION_ID, WRONG_CHOICE_ID, null))
+                .willReturn(new AnswerResponse(false, CORRECT_CHOICE_ID, EXPLANATION, false));
 
         postAnswer(QUESTION_ID, answerBody(WRONG_CHOICE_ID))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.keys()", containsInAnyOrder("correct", "correctChoiceId", "explanation")))
+                .andExpect(jsonPath(
+                        "$.keys()", containsInAnyOrder("correct", "correctChoiceId", "explanation", "recorded")))
                 .andExpect(jsonPath("$.correct").value(false))
                 .andExpect(jsonPath("$.correctChoiceId").value(CORRECT_CHOICE_ID))
                 .andExpect(jsonPath("$.explanation").value(EXPLANATION))
+                .andExpect(jsonPath("$.recorded").value(false))
                 .andDo(document(
                         "answers-submit",
                         pathParameters(parameterWithName("questionId").description("문제 ID")),
@@ -156,14 +166,16 @@ class QuestionControllerTest {
                         responseFields(
                                 fieldWithPath("correct").description("정답 여부"),
                                 fieldWithPath("correctChoiceId").description("정답 보기의 ID"),
-                                fieldWithPath("explanation").description("해설 (없으면 null)"))));
+                                fieldWithPath("explanation").description("해설 (없으면 null)"),
+                                fieldWithPath("recorded")
+                                        .description("풀이 기록 저장 여부 (회원이면 true, 비회원이거나 쿠키가 만료·위조되었으면 false)"))));
     }
 
     @Test
     @DisplayName("해설이 없는 문제는 explanation 필드를 null로 응답한다")
     void submitAnswerWithoutExplanation() throws Exception {
-        given(questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID))
-                .willReturn(new AnswerResponse(true, CORRECT_CHOICE_ID, null));
+        given(questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, null))
+                .willReturn(new AnswerResponse(true, CORRECT_CHOICE_ID, null, false));
 
         postAnswer(QUESTION_ID, answerBody(CORRECT_CHOICE_ID))
                 .andExpect(status().isOk())
@@ -207,7 +219,7 @@ class QuestionControllerTest {
     void rejectsChoiceOfOtherQuestion() throws Exception {
         long otherChoiceId = 999L;
         InvalidChoiceException exception = new InvalidChoiceException(otherChoiceId);
-        given(questionService.submitAnswer(QUESTION_ID, otherChoiceId)).willThrow(exception);
+        given(questionService.submitAnswer(QUESTION_ID, otherChoiceId, null)).willThrow(exception);
 
         postAnswer(QUESTION_ID, answerBody(otherChoiceId))
                 .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
@@ -220,7 +232,7 @@ class QuestionControllerTest {
     void submitAnswerToUnknownQuestion() throws Exception {
         long unknownQuestionId = 999L;
         QuestionNotFoundException exception = new QuestionNotFoundException(unknownQuestionId);
-        given(questionService.submitAnswer(unknownQuestionId, CORRECT_CHOICE_ID))
+        given(questionService.submitAnswer(unknownQuestionId, CORRECT_CHOICE_ID, null))
                 .willThrow(exception);
 
         postAnswer(unknownQuestionId, answerBody(CORRECT_CHOICE_ID))
@@ -232,13 +244,141 @@ class QuestionControllerTest {
     @Test
     @DisplayName("처리하지 못한 예외는 500 ProblemDetail로 응답하고 내부 메시지를 노출하지 않는다 (D14)")
     void hidesInternalMessageOfUnexpectedException() throws Exception {
-        given(questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID))
+        given(questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, null))
                 .willThrow(new IllegalStateException(INTERNAL_MESSAGE));
 
         postAnswer(QUESTION_ID, answerBody(CORRECT_CHOICE_ID))
                 .andExpect(problemDetail(HttpStatus.INTERNAL_SERVER_ERROR))
                 .andExpect(content().string(not(containsString(INTERNAL_MESSAGE))))
                 .andExpect(content().string(not(containsString("IllegalStateException"))));
+    }
+
+    @Test
+    @DisplayName("회원이 답을 제출하면 토큰의 사용자 ID로 채점을 맡기고 recorded true를 응답한다 (R1, D13)")
+    void submitAnswerOfMember() throws Exception {
+        given(questionService.submitAnswer(QUESTION_ID, WRONG_CHOICE_ID, USER_ID))
+                .willReturn(new AnswerResponse(false, CORRECT_CHOICE_ID, EXPLANATION, true));
+
+        mvc.perform(post("/api/v1/questions/{questionId}/answers", QUESTION_ID)
+                        .cookie(new Cookie(COOKIE_NAME, TestJwts.valid(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(answerBody(WRONG_CHOICE_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.keys()", containsInAnyOrder("correct", "correctChoiceId", "explanation", "recorded")))
+                .andExpect(jsonPath("$.correct").value(false))
+                .andExpect(jsonPath("$.correctChoiceId").value(CORRECT_CHOICE_ID))
+                .andExpect(jsonPath("$.explanation").value(EXPLANATION))
+                .andExpect(jsonPath("$.recorded").value(true))
+                .andDo(document(
+                        "answers-submit-member",
+                        requestCookies(cookieWithName(COOKIE_NAME)
+                                .optional()
+                                .description("로그인할 때 받은 인증 쿠키 (없으면 비회원으로 채점만 한다)"))));
+
+        then(questionService).should().submitAnswer(QUESTION_ID, WRONG_CHOICE_ID, USER_ID);
+    }
+
+    @Test
+    @DisplayName("토큰이 만료된 사용자가 답을 제출하면 비회원처럼 채점하고 recorded false를 응답한다 (R5, D13)")
+    void submitAnswerWithExpiredTokenIsTreatedAsGuest() throws Exception {
+        given(questionService.submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, null))
+                .willReturn(new AnswerResponse(true, CORRECT_CHOICE_ID, EXPLANATION, false));
+
+        mvc.perform(post("/api/v1/questions/{questionId}/answers", QUESTION_ID)
+                        .cookie(new Cookie(COOKIE_NAME, TestJwts.expired(USER_ID)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(answerBody(CORRECT_CHOICE_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.correct").value(true))
+                .andExpect(jsonPath("$.recorded").value(false));
+
+        then(questionService).should().submitAnswer(QUESTION_ID, CORRECT_CHOICE_ID, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("회원이 자기 채점을 보내면 204 본문 없음이고 토큰의 사용자 ID와 보낸 값을 Service에 넘긴다 (R2, D8)")
+    void selfGrade(boolean correct) throws Exception {
+        postSelfGrade(ESSAY_QUESTION_ID, selfGradeBody(correct), TestJwts.valid(USER_ID))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        then(questionService).should().selfGrade(ESSAY_QUESTION_ID, correct, USER_ID);
+    }
+
+    @Test
+    @DisplayName("자기 채점 저장을 문서화한다")
+    void documentsSelfGrade() throws Exception {
+        postSelfGrade(SHORT_ANSWER_QUESTION_ID, selfGradeBody(true), TestJwts.valid(USER_ID))
+                .andExpect(status().isNoContent())
+                .andDo(document(
+                        "self-grades-submit",
+                        pathParameters(parameterWithName("questionId").description("문제 ID (주관식·서술형)")),
+                        requestCookies(cookieWithName(COOKIE_NAME).description("로그인할 때 받은 인증 쿠키")),
+                        requestFields(fieldWithPath("correct").description("자기 채점 결과 (맞음 true, 틀림 false)"))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"correct\": null}", "{\"correct\": \"abc\"}", "{\"correct\": ", ""})
+    @DisplayName("correct 누락, 형식 오류, 깨진 JSON, 빈 본문은 400 ProblemDetail이고 Service를 호출하지 않는다")
+    void rejectsInvalidSelfGradeBody(String body) throws Exception {
+        postSelfGrade(ESSAY_QUESTION_ID, body, TestJwts.valid(USER_ID))
+                .andExpect(problemDetail(HttpStatus.BAD_REQUEST));
+
+        then(questionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("correct 누락의 400 응답을 문서화한다")
+    void documentsSelfGradeWithoutCorrect() throws Exception {
+        postSelfGrade(ESSAY_QUESTION_ID, "{}", TestJwts.valid(USER_ID))
+                .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
+                .andDo(document("self-grades-submit-invalid"));
+    }
+
+    @Test
+    @DisplayName("객관식 문제를 자기 채점하면 400 ProblemDetail로 응답한다")
+    void rejectsSelfGradeOfMultipleChoice() throws Exception {
+        UnsupportedAnswerTypeException exception = new UnsupportedAnswerTypeException(QuestionType.MULTIPLE_CHOICE);
+        willThrow(exception).given(questionService).selfGrade(QUESTION_ID, true, USER_ID);
+
+        postSelfGrade(QUESTION_ID, selfGradeBody(true), TestJwts.valid(USER_ID))
+                .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
+                .andExpect(jsonPath("$.detail").value(exception.getMessage()))
+                .andDo(document("self-grades-submit-unsupported-type"));
+    }
+
+    @Test
+    @DisplayName("없는 문제를 자기 채점하면 404 ProblemDetail로 응답한다")
+    void selfGradeOfUnknownQuestion() throws Exception {
+        long unknownQuestionId = 999L;
+        QuestionNotFoundException exception = new QuestionNotFoundException(unknownQuestionId);
+        willThrow(exception).given(questionService).selfGrade(unknownQuestionId, true, USER_ID);
+
+        postSelfGrade(unknownQuestionId, selfGradeBody(true), TestJwts.valid(USER_ID))
+                .andExpect(problemDetail(HttpStatus.NOT_FOUND))
+                .andExpect(jsonPath("$.detail").value(exception.getMessage()))
+                .andDo(document("self-grades-submit-question-not-found"));
+    }
+
+    @Test
+    @DisplayName("비회원이 자기 채점을 보내면 401 ProblemDetail이고 Service를 호출하지 않는다 (D6)")
+    void selfGradeWithoutLogin() throws Exception {
+        postSelfGrade(ESSAY_QUESTION_ID, selfGradeBody(true), null)
+                .andExpect(problemDetail(HttpStatus.UNAUTHORIZED))
+                .andDo(document("self-grades-submit-unauthorized"));
+
+        then(questionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("토큰이 만료된 사용자가 자기 채점을 보내면 401 ProblemDetail이고 Service를 호출하지 않는다 (D6, D9)")
+    void selfGradeWithExpiredToken() throws Exception {
+        postSelfGrade(ESSAY_QUESTION_ID, selfGradeBody(true), TestJwts.expired(USER_ID))
+                .andExpect(problemDetail(HttpStatus.UNAUTHORIZED));
+
+        then(questionService).shouldHaveNoInteractions();
     }
 
     @Test
@@ -350,6 +490,20 @@ class QuestionControllerTest {
                 .andExpect(problemDetail(HttpStatus.NOT_FOUND))
                 .andExpect(jsonPath("$.detail").value(exception.getMessage()))
                 .andDo(document("text-answers-submit-question-not-found"));
+    }
+
+    private ResultActions postSelfGrade(long questionId, String body, String token) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/v1/questions/{questionId}/self-grades", questionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+        if (token != null) {
+            request.cookie(new Cookie(COOKIE_NAME, token));
+        }
+        return mvc.perform(request);
+    }
+
+    private static String selfGradeBody(boolean correct) {
+        return "{\"correct\": " + correct + "}";
     }
 
     private ResultActions postTextAnswer(Object questionId, String body) throws Exception {

@@ -64,6 +64,13 @@ public class Question {
         throw new UnsupportedAnswerTypeException(type);
     }
 
+    /** 자기 채점할 수 있는 유형(주관식·서술형)인지 확인한다. 객관식이면 거부한다. */
+    public void requireSelfGradable() {
+        if (type == QuestionType.MULTIPLE_CHOICE) {
+            throw new UnsupportedAnswerTypeException(type);
+        }
+    }
+
     private Choice findSubmittedChoice(long choiceId) {
         return choices.stream()
                 .filter(choice -> choice.getId() == choiceId)
@@ -77,6 +84,10 @@ public class Question {
 
     public Long getId() {
         return id;
+    }
+
+    public Category getCategory() {
+        return category;
     }
 
     public QuestionType getType() {
