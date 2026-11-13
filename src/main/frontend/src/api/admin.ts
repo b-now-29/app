@@ -101,6 +101,42 @@ export async function changeUserRole(
   return readJson(await sendJson("PUT", `${BASE}/users/${id}/role`, { role }));
 }
 
+export type AdminTypeStatResponse = {
+  readonly type: QuestionType;
+  readonly solved: number;
+  readonly correct: number;
+};
+
+export type AdminCategoryStatResponse = {
+  readonly slug: string;
+  readonly name: string;
+  readonly types: readonly AdminTypeStatResponse[];
+};
+
+export type AdminQuestionStatResponse = {
+  readonly id: number;
+  readonly type: QuestionType;
+  readonly content: string;
+  readonly solvedUsers: number;
+  readonly correctUsers: number;
+};
+
+export async function getAdminCategoryStats(): Promise<
+  readonly AdminCategoryStatResponse[]
+> {
+  return readJson(await fetch(`${BASE}/stats/categories`));
+}
+
+export async function getAdminQuestionStats(
+  categorySlug: string,
+): Promise<readonly AdminQuestionStatResponse[]> {
+  return readJson(
+    await fetch(
+      `${BASE}/stats/categories/${encodeURIComponent(categorySlug)}/questions`,
+    ),
+  );
+}
+
 export async function getAdminCategories(): Promise<
   readonly AdminCategoryResponse[]
 > {

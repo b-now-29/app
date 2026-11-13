@@ -27,6 +27,14 @@
 //   getAdminUsers(): Promise<readonly AdminUserResponse[]>                      GET /api/v1/admin/users
 //   changeUserRole(id: number, role: "USER" | "ADMIN"): Promise<AdminUserResponse>
 //                                                    PUT /api/v1/admin/users/{id}/role  본문 { role }
+//
+// 통계 (docs/features/admin-stats.md API 계약, D9):
+//   AdminTypeStatResponse { type: QuestionType, solved: number, correct: number }
+//   AdminCategoryStatResponse { slug: string, name: string, types: readonly AdminTypeStatResponse[] }
+//   AdminQuestionStatResponse { id: number, type: QuestionType, content: string, solvedUsers: number, correctUsers: number }
+//   getAdminCategoryStats(): Promise<readonly AdminCategoryStatResponse[]>     GET /api/v1/admin/stats/categories
+//   getAdminQuestionStats(categorySlug: string): Promise<readonly AdminQuestionStatResponse[]>
+//                                  GET /api/v1/admin/stats/categories/{slug}/questions  (slug는 encodeURIComponent)
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   changeUserRole,
@@ -35,7 +43,9 @@ import {
   deleteCategory,
   deleteQuestion,
   getAdminCategories,
+  getAdminCategoryStats,
   getAdminQuestion,
+  getAdminQuestionStats,
   getAdminQuestions,
   getAdminUsers,
   updateCategory,
@@ -43,7 +53,9 @@ import {
 } from "./admin";
 import type {
   AdminCategoryResponse,
+  AdminCategoryStatResponse,
   AdminQuestionResponse,
+  AdminQuestionStatResponse,
   AdminUserResponse,
   QuestionRequest,
 } from "./admin";
@@ -268,6 +280,68 @@ describe("문제", () => {
         status: 400,
         message: "객관식은 보기가 2개 이상이어야 합니다.",
       });
+    },
+  );
+});
+
+describe("통계 (admin-stats)", () => {
+  const CATEGORY_STATS: readonly AdminCategoryStatResponse[] = [
+    {
+      slug: "java",
+      name: "Java",
+      types: [
+        { type: "MULTIPLE_CHOICE", solved: 12, correct: 9 },
+        { type: "ESSAY", solved: 3, correct: 1 },
+      ],
+    },
+    { slug: "spring", name: "Spring", types: [] },
+  ];
+  const QUESTION_STATS: readonly AdminQuestionStatResponse[] = [
+    {
+      id: 1,
+      type: "MULTIPLE_CHOICE",
+      content: "문자열 비교는?",
+      solvedUsers: 5,
+      correctUsers: 4,
+    },
+    {
+      id: 2,
+      type: "ESSAY",
+      content: "equals()를 설명하세요.",
+      solvedUsers: 0,
+      correctUsers: 0,
+    },
+  ];
+
+  it("getAdminCategoryStats는 카테고리 통계를 조회한다 (R2)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(CATEGORY_STATS));
+
+    await expect(getAdminCategoryStats()).resolves.toEqual(CATEGORY_STATS);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/stats/categories");
+  });
+
+  it("getAdminQuestionStats는 slug를 인코딩한 경로로 문제 통계를 조회한다 (R3)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(QUESTION_STATS));
+
+    await expect(getAdminQuestionStats("a/b")).resolves.toEqual(QUESTION_STATS);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/admin/stats/categories/a%2Fb/questions",
+    );
+  });
+
+  it.each([
+    ["getAdminCategoryStats", 401, () => getAdminCategoryStats()],
+    ["getAdminCategoryStats", 403, () => getAdminCategoryStats()],
+    ["getAdminQuestionStats", 404, () => getAdminQuestionStats("nope")],
+  ])(
+    "%s가 %i로 실패하면 상태와 서버 메시지를 담은 ApiError를 던진다 (R5)",
+    async (_name, status, call) => {
+      fetchMock.mockResolvedValue(problemResponse(status, "실패 이유"));
+
+      const error = await caught(call());
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status, message: "실패 이유" });
     },
   );
 });
