@@ -24,8 +24,7 @@
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
       "Bash(gh issue list:*)",
-      "Bash(scripts/local-run-jar.sh:*)",
-      "Bash(scripts/api-smoke.sh:*)"
+      "Bash(scripts/local-run-jar.sh:*)"
     ],
     "deny": [
       "Bash(ssh:*)",

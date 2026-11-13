@@ -3,6 +3,7 @@ package com.b.now._29.app.quiz;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -83,6 +84,34 @@ class AdminContentApiIntegrationTest {
         mvc.perform(get(ADMIN + "/categories").cookie(cookie))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    @DisplayName("관리자가 회원 관리 API로 role을 바꾸면 DB에 저장되어 그 회원의 같은 쿠키에 바로 반영되고, 자기 해제는 409다 (회원 관리 R1~R4)")
+    void roleChangeApiPersistsAndTakesEffectImmediately() throws Exception {
+        Cookie member = signUp(uniqueEmail());
+        long memberId = userId(member);
+        String rolePath = ADMIN + "/users/" + memberId + "/role";
+
+        mvc.perform(asAdmin(get(ADMIN + "/users")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == %d)].createdAt".formatted(memberId))
+                        .value(hasItem(matchesPattern("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z"))));
+
+        mvc.perform(asAdmin(json(put(rolePath), "{\"role\": \"ADMIN\"}")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+        mvc.perform(get(ADMIN + "/users").cookie(member)).andExpect(status().isOk());
+
+        mvc.perform(asAdmin(json(put(rolePath), "{\"role\": \"USER\"}")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("USER"));
+        mvc.perform(get(ADMIN + "/users").cookie(member)).andExpect(status().isForbidden());
+
+        mvc.perform(asAdmin(json(put(ADMIN + "/users/" + userId(admin) + "/role"), "{\"role\": \"USER\"}")))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+        mvc.perform(asAdmin(get(ADMIN + "/users"))).andExpect(status().isOk());
     }
 
     @Test
@@ -333,6 +362,11 @@ class AdminContentApiIntegrationTest {
                 .andReturn();
         SetCookieHeader header = SetCookieHeader.from(result);
         return new Cookie(header.name(), header.value());
+    }
+
+    private long userId(Cookie cookie) throws Exception {
+        MvcResult result = mvc.perform(get("/api/v1/users/me").cookie(cookie)).andReturn();
+        return ((Number) JsonPath.read(body(result), "$.id")).longValue();
     }
 
     /** 운영의 첫 관리자 지정과 같은 방법으로 role을 바꾼다 (범위 밖: DB에서 UPDATE). */

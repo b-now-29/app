@@ -301,6 +301,18 @@ class AdminQuestionControllerTest {
     }
 
     @Test
+    @DisplayName("유형을 숫자로 보내면 enum 순서로 해석하지 않고 400 요청 형식 문구다 (D14)")
+    void rejectsNumericType() throws Exception {
+        mvc.perform(asAdmin(json(post(BASE), """
+                        {"categorySlug": "java", "type": 0, "content": "문제", "sortOrder": 0, "choices": []}
+                        """)))
+                .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
+                .andExpect(jsonPath("$.detail").value("요청 형식이 올바르지 않습니다."));
+
+        then(adminQuestionService).shouldHaveNoInteractions();
+    }
+
+    @Test
     @DisplayName("유형별 규칙을 어기면 400 ProblemDetail이고 detail에 이유를 담는다 (R5)")
     void rejectsQuestionBreakingTypeRule() throws Exception {
         InvalidQuestionException exception = new InvalidQuestionException("객관식은 정답 보기가 정확히 1개여야 합니다.");
