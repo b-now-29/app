@@ -1,6 +1,7 @@
 package com.b.now._29.app.user;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -10,8 +11,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Locale;
+import org.hibernate.annotations.DynamicUpdate;
 
 @Entity
+@DynamicUpdate
 @Table(name = "users")
 public class User {
 
@@ -31,19 +34,33 @@ public class User {
     @Column(name = "created_at")
     private Instant createdAt;
 
+    @Embedded
+    private NicknameTag nicknameTag;
+
     protected User() {
         // JPA 전용
     }
 
-    public User(String email, String passwordHash) {
-        this(email, passwordHash, Role.USER);
+    public User(String email, String passwordHash, Nickname nickname, int tag) {
+        this(email, passwordHash, Role.USER, nickname, tag);
     }
 
-    public User(String email, String passwordHash, Role role) {
+    public User(String email, String passwordHash, Role role, Nickname nickname, int tag) {
+        this.nicknameTag = new NicknameTag(nickname, tag);
         this.email = normalizeEmail(email);
         this.passwordHash = passwordHash;
         this.role = role;
         this.createdAt = Instant.now();
+    }
+
+    /** 지금 닉네임과 같은지 본다. 같으면 번호를 포함해 아무것도 바꾸지 않는다 (R5, D11). */
+    public boolean hasNickname(Nickname other) {
+        return other.value().equals(nicknameTag.nickname());
+    }
+
+    /** 닉네임과 번호를 바꾼다. {@code @DynamicUpdate}로 이 두 컬럼만 UPDATE된다 (D12). */
+    public void changeNickname(Nickname nickname, int tag) {
+        this.nicknameTag = new NicknameTag(nickname, tag);
     }
 
     /** 자기 자신을 USER로 바꾸는 것은 막는다. 같은 role로 바꾸면 변화 없이 받아들인다 (D5). */
@@ -73,6 +90,18 @@ public class User {
 
     public Role getRole() {
         return role;
+    }
+
+    public NicknameTag getNicknameTag() {
+        return nicknameTag;
+    }
+
+    public String getNickname() {
+        return nicknameTag.nickname();
+    }
+
+    public int getTag() {
+        return nicknameTag.tag();
     }
 
     public Instant getCreatedAt() {

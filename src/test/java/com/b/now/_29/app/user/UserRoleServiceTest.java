@@ -32,7 +32,8 @@ class UserRoleServiceTest {
     @Test
     @DisplayName("role이 ADMIN인 사용자는 관리자다 (D3)")
     void adminIsAdmin() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(new User("a@example.com", "hash", Role.ADMIN)));
+        given(userRepository.findById(USER_ID))
+                .willReturn(Optional.of(new User("a@example.com", "hash", Role.ADMIN, new Nickname("관리자"), 1)));
 
         assertThat(userRoleService.isAdmin(USER_ID)).isTrue();
     }
@@ -40,7 +41,8 @@ class UserRoleServiceTest {
     @Test
     @DisplayName("role이 USER인 사용자는 관리자가 아니다 (R2)")
     void userIsNotAdmin() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(new User("u@example.com", "hash")));
+        given(userRepository.findById(USER_ID))
+                .willReturn(Optional.of(new User("u@example.com", "hash", new Nickname("회원"), 1)));
 
         assertThat(userRoleService.isAdmin(USER_ID)).isFalse();
     }

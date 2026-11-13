@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,7 +55,7 @@ class AuthApiIntegrationTest {
     void signUpLogsIn() throws Exception {
         String email = uniqueEmail();
 
-        MvcResult signUp = postJson("/api/v1/users", credentials(email, PASSWORD))
+        MvcResult signUp = postJson("/api/v1/users", signUpBody(email, PASSWORD))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value(email))
                 .andReturn();
@@ -69,7 +70,7 @@ class AuthApiIntegrationTest {
     void passwordHashIsStoredAndNeverReturned() throws Exception {
         String email = uniqueEmail();
 
-        MvcResult signUp = postJson("/api/v1/users", credentials(email, PASSWORD))
+        MvcResult signUp = postJson("/api/v1/users", signUpBody(email, PASSWORD))
                 .andExpect(status().isCreated())
                 .andReturn();
         MvcResult login = postJson("/api/v1/auth/login", credentials(email, PASSWORD))
@@ -94,7 +95,7 @@ class AuthApiIntegrationTest {
         String email = uniqueEmail();
         String raw = "  " + email.toUpperCase(Locale.ROOT) + " ";
 
-        postJson("/api/v1/users", credentials(raw, PASSWORD))
+        postJson("/api/v1/users", signUpBody(raw, PASSWORD))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value(email));
 
@@ -106,9 +107,9 @@ class AuthApiIntegrationTest {
     @DisplayName("대소문자만 다른 이메일로 다시 가입하면 409다 (R2)")
     void duplicateEmailDifferingByCase() throws Exception {
         String email = uniqueEmail();
-        postJson("/api/v1/users", credentials(email, PASSWORD)).andExpect(status().isCreated());
+        postJson("/api/v1/users", signUpBody(email, PASSWORD)).andExpect(status().isCreated());
 
-        postJson("/api/v1/users", credentials(email.toUpperCase(Locale.ROOT), PASSWORD))
+        postJson("/api/v1/users", signUpBody(email.toUpperCase(Locale.ROOT), PASSWORD))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
@@ -119,7 +120,7 @@ class AuthApiIntegrationTest {
         String email = uniqueEmail();
         String password = "가".repeat(24);
 
-        postJson("/api/v1/users", credentials(email, password)).andExpect(status().isCreated());
+        postJson("/api/v1/users", signUpBody(email, password)).andExpect(status().isCreated());
 
         postJson("/api/v1/auth/login", credentials(email, password)).andExpect(status().isOk());
     }
@@ -128,7 +129,7 @@ class AuthApiIntegrationTest {
     @DisplayName("없는 이메일과 틀린 비밀번호의 401 응답은 본문까지 똑같다 (R5)")
     void loginFailuresAreIdentical() throws Exception {
         String email = uniqueEmail();
-        postJson("/api/v1/users", credentials(email, PASSWORD)).andExpect(status().isCreated());
+        postJson("/api/v1/users", signUpBody(email, PASSWORD)).andExpect(status().isCreated());
 
         MvcResult wrongPassword = postJson("/api/v1/auth/login", credentials(email, "wrong-password"))
                 .andExpect(status().isUnauthorized())
@@ -146,7 +147,7 @@ class AuthApiIntegrationTest {
     @DisplayName("로그아웃의 Set-Cookie를 브라우저처럼 따르면 쿠키가 없어지고 /users/me는 401이다 (R7)")
     void logoutRemovesCookie() throws Exception {
         String email = uniqueEmail();
-        Cookie cookie = cookieFrom(postJson("/api/v1/users", credentials(email, PASSWORD))
+        Cookie cookie = cookieFrom(postJson("/api/v1/users", signUpBody(email, PASSWORD))
                 .andExpect(status().isCreated())
                 .andReturn());
 
@@ -198,7 +199,7 @@ class AuthApiIntegrationTest {
     @Test
     @DisplayName("로그인 상태에서도 문제 조회 API는 정답 정보를 내려주지 않는다")
     void questionsDoNotExposeAnswersToLoggedInUser() throws Exception {
-        Cookie cookie = cookieFrom(postJson("/api/v1/users", credentials(uniqueEmail(), PASSWORD))
+        Cookie cookie = cookieFrom(postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD))
                 .andExpect(status().isCreated())
                 .andReturn());
 
@@ -222,6 +223,114 @@ class AuthApiIntegrationTest {
         mvc.perform(get("/docs/index.html")).andExpect(status().isNotFound());
     }
 
+    // 닉네임 (nickname.md R1~R5, R7, R8)
+
+    @Test
+    @DisplayName("같은 닉네임으로 가입하면 번호가 1, 2로 늘고, 가입·로그인·내 정보 응답이 같은 닉네임과 번호를 준다 (R2, R3, R8)")
+    void signUpAssignsTagsAndReturnsThem() throws Exception {
+        String nickname = uniqueNickname();
+        String firstEmail = uniqueEmail();
+        String secondEmail = uniqueEmail();
+
+        postJson("/api/v1/users", signUpBody(firstEmail, PASSWORD, "  " + nickname + " "))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.nickname").value(nickname))
+                .andExpect(jsonPath("$.tag").value(1));
+        postJson("/api/v1/users", signUpBody(secondEmail, PASSWORD, nickname))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.nickname").value(nickname))
+                .andExpect(jsonPath("$.tag").value(2));
+
+        MvcResult login = postJson("/api/v1/auth/login", credentials(secondEmail, PASSWORD))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value(nickname))
+                .andExpect(jsonPath("$.tag").value(2))
+                .andReturn();
+        mvc.perform(get(ME).cookie(cookieFrom(login)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email", "role", "nickname", "tag")))
+                .andExpect(jsonPath("$.nickname").value(nickname))
+                .andExpect(jsonPath("$.tag").value(2));
+    }
+
+    @Test
+    @DisplayName("대소문자만 다른 닉네임은 번호를 따로 센다 (R7)")
+    void nicknameIsCaseSensitive() throws Exception {
+        String base = "Case" + UUID.randomUUID().toString().substring(0, 8);
+
+        postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD, base))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tag").value(1));
+        postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD, base.toLowerCase(Locale.ROOT)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.nickname").value(base.toLowerCase(Locale.ROOT)))
+                .andExpect(jsonPath("$.tag").value(1));
+    }
+
+    @Test
+    @DisplayName("닉네임을 바꾸면 새 닉네임의 다음 번호를 받고 내 정보에 바로 반영되며, 같은 닉네임으로 다시 바꾸면 번호가 유지된다 (R5)")
+    void changeNickname() throws Exception {
+        String target = uniqueNickname();
+        postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD, target)).andExpect(status().isCreated());
+        Cookie cookie = cookieFrom(postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD, uniqueNickname()))
+                .andExpect(status().isCreated())
+                .andReturn());
+
+        putNickname(target, cookie)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value(target))
+                .andExpect(jsonPath("$.tag").value(2));
+        mvc.perform(get(ME).cookie(cookie))
+                .andExpect(jsonPath("$.nickname").value(target))
+                .andExpect(jsonPath("$.tag").value(2));
+
+        putNickname(" " + target + " ", cookie)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value(target))
+                .andExpect(jsonPath("$.tag").value(2));
+    }
+
+    @Test
+    @DisplayName("닉네임 없이 가입하면 400이고 회원이 생기지 않는다 (R1)")
+    void signUpWithoutNickname() throws Exception {
+        String email = uniqueEmail();
+
+        postJson("/api/v1/users", credentials(email, PASSWORD))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+
+        assertThat(userRepository.existsByEmail(email)).isFalse();
+    }
+
+    @Test
+    @DisplayName("규칙에 맞지 않는 닉네임으로 바꾸면 400이고 닉네임은 그대로다 (R1, R5)")
+    void changeToInvalidNickname() throws Exception {
+        String nickname = uniqueNickname();
+        Cookie cookie = cookieFrom(postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD, nickname))
+                .andExpect(status().isCreated())
+                .andReturn());
+
+        putNickname("영희#1", cookie).andExpect(status().isBadRequest());
+
+        mvc.perform(get(ME).cookie(cookie)).andExpect(jsonPath("$.nickname").value(nickname));
+    }
+
+    @Test
+    @DisplayName("비회원은 닉네임을 바꿀 수 없다 (401)")
+    void changeNicknameWithoutLogin() throws Exception {
+        mvc.perform(put(ME + "/nickname")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\": \"영희\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private ResultActions putNickname(String nickname, Cookie cookie) throws Exception {
+        return mvc.perform(put(ME + "/nickname")
+                .cookie(cookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nickname\": \"%s\"}".formatted(nickname)));
+    }
+
     private ResultActions postJson(String path, String body) throws Exception {
         return mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
     }
@@ -241,6 +350,18 @@ class AuthApiIntegrationTest {
 
     private static String credentials(String email, String password) {
         return "{\"email\": \"%s\", \"password\": \"%s\"}".formatted(email, password);
+    }
+
+    private static String signUpBody(String email, String password) {
+        return signUpBody(email, password, "회원가입자");
+    }
+
+    private static String signUpBody(String email, String password, String nickname) {
+        return "{\"email\": \"%s\", \"password\": \"%s\", \"nickname\": \"%s\"}".formatted(email, password, nickname);
+    }
+
+    private static String uniqueNickname() {
+        return "닉" + UUID.randomUUID().toString().substring(0, 8);
     }
 
     private static String uniqueEmail() {

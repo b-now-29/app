@@ -42,7 +42,16 @@ vi.mock("./api/users", async (importOriginal) => ({
 
 const EMAIL = "user@example.com";
 const PASSWORD = "password1234";
-const USER: UserResponse = { id: 1, email: EMAIL, role: "USER" };
+const NICKNAME = "철수";
+const USER: UserResponse = {
+  id: 1,
+  email: EMAIL,
+  role: "USER",
+  nickname: NICKNAME,
+  tag: 3,
+};
+// 메뉴에는 이메일 대신 닉네임#번호를 /me 링크로 보여 준다 (nickname R9, D8)
+const MENU_NAME = "철수#3";
 const CATEGORY_NAME = "Java";
 const QUIZ_PATH = "/categories/java";
 const QUESTION_CONTENT = "첫 번째 문제";
@@ -134,11 +143,21 @@ async function fillCredentials(user: UserEvent) {
   await user.type(screen.getByLabelText("비밀번호"), PASSWORD);
 }
 
+async function fillSignUp(user: UserEvent) {
+  await fillCredentials(user);
+  await user.type(screen.getByLabelText("닉네임"), NICKNAME);
+}
+
 async function expectLoggedInMenu() {
   const menu = await findMenu();
-  expect(await menu.findByText(EMAIL)).toBeInTheDocument();
+  expect(await menu.findByRole("link", { name: MENU_NAME })).toHaveAttribute(
+    "href",
+    "/me",
+  );
   expect(menu.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
   expect(menu.queryByRole("link", { name: "로그인" })).not.toBeInTheDocument();
+  // 이메일은 메뉴에 보이지 않는다 (nickname D8)
+  expect(menu.queryByText(EMAIL)).not.toBeInTheDocument();
 }
 
 async function expectGuestMenu() {
@@ -148,6 +167,7 @@ async function expectGuestMenu() {
     menu.queryByRole("button", { name: "로그아웃" }),
   ).not.toBeInTheDocument();
   expect(menu.queryByText(EMAIL)).not.toBeInTheDocument();
+  expect(menu.queryByRole("link", { name: MENU_NAME })).not.toBeInTheDocument();
 }
 
 async function expectHome() {
@@ -164,7 +184,7 @@ describe("메뉴 (R10)", () => {
     await expectHome();
   });
 
-  it("로그인 사용자에게는 이메일과 로그아웃이 보인다", async () => {
+  it("로그인 사용자에게는 이메일 대신 닉네임#번호 링크와 로그아웃이 보인다 (nickname R9, D8)", async () => {
     currentUser = USER;
 
     renderApp("/");
@@ -189,6 +209,19 @@ describe("메뉴 (R10)", () => {
     await user.click(await menu.findByRole("link", { name: "로그인" }));
 
     expect(await screen.findByLabelText("비밀번호")).toBeInTheDocument();
+  });
+
+  it("닉네임#번호 링크를 누르면 내 정보 화면(/me)으로 간다 (nickname R9)", async () => {
+    currentUser = USER;
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const menu = await findMenu();
+    await user.click(await menu.findByRole("link", { name: MENU_NAME }));
+
+    expect(
+      await screen.findByRole("heading", { name: "내 정보", level: 1 }),
+    ).toBeInTheDocument();
   });
 
   it("사용자 조회가 실패해도 비회원으로 처리하고 퀴즈 화면을 막지 않는다 (D11)", async () => {
@@ -340,6 +373,13 @@ describe("로그인 화면", () => {
     expect(screen.queryByLabelText("비밀번호")).not.toBeInTheDocument();
   });
 
+  it("로그인 폼에는 닉네임 입력칸이 없다 (nickname 화면 흐름)", async () => {
+    renderApp("/login");
+
+    await screen.findByLabelText("비밀번호");
+    expect(screen.queryByLabelText("닉네임")).not.toBeInTheDocument();
+  });
+
   it("인증에 실패하면 폼에 서버 메시지를 보여 주고 이동하지 않는다 (R5)", async () => {
     const message = "이메일 또는 비밀번호가 올바르지 않습니다.";
     vi.mocked(login).mockRejectedValue(new ApiError(401, message));
@@ -388,15 +428,27 @@ describe("회원가입 화면", () => {
     );
   });
 
-  it("성공하면 로그인 상태로 홈으로 이동한다 (R1)", async () => {
+  it("이메일·비밀번호 아래에 닉네임 입력칸이 있다 (nickname 화면 흐름)", async () => {
+    renderApp("/signup");
+
+    const password = await screen.findByLabelText("비밀번호");
+    const nickname = screen.getByLabelText("닉네임");
+    // 문서 순서상 비밀번호 칸 뒤에 온다
+    expect(
+      password.compareDocumentPosition(nickname) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("성공하면 입력한 닉네임으로 가입하고 로그인 상태로 홈으로 이동한다 (R1, nickname R1)", async () => {
     const user = userEvent.setup();
     renderApp("/signup");
 
-    await fillCredentials(user);
+    await fillSignUp(user);
     await user.click(screen.getByRole("button", { name: "회원가입" }));
 
     await expectHome();
-    expect(signUp).toHaveBeenCalledWith(EMAIL, PASSWORD);
+    expect(signUp).toHaveBeenCalledWith(EMAIL, PASSWORD, NICKNAME);
     await expectLoggedInMenu();
   });
 
@@ -406,7 +458,7 @@ describe("회원가입 화면", () => {
     const user = userEvent.setup();
     renderApp("/signup");
 
-    await fillCredentials(user);
+    await fillSignUp(user);
     await user.click(screen.getByRole("button", { name: "회원가입" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
@@ -420,11 +472,27 @@ describe("회원가입 화면", () => {
     const user = userEvent.setup();
     renderApp("/signup");
 
-    await fillCredentials(user);
+    await fillSignUp(user);
     await user.click(screen.getByRole("button", { name: "회원가입" }));
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+  });
+
+  it("닉네임 규칙 위반(400)이면 서버 메시지를 보여 주고 이동하지 않는다 (nickname R1)", async () => {
+    const message = "입력값이 올바르지 않습니다. (항목: nickname)";
+    vi.mocked(signUp).mockRejectedValue(new ApiError(400, message));
+    const user = userEvent.setup();
+    renderApp("/signup");
+
+    await fillCredentials(user);
+    await user.type(screen.getByLabelText("닉네임"), "철수#1");
+    await user.click(screen.getByRole("button", { name: "회원가입" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(signUp).toHaveBeenCalledWith(EMAIL, PASSWORD, "철수#1");
+    expect(screen.getByLabelText("닉네임")).toBeInTheDocument();
+    await expectGuestMenu();
   });
 });
 

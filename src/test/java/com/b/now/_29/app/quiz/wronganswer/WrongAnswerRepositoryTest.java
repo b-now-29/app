@@ -10,6 +10,7 @@ import com.b.now._29.app.quiz.category.CategoryRepository;
 import com.b.now._29.app.quiz.question.Question;
 import com.b.now._29.app.quiz.question.QuestionRepository;
 import com.b.now._29.app.quiz.question.QuestionType;
+import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.User;
 import com.b.now._29.app.user.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -65,8 +66,8 @@ class WrongAnswerRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        me = userRepository.saveAndFlush(new User("wrong-me@example.com", "$2a$10$hash"));
-        other = userRepository.saveAndFlush(new User("wrong-other@example.com", "$2a$10$hash"));
+        me = userRepository.saveAndFlush(new User("wrong-me@example.com", "$2a$10$hash", new Nickname("오답나"), 1));
+        other = userRepository.saveAndFlush(new User("wrong-other@example.com", "$2a$10$hash", new Nickname("오답남"), 1));
     }
 
     // 오답 목록

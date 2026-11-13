@@ -436,7 +436,8 @@ class AdminContentApiIntegrationTest {
 
     private Cookie signUp(String email) throws Exception {
         MvcResult result = postJson(
-                        post("/api/v1/users"), "{\"email\": \"%s\", \"password\": \"%s\"}".formatted(email, PASSWORD))
+                        post("/api/v1/users"),
+                        "{\"email\": \"%s\", \"password\": \"%s\", \"nickname\": \"관리테스트\"}".formatted(email, PASSWORD))
                 .andExpect(status().isCreated())
                 .andReturn();
         SetCookieHeader header = SetCookieHeader.from(result);
