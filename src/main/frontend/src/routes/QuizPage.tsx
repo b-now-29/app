@@ -1,9 +1,20 @@
 import { Text, VStack } from "@seed-design/react";
-import { useId, useReducer } from "react";
-import { Link, useLoaderData, useParams } from "react-router";
+import { useId, useReducer, useRef } from "react";
+import {
+  Link,
+  useLoaderData,
+  useParams,
+  useRouteLoaderData,
+} from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Callout } from "seed-design/ui/callout";
-import { submitAnswer, submitTextAnswer } from "../api/questions";
+import {
+  submitAnswer,
+  submitSelfGrade,
+  submitTextAnswer,
+} from "../api/questions";
+import { ApiError } from "../api/users";
+import type { UserResponse } from "../api/users";
 import type {
   AnswerResponse,
   QuestionResponse,
@@ -17,6 +28,7 @@ import {
   isLastQuestion,
   quizReducer,
 } from "../quiz/quizReducer";
+import type { SelfGradedQuestionType } from "../quiz/quizReducer";
 import { countQuestionsByType, scoreLines } from "../quiz/quizScore";
 import type { quizLoader } from "./quizLoader";
 
@@ -50,6 +62,11 @@ function QuizSession({
     createInitialState,
   );
   const questionTitleId = useId();
+  // 회원 여부는 앱 맨 위 route(root)의 loader 데이터로 안다. 비회원이면 null이다.
+  const user = useRouteLoaderData("root") as UserResponse | null;
+
+  // 저장 중인지 즉시 기록한다. 빠른 연속 클릭은 같은 렌더의 state를 보므로 state만으로는 중복 호출을 못 막는다.
+  const savingSelfGrade = useRef(false);
 
   if (state.phase === "finished") {
     const lines = scoreLines(
@@ -66,6 +83,9 @@ function QuizSession({
             {line}
           </Text>
         ))}
+        {state.loginExpiredAt !== null && (
+          <LoginExpiredNotice questionNumber={state.loginExpiredAt + 1} />
+        )}
         <CategoryListLink />
       </VStack>
     );
@@ -80,8 +100,38 @@ function QuizSession({
     try {
       const result = await submitAnswer(question.id, selectedChoiceId);
       dispatch({ type: "submitSuccess", result });
+      // 회원인데 저장되지 않았으면 로그인 만료로 본다. 이미 감지했으면 번호를 바꾸지 않는다
+      if (user !== null && state.loginExpiredAt === null && !result.recorded) {
+        dispatch({ type: "loginExpired" });
+      }
     } catch {
       dispatch({ type: "submitFailure" });
+    }
+  }
+
+  // 회원은 저장이 끝난 뒤에 다음 문제로 넘어간다. 비회원과 로그인이 만료된 퀴즈는 저장 없이 바로 넘어간다.
+  async function selfGrade(
+    questionType: SelfGradedQuestionType,
+    correct: boolean,
+  ) {
+    if (user === null || state.loginExpiredAt !== null) {
+      dispatch({ type: "selfGrade", questionType, correct });
+      return;
+    }
+    if (savingSelfGrade.current) return;
+    savingSelfGrade.current = true;
+    dispatch({ type: "selfGradeSaveStart" });
+    try {
+      await submitSelfGrade(question.id, correct);
+      dispatch({ type: "selfGrade", questionType, correct });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        dispatch({ type: "selfGradeSaveUnauthorized", questionType, correct });
+      } else {
+        dispatch({ type: "selfGradeSaveFailure" });
+      }
+    } finally {
+      savingSelfGrade.current = false;
     }
   }
 
@@ -130,9 +180,8 @@ function QuizSession({
       );
       selfGradeArea = (
         <SelfGradeButtons
-          onSelect={(correct) =>
-            dispatch({ type: "selfGrade", questionType, correct })
-          }
+          disabled={state.phase === "savingSelfGrade"}
+          onSelect={(correct) => void selfGrade(questionType, correct)}
         />
       );
       canSubmit = textAnswer.trim() !== "";
@@ -160,9 +209,19 @@ function QuizSession({
           description="채점 요청에 실패했습니다. 다시 제출해 주세요."
         />
       )}
+      {state.loginExpiredAt !== null && (
+        <LoginExpiredNotice questionNumber={state.loginExpiredAt + 1} />
+      )}
       {state.result !== null && <GradingResult result={state.result} />}
       {state.reveal !== null && <ModelAnswer reveal={state.reveal} />}
-      {state.phase === "revealed" ? (
+      {state.selfGradeSaveFailed && (
+        <Callout
+          role="alert"
+          tone="critical"
+          description="기록 저장에 실패했습니다. 다시 시도해 주세요."
+        />
+      )}
+      {state.phase === "revealed" || state.phase === "savingSelfGrade" ? (
         selfGradeArea
       ) : state.phase === "graded" ? (
         <ActionButton
@@ -188,6 +247,23 @@ function QuizSession({
         </ActionButton>
       )}
     </VStack>
+  );
+}
+
+function LoginExpiredNotice({
+  questionNumber,
+}: {
+  readonly questionNumber: number;
+}) {
+  return (
+    <Callout
+      tone="neutral"
+      description={
+        "로그인이 만료되어 " +
+        questionNumber +
+        "번 문제부터 기록이 저장되지 않았어요"
+      }
+    />
   );
 }
 

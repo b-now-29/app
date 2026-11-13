@@ -15,7 +15,7 @@ public class CategoryService {
     }
 
     public List<CategoryResponse> getCategories() {
-        return categoryRepository.findAllByOrderBySortOrderAsc().stream()
+        return categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc().stream()
                 .map(CategoryResponse::from)
                 .toList();
     }

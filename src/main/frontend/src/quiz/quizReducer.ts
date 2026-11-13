@@ -5,7 +5,12 @@ import type {
 } from "../api/questions";
 
 export type QuizPhase =
-  "answering" | "submitting" | "graded" | "revealed" | "finished";
+  | "answering"
+  | "submitting"
+  | "graded"
+  | "revealed"
+  | "savingSelfGrade"
+  | "finished";
 
 export type QuizState = {
   readonly phase: QuizPhase;
@@ -17,6 +22,11 @@ export type QuizState = {
   readonly reveal: TextAnswerResponse | null;
   readonly correctCounts: Readonly<Record<QuestionType, number>>;
   readonly submitFailed: boolean;
+  // 자기 채점 저장이 실패해 다시 시도할 수 있는 상태 (D9)
+  readonly selfGradeSaveFailed: boolean;
+  // 로그인 만료를 처음 감지한 문제의 0부터 시작하는 index. null이면 만료 전이다.
+  // 값이 있으면 이 퀴즈의 남은 문제는 저장하지 않으며, 문제가 바뀌어도 유지된다 (D12, D13)
+  readonly loginExpiredAt: number | null;
 };
 
 // 객관식은 서버가 채점하므로 자기 채점 액션으로 받지 않는다
@@ -36,6 +46,18 @@ export type QuizAction =
       readonly questionType: SelfGradedQuestionType;
       readonly correct: boolean;
     }
+  | { readonly type: "selfGradeSaveStart" }
+  | { readonly type: "selfGradeSaveFailure" }
+  | {
+      // 저장이 401이면 고른 결과를 점수에 넣고 바로 다음 문제로 넘어간다
+      readonly type: "selfGradeSaveUnauthorized";
+      readonly questionType: SelfGradedQuestionType;
+      readonly correct: boolean;
+    }
+  | {
+      // 회원인데 객관식 제출 응답이 recorded: false라서 로그인 만료로 본다 (D13)
+      readonly type: "loginExpired";
+    }
   | { readonly type: "submitFailure" }
   | { readonly type: "next" };
 
@@ -50,6 +72,8 @@ export function createInitialState(totalQuestions: number): QuizState {
     reveal: null,
     correctCounts: { MULTIPLE_CHOICE: 0, SHORT_ANSWER: 0, ESSAY: 0 },
     submitFailed: false,
+    selfGradeSaveFailed: false,
+    loginExpiredAt: null,
   };
 }
 
@@ -59,10 +83,13 @@ export function isLastQuestion(state: QuizState): boolean {
 
 // 다음 문제로 넘어간다. 마지막이면 끝 단계로 가고, 아니면 이전 문제의 입력과 결과를 비운다.
 function advance(state: QuizState): QuizState {
-  if (isLastQuestion(state)) return { ...state, phase: "finished" };
+  if (isLastQuestion(state)) {
+    return { ...state, phase: "finished", selfGradeSaveFailed: false };
+  }
   return {
     ...state,
     phase: "answering",
+    selfGradeSaveFailed: false,
     currentIndex: state.currentIndex + 1,
     selectedChoiceId: null,
     textAnswer: "",
@@ -121,8 +148,17 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
       if (state.phase !== "submitting") return state;
       return { ...state, phase: "revealed", reveal: action.reveal };
 
+    case "selfGradeSaveStart":
+      // 로그인이 만료된 뒤에는 저장하지 않는다. 저장 중에 또 받으면 무시해 중복 저장을 막는다
+      if (state.phase !== "revealed" || state.loginExpiredAt !== null)
+        return state;
+      return { ...state, phase: "savingSelfGrade", selfGradeSaveFailed: false };
+
     case "selfGrade":
-      if (state.phase !== "revealed") return state;
+      // 비회원·로그인 만료는 revealed에서 바로, 회원은 저장이 끝난 savingSelfGrade에서 받는다
+      if (state.phase !== "revealed" && state.phase !== "savingSelfGrade") {
+        return state;
+      }
       return advance({
         ...state,
         correctCounts: addCorrect(
@@ -131,6 +167,31 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
           action.correct,
         ),
       });
+
+    case "selfGradeSaveFailure":
+      if (state.phase !== "savingSelfGrade") return state;
+      return { ...state, phase: "revealed", selfGradeSaveFailed: true };
+
+    case "selfGradeSaveUnauthorized":
+      if (state.phase !== "savingSelfGrade") return state;
+      return advance({
+        ...state,
+        // 이미 감지한 번호가 있으면 유지한다. advance 전이라 currentIndex가 401이 난 문제다
+        loginExpiredAt: state.loginExpiredAt ?? state.currentIndex,
+        correctCounts: addCorrect(
+          state.correctCounts,
+          action.questionType,
+          action.correct,
+        ),
+      });
+
+    case "loginExpired":
+      if (state.phase !== "graded") return state;
+      // 처음 감지한 번호를 유지한다
+      return {
+        ...state,
+        loginExpiredAt: state.loginExpiredAt ?? state.currentIndex,
+      };
 
     case "submitFailure":
       if (state.phase !== "submitting") return state;

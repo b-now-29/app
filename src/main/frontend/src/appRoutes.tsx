@@ -1,4 +1,25 @@
+import { redirect } from "react-router";
 import type { RouteObject, ShouldRevalidateFunction } from "react-router";
+import AdminLayout from "./routes/AdminLayout";
+import AdminCategoriesPage from "./routes/AdminCategoriesPage";
+import AdminQuestionListPage from "./routes/AdminQuestionListPage";
+import {
+  AdminQuestionEditPage,
+  AdminQuestionNewPage,
+} from "./routes/AdminQuestionFormPage";
+import AdminUsersPage from "./routes/AdminUsersPage";
+import { adminUsersLoader } from "./routes/adminUsersLoader";
+import { adminLoader } from "./routes/adminLoader";
+import AdminCategoryStatsPage from "./routes/AdminCategoryStatsPage";
+import AdminQuestionStatsPage from "./routes/AdminQuestionStatsPage";
+import {
+  adminCategoryStatsLoader,
+  adminQuestionStatsLoader,
+} from "./routes/adminStatsLoaders";
+import {
+  adminQuestionListLoader,
+  adminQuestionLoader,
+} from "./routes/adminQuestionLoaders";
 import { getCategories } from "./api/categories";
 import RootLayout from "./routes/RootLayout";
 import CategoryListPage from "./routes/CategoryListPage";
@@ -6,6 +27,8 @@ import ErrorPage from "./routes/ErrorPage";
 import QuizPage from "./routes/QuizPage";
 import QuizErrorPage from "./routes/QuizErrorPage";
 import { quizLoader } from "./routes/quizLoader";
+import HistoryPage from "./routes/HistoryPage";
+import { historyLoader } from "./routes/historyLoader";
 import AboutPage from "./routes/AboutPage";
 import NotFoundPage from "./routes/NotFoundPage";
 import LoginPage from "./routes/LoginPage";
@@ -51,6 +74,51 @@ export const appRoutes: RouteObject[] = [
         loader: quizLoader,
         shouldRevalidate: skipAfterLogout,
         ErrorBoundary: QuizErrorPage,
+      },
+      {
+        // skipAfterLogout을 붙이지 않는다. 로그아웃 뒤 loader가 다시 실행되어 401로 /login에 간다
+        path: "history",
+        Component: HistoryPage,
+        loader: historyLoader,
+        ErrorBoundary: ErrorPage,
+      },
+      {
+        // 관리자 화면. 로그아웃 뒤에는 loader가 다시 실행되어 401로 /login에 간다
+        path: "admin",
+        id: "admin", // 자식 화면이 useRouteLoaderData("admin")으로 카테고리 목록을 읽는다
+        Component: AdminLayout,
+        loader: adminLoader,
+        ErrorBoundary: ErrorPage,
+        children: [
+          { index: true, loader: () => redirect("/admin/categories") },
+          { path: "categories", Component: AdminCategoriesPage },
+          {
+            path: "questions",
+            Component: AdminQuestionListPage,
+            loader: adminQuestionListLoader,
+          },
+          {
+            path: "users",
+            Component: AdminUsersPage,
+            loader: adminUsersLoader,
+          },
+          {
+            path: "stats",
+            Component: AdminCategoryStatsPage,
+            loader: adminCategoryStatsLoader,
+          },
+          {
+            path: "stats/:slug",
+            Component: AdminQuestionStatsPage,
+            loader: adminQuestionStatsLoader,
+          },
+          { path: "questions/new", Component: AdminQuestionNewPage },
+          {
+            path: "questions/:id",
+            Component: AdminQuestionEditPage,
+            loader: adminQuestionLoader,
+          },
+        ],
       },
       { path: "login", Component: LoginPage, action: loginAction },
       { path: "signup", Component: SignUpPage, action: signUpAction },

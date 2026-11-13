@@ -1,12 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getQuestions,
   NotFoundError,
   submitAnswer,
+  submitSelfGrade,
   submitTextAnswer,
 } from "../api/questions";
 import type {
@@ -14,6 +15,8 @@ import type {
   QuestionResponse,
   TextAnswerResponse,
 } from "../api/questions";
+import { ApiError } from "../api/users";
+import type { UserResponse } from "../api/users";
 import QuizErrorPage from "./QuizErrorPage";
 import QuizPage from "./QuizPage";
 import { quizLoader } from "./quizLoader";
@@ -24,7 +27,17 @@ vi.mock("../api/questions", async (importOriginal) => ({
   getQuestions: vi.fn(),
   submitAnswer: vi.fn(),
   submitTextAnswer: vi.fn(),
+  submitSelfGrade: vi.fn(),
 }));
+
+const MEMBER: UserResponse = {
+  id: 1,
+  email: "user@example.com",
+  role: "USER",
+};
+
+// root loader가 돌려줄 현재 사용자. 기본은 비회원이고, 회원 테스트에서만 바꾼다
+let currentUser: UserResponse | null = null;
 
 const EXPLANATION = "해설 내용";
 
@@ -126,27 +139,50 @@ const LIST_LINK = "카테고리 목록";
 const LIST_SCREEN = "카테고리 목록 화면";
 const SCORE_TITLE = "풀이 결과";
 
-function correctAnswer(correctChoiceId: number): AnswerResponse {
-  return { correct: true, correctChoiceId, explanation: EXPLANATION };
+// recorded 기본값은 회원 기준(저장됨)이다. 비회원 화면은 recorded를 보지 않으므로 값과 상관없다 (D13)
+function correctAnswer(
+  correctChoiceId: number,
+  recorded = true,
+): AnswerResponse {
+  return { correct: true, correctChoiceId, explanation: EXPLANATION, recorded };
 }
 
-function wrongAnswer(correctChoiceId: number): AnswerResponse {
-  return { correct: false, correctChoiceId, explanation: EXPLANATION };
+function wrongAnswer(correctChoiceId: number, recorded = true): AnswerResponse {
+  return {
+    correct: false,
+    correctChoiceId,
+    explanation: EXPLANATION,
+    recorded,
+  };
 }
+
+// 만료를 처음 감지한 문제의 번호(1부터)를 넣은 안내 문구 (D13)
+const loginExpiredNotice = (questionNumber: number) =>
+  `로그인이 만료되어 ${questionNumber}번 문제부터 기록이 저장되지 않았어요`;
+const queryAnyLoginExpiredNotice = () => screen.queryByText(/로그인이 만료/);
 
 function CategoryListStub() {
   return <h1>{LIST_SCREEN}</h1>;
 }
 
 function renderQuiz() {
+  // 풀이 화면은 회원 여부를 useRouteLoaderData("root")로 읽으므로 앱과 같은 id의 부모 route를 둔다
   const router = createMemoryRouter(
     [
-      { path: "/", Component: CategoryListStub },
       {
-        path: "/categories/:slug",
-        Component: QuizPage,
-        loader: quizLoader,
-        ErrorBoundary: QuizErrorPage,
+        path: "/",
+        id: "root",
+        loader: () => currentUser,
+        Component: Outlet,
+        children: [
+          { index: true, Component: CategoryListStub },
+          {
+            path: "categories/:slug",
+            Component: QuizPage,
+            loader: quizLoader,
+            ErrorBoundary: QuizErrorPage,
+          },
+        ],
       },
     ],
     { initialEntries: ["/categories/java"] },
@@ -205,6 +241,7 @@ function mockQuestionsBySlug() {
 describe("문제 풀이 화면", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    currentUser = null;
     vi.mocked(getQuestions).mockResolvedValue(QUESTIONS);
   });
 
@@ -1608,6 +1645,693 @@ describe("문제 풀이 화면", () => {
         ]);
         expect(screen.queryByText(/서술형/)).not.toBeInTheDocument();
         expect(screen.queryByText(/맞음|틀림/)).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("자기 채점 기록 저장 (R2, R5, D9)", () => {
+    // 첫 문제에서 401이 난 경우의 안내 (D13)
+    const LOGIN_EXPIRED = loginExpiredNotice(1);
+    const answerBox = () => screen.getByRole("textbox", { name: "내 답" });
+    const queryAlert = () => screen.queryByRole("alert");
+
+    function pendingSave() {
+      let resolve: () => void = () => {};
+      let reject: (error: unknown) => void = () => {};
+      const promise = new Promise<void>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      return { promise, resolve, reject };
+    }
+
+    async function startTextQuiz(
+      questions: readonly QuestionResponse[] = SHORT_ANSWER_QUESTIONS,
+    ) {
+      vi.mocked(getQuestions).mockResolvedValue(questions);
+      vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+      const rendered = renderQuiz();
+      await screen.findByRole("textbox", { name: "내 답" });
+      return rendered;
+    }
+
+    async function revealModelAnswer(user: UserEvent) {
+      await user.type(answerBox(), MY_ANSWER);
+      await user.click(button("제출"));
+      await screen.findByRole("heading", { name: "모범 답안" });
+    }
+
+    // 자기 채점을 누른 뒤 같은 문제에 머물러 모범 답안과 두 버튼이 남아 있는지 본다
+    function expectStillOnFirstQuestion() {
+      expect(screen.getByText("문제 1 / 2")).toBeInTheDocument();
+      expect(heading("첫 주관식 문제")).toBeInTheDocument();
+      expect(screen.getByText(MODEL_ANSWER)).toBeInTheDocument();
+      expect(answerBox()).toHaveValue(MY_ANSWER);
+    }
+
+    describe("비회원 (R5)", () => {
+      it.each(["맞았어요", "틀렸어요"])(
+        "%s를 누르면 저장 API를 호출하지 않고 바로 다음 문제로 넘어간다",
+        async (name) => {
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+
+          await user.click(button(name));
+
+          expect(screen.getByText("문제 2 / 2")).toBeInTheDocument();
+          expect(submitSelfGrade).not.toHaveBeenCalled();
+        },
+      );
+
+      it("서술형도 저장 API를 호출하지 않는다", async () => {
+        const { user } = await startTextQuiz([ESSAY_QUESTION]);
+        await revealModelAnswer(user);
+
+        await user.click(button("맞았어요"));
+
+        expect(heading(SCORE_TITLE)).toBeInTheDocument();
+        expect(submitSelfGrade).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("회원 (R2)", () => {
+      beforeEach(() => {
+        currentUser = MEMBER;
+      });
+
+      it.each([
+        { name: "맞았어요", correct: true },
+        { name: "틀렸어요", correct: false },
+      ])(
+        "$name를 누르면 문제 id와 결과로 저장한 뒤 다음 문제로 넘어간다",
+        async ({ name, correct }) => {
+          vi.mocked(submitSelfGrade).mockResolvedValue();
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+
+          await user.click(button(name));
+
+          expect(await screen.findByText("문제 2 / 2")).toBeInTheDocument();
+          expect(heading("둘째 주관식 문제")).toBeInTheDocument();
+          expect(answerBox()).toHaveValue("");
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+          expect(submitSelfGrade).toHaveBeenCalledWith(301, correct);
+        },
+      );
+
+      it("서술형도 저장하고, 다음 문제는 그 문제의 id로 저장한다", async () => {
+        vi.mocked(submitSelfGrade).mockResolvedValue();
+        const { user } = await startTextQuiz(ESSAY_QUESTIONS);
+        await revealModelAnswer(user);
+        await user.click(button("맞았어요"));
+        await screen.findByText("문제 2 / 2");
+
+        await revealModelAnswer(user);
+        await user.click(button("틀렸어요"));
+        await screen.findByRole("heading", { name: SCORE_TITLE });
+
+        expect(submitSelfGrade).toHaveBeenNthCalledWith(1, 501, true);
+        expect(submitSelfGrade).toHaveBeenNthCalledWith(2, 502, false);
+        expect(
+          screen.getByText("서술형 2문제 중 정답 1문제, 오답 1문제"),
+        ).toBeInTheDocument();
+      });
+
+      it("저장이 끝나기 전에는 다음 문제로 넘어가지 않고, 끝나면 넘어간다", async () => {
+        const pending = pendingSave();
+        vi.mocked(submitSelfGrade).mockReturnValue(pending.promise);
+        const { user } = await startTextQuiz();
+        await revealModelAnswer(user);
+
+        await user.click(button("맞았어요"));
+
+        expectStillOnFirstQuestion();
+
+        await act(async () => pending.resolve());
+
+        expect(await screen.findByText("문제 2 / 2")).toBeInTheDocument();
+      });
+
+      // 연속 클릭하면 재풀이처럼 기록이 중복 저장된다 (R3, 제약 사항)
+      it("저장 중에는 두 자기 채점 버튼이 비활성이고 다시 눌러도 저장을 한 번만 요청한다", async () => {
+        const pending = pendingSave();
+        vi.mocked(submitSelfGrade).mockReturnValue(pending.promise);
+        const { user } = await startTextQuiz();
+        await revealModelAnswer(user);
+        // loading 중에는 버튼 안 구조가 바뀌어 이름으로 못 찾을 수 있으므로 미리 잡아 둔다
+        const right = button("맞았어요");
+        const wrong = button("틀렸어요");
+
+        await user.click(right);
+
+        expect(right).toBeDisabled();
+        expect(wrong).toBeDisabled();
+
+        await user.click(right);
+        await user.click(wrong);
+
+        expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+
+        await act(async () => pending.resolve());
+        await screen.findByText("문제 2 / 2");
+      });
+
+      // 버그 재현 (코드 리뷰): 첫 클릭의 화면 갱신 전에 두 번째 클릭이 오면 두 클릭 모두 같은 "revealed" 화면에서 처리된다.
+      // reducer가 두 번째 selfGradeSaveStart를 무시해도 dispatch는 그 사실을 알려 주지 않으므로,
+      // 화면 갱신 없이 두 클릭을 한 act 안에서 보내 저장 API가 한 번만 불리는지 본다 (R3, 제약 사항).
+      it.each([
+        { name: "맞았어요를 두 번", second: "맞았어요" },
+        { name: "맞았어요 뒤 틀렸어요", second: "틀렸어요" },
+      ])(
+        "화면이 갱신되기 전에 $name 눌러도 저장은 첫 클릭의 결과로 한 번만 요청하고 점수도 한 번만 센다",
+        async ({ second }) => {
+          const pending = pendingSave();
+          vi.mocked(submitSelfGrade).mockReturnValue(pending.promise);
+          const { user } = await startTextQuiz([SHORT_ANSWER_QUESTION]);
+          await revealModelAnswer(user);
+          const first = button("맞았어요");
+          const next = button(second);
+
+          // 연속 클릭 횟수(detail)가 1인 클릭 두 번이라 SelfGradeButtons의 더블클릭 방어에는 걸리지 않는다
+          act(() => {
+            fireEvent.click(first, { detail: 1 });
+            fireEvent.click(next, { detail: 1 });
+          });
+
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+          expect(submitSelfGrade).toHaveBeenCalledWith(402, true);
+
+          await act(async () => pending.resolve());
+
+          expect(
+            await screen.findByRole("heading", { name: SCORE_TITLE }),
+          ).toBeInTheDocument();
+          expect(
+            screen.getByText("주관식 1문제 중 정답 1문제, 오답 0문제"),
+          ).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+        },
+      );
+
+      it("저장에 성공하고 끝난 퀴즈의 결과 화면에는 로그인 만료 안내가 없다", async () => {
+        vi.mocked(submitSelfGrade).mockResolvedValue();
+        const { user } = await startTextQuiz([SHORT_ANSWER_QUESTION]);
+        await revealModelAnswer(user);
+
+        await user.click(button("맞았어요"));
+
+        expect(
+          await screen.findByRole("heading", { name: SCORE_TITLE }),
+        ).toBeInTheDocument();
+        expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+      });
+
+      it("마지막 문제에서 저장이 끝나면 점수 화면으로 가고 고른 결과를 센다", async () => {
+        vi.mocked(submitSelfGrade).mockResolvedValue();
+        const { user } = await startTextQuiz([SHORT_ANSWER_QUESTION]);
+        await revealModelAnswer(user);
+
+        await user.click(button("맞았어요"));
+
+        expect(
+          await screen.findByRole("heading", { name: SCORE_TITLE }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText("주관식 1문제 중 정답 1문제, 오답 0문제"),
+        ).toBeInTheDocument();
+        expect(submitSelfGrade).toHaveBeenCalledWith(402, true);
+      });
+
+      it("객관식은 회원이어도 자기 채점 저장 API를 호출하지 않는다 (R1은 채점 API가 저장)", async () => {
+        vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61));
+        vi.mocked(getQuestions).mockResolvedValue([MULTIPLE_CHOICE_QUESTION]);
+        const { user } = await startQuiz();
+
+        await answer(user, "하나");
+        await user.click(button("결과 보기"));
+
+        expect(submitSelfGrade).not.toHaveBeenCalled();
+      });
+
+      describe("저장 실패 (D9)", () => {
+        it.each([
+          { name: "통신 오류", error: new TypeError("Failed to fetch") },
+          { name: "500", error: new ApiError(500, "서버 오류") },
+          { name: "400", error: new ApiError(400, "잘못된 요청") },
+          { name: "404", error: new ApiError(404, "없는 문제") },
+        ])(
+          "$name이면 다음 문제로 넘어가지 않고 오류 문구를 보여 주며 같은 버튼으로 다시 시도할 수 있다",
+          async ({ error }) => {
+            vi.mocked(submitSelfGrade).mockRejectedValue(error);
+            const { user } = await startTextQuiz();
+            await revealModelAnswer(user);
+
+            await user.click(button("맞았어요"));
+
+            const alert = await screen.findByRole("alert");
+            expect(alert).not.toBeEmptyDOMElement();
+            expect(alert).not.toHaveTextContent(/로그인이 만료/);
+            expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+            expectStillOnFirstQuestion();
+            expect(button("맞았어요")).toBeEnabled();
+            expect(button("틀렸어요")).toBeEnabled();
+            expect(queryButton("다음 문제")).not.toBeInTheDocument();
+          },
+        );
+
+        it("다시 시도해 성공하면 오류 문구가 사라지고 다음 문제로 넘어간다", async () => {
+          vi.mocked(submitSelfGrade)
+            .mockRejectedValueOnce(new ApiError(500, "서버 오류"))
+            .mockResolvedValueOnce();
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("alert");
+
+          await user.click(button("맞았어요"));
+
+          expect(await screen.findByText("문제 2 / 2")).toBeInTheDocument();
+          expect(queryAlert()).not.toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(2);
+          expect(submitSelfGrade).toHaveBeenLastCalledWith(301, true);
+        });
+
+        it("다시 시도한 저장을 기다리는 동안에는 오류 문구를 지운다", async () => {
+          const pending = pendingSave();
+          vi.mocked(submitSelfGrade)
+            .mockRejectedValueOnce(new ApiError(500, "서버 오류"))
+            .mockReturnValueOnce(pending.promise);
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("alert");
+
+          await user.click(button("맞았어요"));
+
+          expect(queryAlert()).not.toBeInTheDocument();
+
+          await act(async () => pending.resolve());
+          await screen.findByText("문제 2 / 2");
+        });
+
+        it("다시 시도할 때 다른 결과를 고르면 그 결과로 저장한다", async () => {
+          vi.mocked(submitSelfGrade)
+            .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+            .mockResolvedValueOnce();
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("alert");
+
+          await user.click(button("틀렸어요"));
+          await screen.findByText("문제 2 / 2");
+
+          expect(submitSelfGrade).toHaveBeenLastCalledWith(301, false);
+        });
+
+        it("여러 번 실패한 뒤 성공해도 점수는 한 번만 센다", async () => {
+          vi.mocked(submitSelfGrade)
+            .mockRejectedValueOnce(new ApiError(500, "서버 오류"))
+            .mockRejectedValueOnce(new ApiError(500, "서버 오류"))
+            .mockResolvedValueOnce();
+          const { user } = await startTextQuiz([SHORT_ANSWER_QUESTION]);
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("alert");
+          await user.click(button("맞았어요"));
+          await screen.findByRole("alert");
+
+          await user.click(button("맞았어요"));
+
+          expect(
+            await screen.findByRole("heading", { name: SCORE_TITLE }),
+          ).toBeInTheDocument();
+          expect(
+            screen.getByText("주관식 1문제 중 정답 1문제, 오답 0문제"),
+          ).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(3);
+        });
+
+        it("저장에 실패해도 다음 문제에서는 다시 저장을 요청한다", async () => {
+          vi.mocked(submitSelfGrade)
+            .mockRejectedValueOnce(new ApiError(500, "서버 오류"))
+            .mockResolvedValue();
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("alert");
+          await user.click(button("맞았어요"));
+          await screen.findByText("문제 2 / 2");
+
+          await revealModelAnswer(user);
+          await user.click(button("틀렸어요"));
+          await screen.findByRole("heading", { name: SCORE_TITLE });
+
+          expect(submitSelfGrade).toHaveBeenCalledTimes(3);
+          expect(submitSelfGrade).toHaveBeenLastCalledWith(302, false);
+        });
+      });
+
+      describe("로그인 만료 (401, D9, D12)", () => {
+        const unauthorized = () => new ApiError(401, "로그인이 필요합니다.");
+
+        it.each(["맞았어요", "틀렸어요"])(
+          "%s를 누른 뒤 401이면 추가 클릭 없이 바로 다음 문제로 넘어가고 안내를 보여 준다",
+          async (name) => {
+            vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+            const { user } = await startTextQuiz();
+            await revealModelAnswer(user);
+
+            await user.click(button(name));
+
+            expect(await screen.findByText("문제 2 / 2")).toBeInTheDocument();
+            expect(heading("둘째 주관식 문제")).toBeInTheDocument();
+            expect(answerBox()).toHaveValue("");
+            expect(screen.queryByText(MODEL_ANSWER)).not.toBeInTheDocument();
+            expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+            expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+          },
+        );
+
+        it("401 뒤에는 같은 문제에 머물지 않아 다시 누를 자기 채점 버튼이 없다", async () => {
+          vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+
+          await user.click(button("맞았어요"));
+          await screen.findByText("문제 2 / 2");
+
+          // 다음 문제에서는 아직 다시 시도할 것이 없으므로 맞았어요, 틀렸어요 버튼도 없다
+          expect(queryButton("맞았어요")).not.toBeInTheDocument();
+          expect(button("제출")).toBeDisabled();
+        });
+
+        it("안내는 다음 문제에서 답을 내고 모범 답안을 볼 때까지 계속 보인다", async () => {
+          vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByText("문제 2 / 2");
+
+          await revealModelAnswer(user);
+
+          expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+        });
+
+        it("그 퀴즈의 남은 문제는 비회원처럼 저장 API를 호출하지 않고 점수는 센다", async () => {
+          vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByText("문제 2 / 2");
+
+          await revealModelAnswer(user);
+          await user.click(button("틀렸어요"));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(
+            screen.getByText("주관식 2문제 중 정답 1문제, 오답 1문제"),
+          ).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+        });
+
+        // 401 뒤의 객관식은 토큰이 없어 실제로 recorded: false가 오지만, 처음 감지한 1번이 유지되어야 한다 (D13)
+        it("객관식 문제를 사이에 두어도 마지막 문제까지 1번 문제 안내가 보이고 남은 자기 채점은 저장하지 않는다", async () => {
+          vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+          vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61, false));
+          const { user } = await startTextQuiz([
+            SHORT_ANSWER_QUESTION,
+            MULTIPLE_CHOICE_QUESTION,
+            ESSAY_QUESTION,
+          ]);
+          await revealModelAnswer(user);
+          await user.click(button("틀렸어요"));
+
+          // 객관식 문제: 답하기 전, 채점 뒤 모두 안내가 남아 있다
+          await screen.findByRole("radiogroup");
+          expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+          await answer(user, "하나");
+          expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+          await user.click(button("다음 문제"));
+
+          // 마지막 서술형 문제: 답하기 전, 모범 답안을 본 뒤 모두 안내가 남아 있다
+          await screen.findByRole("textbox", { name: "내 답" });
+          expect(screen.getByText("문제 3 / 3")).toBeInTheDocument();
+          expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+          await revealModelAnswer(user);
+          expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+
+          await user.click(button("맞았어요"));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(screen.getByText(/^객관식 1문제/)).toBeInTheDocument();
+          expect(
+            screen.getByText("주관식 1문제 중 정답 0문제, 오답 1문제"),
+          ).toBeInTheDocument();
+          expect(
+            screen.getByText("서술형 1문제 중 정답 1문제, 오답 0문제"),
+          ).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+        });
+
+        it("마지막 문제에서 401이면 고른 결과를 넣고 추가 클릭 없이 점수 화면으로 간다", async () => {
+          vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+          const { user } = await startTextQuiz([SHORT_ANSWER_QUESTION]);
+          await revealModelAnswer(user);
+
+          await user.click(button("틀렸어요"));
+
+          expect(
+            await screen.findByRole("heading", { name: SCORE_TITLE }),
+          ).toBeInTheDocument();
+          expect(
+            screen.getByText("주관식 1문제 중 정답 0문제, 오답 1문제"),
+          ).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+        });
+
+        // 버그 재현 (코드 리뷰): 마지막 문제에서 401이 나면 결과 화면이 안내를 볼 유일한 곳이다
+        it.each(["맞았어요", "틀렸어요"])(
+          "마지막 문제에서 %s를 누른 뒤 401이면 결과 화면에 로그인 만료 안내를 보여 준다",
+          async (name) => {
+            vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+            const { user } = await startTextQuiz([SHORT_ANSWER_QUESTION]);
+            await revealModelAnswer(user);
+
+            await user.click(button(name));
+
+            expect(
+              await screen.findByRole("heading", { name: SCORE_TITLE }),
+            ).toBeInTheDocument();
+            expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+          },
+        );
+
+        it("앞 문제에서 401이 났으면 결과 화면에서도 로그인 만료 안내를 계속 보여 준다", async () => {
+          vi.mocked(submitSelfGrade).mockRejectedValue(unauthorized());
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByText("문제 2 / 2");
+
+          await revealModelAnswer(user);
+          await user.click(button("틀렸어요"));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(screen.getByText(LOGIN_EXPIRED)).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+        });
+
+        it("다른 카테고리로 이동해 새 퀴즈를 시작하면 다시 저장을 요청한다", async () => {
+          vi.mocked(getQuestions).mockImplementation(async (slug) =>
+            slug === "java" ? SHORT_ANSWER_QUESTIONS : [ESSAY_QUESTION],
+          );
+          vi.mocked(submitTextAnswer).mockResolvedValue(REVEAL);
+          vi.mocked(submitSelfGrade)
+            .mockRejectedValueOnce(unauthorized())
+            .mockResolvedValueOnce();
+          const { router, user } = renderQuiz();
+          await screen.findByRole("textbox", { name: "내 답" });
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByText(LOGIN_EXPIRED);
+
+          await act(() => router.navigate("/categories/database"));
+          await findHeading("서술형 문제");
+
+          // 새 퀴즈는 로그인 만료 상태를 이어받지 않는다
+          expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("heading", { name: SCORE_TITLE });
+
+          expect(submitSelfGrade).toHaveBeenCalledTimes(2);
+          expect(submitSelfGrade).toHaveBeenLastCalledWith(501, true);
+        });
+
+        it("둘째 문제에서 401이 나면 안내에 2번 문제부터라고 보여 준다 (D13)", async () => {
+          vi.mocked(submitSelfGrade)
+            .mockResolvedValueOnce()
+            .mockRejectedValueOnce(unauthorized());
+          const { user } = await startTextQuiz();
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByText("문제 2 / 2");
+
+          // 첫 문제는 저장됐으므로 아직 안내가 없다
+          expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+
+          await revealModelAnswer(user);
+          await user.click(button("틀렸어요"));
+
+          expect(
+            await screen.findByRole("heading", { name: SCORE_TITLE }),
+          ).toBeInTheDocument();
+          expect(screen.getByText(loginExpiredNotice(2))).toBeInTheDocument();
+          expect(screen.queryByText(LOGIN_EXPIRED)).not.toBeInTheDocument();
+        });
+      });
+
+      describe("객관식 제출에서 로그인 만료 감지 (recorded: false, D13)", () => {
+        it("제출 응답이 recorded: false면 채점 결과를 보여 주고 그 문제에서 바로 1번 문제부터 안내를 띄운다", async () => {
+          vi.mocked(submitAnswer).mockResolvedValue(wrongAnswer(12, false));
+          const { user } = await startQuiz();
+
+          await answer(user, "가방");
+
+          expect(await findResult()).toHaveTextContent("오답입니다");
+          expect(radio("나무 정답")).toBeInTheDocument();
+          expect(screen.getByText("문제 1 / 3")).toBeInTheDocument();
+          expect(screen.getByText(loginExpiredNotice(1))).toBeInTheDocument();
+          expect(button("다음 문제")).toBeEnabled();
+        });
+
+        it("제출 응답이 recorded: true면 안내를 띄우지 않는다", async () => {
+          vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(11, true));
+          const { user } = await startQuiz();
+
+          await answer(user, "가방");
+
+          expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+        });
+
+        // 화면 확인에서 나온 문제: 객관식 도중 만료가 다음 주관식 401에서야 드러나 번호가 어긋났다
+        it("둘째 객관식에서 recorded: false면 2번 문제부터 안내하고, 남은 자기 채점은 저장하지 않으며 결과 화면까지 유지한다", async () => {
+          vi.mocked(submitSelfGrade).mockResolvedValue();
+          vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61, false));
+          const { user } = await startTextQuiz([
+            SHORT_ANSWER_QUESTION,
+            MULTIPLE_CHOICE_QUESTION,
+            ESSAY_QUESTION,
+          ]);
+          await revealModelAnswer(user);
+          await user.click(button("맞았어요"));
+          await screen.findByRole("radiogroup");
+
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+          expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+
+          await answer(user, "하나");
+
+          expect(screen.getByText("문제 2 / 3")).toBeInTheDocument();
+          expect(screen.getByText(loginExpiredNotice(2))).toBeInTheDocument();
+
+          await user.click(button("다음 문제"));
+          await screen.findByRole("textbox", { name: "내 답" });
+
+          expect(screen.getByText(loginExpiredNotice(2))).toBeInTheDocument();
+
+          await revealModelAnswer(user);
+          await user.click(button("틀렸어요"));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(
+            screen.getByText("서술형 1문제 중 정답 0문제, 오답 1문제"),
+          ).toBeInTheDocument();
+          expect(screen.getByText(loginExpiredNotice(2))).toBeInTheDocument();
+          expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+        });
+
+        it("만료를 감지한 뒤 다음 객관식도 recorded: false여도 처음 감지한 번호를 유지한다", async () => {
+          vi.mocked(submitAnswer)
+            .mockResolvedValueOnce(correctAnswer(11, true))
+            .mockResolvedValueOnce(correctAnswer(21, false))
+            .mockResolvedValueOnce(correctAnswer(31, false));
+          const { user } = await startQuiz();
+
+          await answer(user, "가방");
+          await user.click(button("다음 문제"));
+          await answer(user, "사과");
+          await user.click(button("다음 문제"));
+          await answer(user, "연필");
+
+          expect(screen.getByText("문제 3 / 3")).toBeInTheDocument();
+          expect(screen.getByText(loginExpiredNotice(2))).toBeInTheDocument();
+          expect(
+            screen.queryByText(loginExpiredNotice(3)),
+          ).not.toBeInTheDocument();
+
+          await user.click(button("결과 보기"));
+
+          expect(screen.getByText(loginExpiredNotice(2))).toBeInTheDocument();
+        });
+
+        it("마지막 객관식에서 recorded: false면 결과 화면에서도 안내를 보여 준다", async () => {
+          vi.mocked(getQuestions).mockResolvedValue([MULTIPLE_CHOICE_QUESTION]);
+          vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61, false));
+          const { user } = await startQuiz();
+
+          await answer(user, "하나");
+
+          expect(screen.getByText(loginExpiredNotice(1))).toBeInTheDocument();
+
+          await user.click(button("결과 보기"));
+
+          expect(heading(SCORE_TITLE)).toBeInTheDocument();
+          expect(screen.getByText(loginExpiredNotice(1))).toBeInTheDocument();
+        });
+
+        it("다른 카테고리로 이동해 새 퀴즈를 시작하면 안내가 사라진다", async () => {
+          mockQuestionsBySlug();
+          vi.mocked(submitAnswer)
+            .mockResolvedValueOnce(correctAnswer(11, false))
+            .mockResolvedValueOnce(correctAnswer(41, true));
+          const { router, user } = await startQuiz();
+          await answer(user, "가방");
+          await screen.findByText(loginExpiredNotice(1));
+
+          await act(() => router.navigate("/categories/database"));
+          await findHeading("다른 카테고리의 첫 문제");
+          await answer(user, "바다");
+
+          expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+        });
+      });
+    });
+
+    describe("비회원의 객관식 제출 (D13)", () => {
+      it("비회원은 recorded: false를 받아도 로그인 만료 안내를 띄우지 않는다", async () => {
+        vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(11, false));
+        const { user } = await startQuiz();
+
+        await answer(user, "가방");
+        await user.click(button("다음 문제"));
+
+        expect(screen.getByText("문제 2 / 3")).toBeInTheDocument();
+        expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
+      });
+
+      it("비회원은 recorded: false 뒤의 결과 화면에도 안내가 없다", async () => {
+        vi.mocked(getQuestions).mockResolvedValue([MULTIPLE_CHOICE_QUESTION]);
+        vi.mocked(submitAnswer).mockResolvedValue(correctAnswer(61, false));
+        const { user } = await startQuiz();
+
+        await answer(user, "하나");
+        await user.click(button("결과 보기"));
+
+        expect(heading(SCORE_TITLE)).toBeInTheDocument();
+        expect(queryAnyLoginExpiredNotice()).not.toBeInTheDocument();
       });
     });
   });

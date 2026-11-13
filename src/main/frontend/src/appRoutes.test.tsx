@@ -3,8 +3,13 @@ import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getCategoryStats, getRecentAttempts } from "./api/attempts";
 import { getCategories } from "./api/categories";
-import { getQuestions } from "./api/questions";
+import {
+  getQuestions,
+  submitSelfGrade,
+  submitTextAnswer,
+} from "./api/questions";
 import type { QuestionResponse } from "./api/questions";
 import { ApiError, getCurrentUser, login, logout, signUp } from "./api/users";
 import type { UserResponse } from "./api/users";
@@ -16,6 +21,14 @@ vi.mock("./api/categories");
 vi.mock("./api/questions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api/questions")>()),
   getQuestions: vi.fn(),
+  submitTextAnswer: vi.fn(),
+  submitSelfGrade: vi.fn(),
+}));
+
+vi.mock("./api/attempts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api/attempts")>()),
+  getCategoryStats: vi.fn(),
+  getRecentAttempts: vi.fn(),
 }));
 
 // 모듈 전체를 자동으로 대체하면 ApiError도 가짜가 되어 status와 message가 비게 된다
@@ -29,7 +42,7 @@ vi.mock("./api/users", async (importOriginal) => ({
 
 const EMAIL = "user@example.com";
 const PASSWORD = "password1234";
-const USER: UserResponse = { id: 1, email: EMAIL };
+const USER: UserResponse = { id: 1, email: EMAIL, role: "USER" };
 const CATEGORY_NAME = "Java";
 const QUIZ_PATH = "/categories/java";
 const QUESTION_CONTENT = "첫 번째 문제";
@@ -42,6 +55,21 @@ const QUESTIONS: readonly QuestionResponse[] = [
     choices: [
       { id: 11, content: CHOICE_CONTENT },
       { id: 12, content: "라면" },
+    ],
+  },
+];
+
+const HISTORY_CATEGORY_NAME = "기록 카테고리";
+const HISTORY_STATS = [
+  {
+    slug: "java",
+    name: HISTORY_CATEGORY_NAME,
+    types: [
+      {
+        type: "MULTIPLE_CHOICE" as const,
+        solvedQuestions: 1,
+        correctQuestions: 1,
+      },
     ],
   },
 ];
@@ -76,6 +104,20 @@ beforeEach(() => {
     currentUser = null;
     return Promise.resolve();
   });
+  // 기록 조회 API는 인증 필수다. 비회원이면 서버처럼 401로 거절한다 (R8)
+  const unauthorized = () => new ApiError(401, "로그인이 필요합니다.");
+  vi.mocked(getCategoryStats).mockReset();
+  vi.mocked(getCategoryStats).mockImplementation(() =>
+    currentUser === null
+      ? Promise.reject(unauthorized())
+      : Promise.resolve(HISTORY_STATS),
+  );
+  vi.mocked(getRecentAttempts).mockReset();
+  vi.mocked(getRecentAttempts).mockImplementation(() =>
+    currentUser === null ? Promise.reject(unauthorized()) : Promise.resolve([]),
+  );
+  vi.mocked(submitTextAnswer).mockReset();
+  vi.mocked(submitSelfGrade).mockReset();
 });
 
 function renderApp(path: string) {
@@ -383,6 +425,123 @@ describe("회원가입 화면", () => {
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+  });
+});
+
+describe("내 기록 (R10)", () => {
+  const HISTORY_LINK = "내 기록";
+
+  async function expectHistoryScreen() {
+    expect(
+      await screen.findByRole("heading", { name: HISTORY_LINK, level: 1 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(HISTORY_CATEGORY_NAME)).toBeInTheDocument();
+  }
+
+  async function expectLoginScreen() {
+    expect(await screen.findByLabelText("비밀번호")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그인" })).toBeInTheDocument();
+  }
+
+  it("회원 메뉴에 /history로 가는 내 기록 링크가 있다", async () => {
+    currentUser = USER;
+    renderApp("/");
+
+    await expectLoggedInMenu();
+    const menu = await findMenu();
+    expect(menu.getByRole("link", { name: HISTORY_LINK })).toHaveAttribute(
+      "href",
+      "/history",
+    );
+  });
+
+  it("비회원 메뉴에는 내 기록 링크가 없다", async () => {
+    renderApp("/");
+
+    await expectGuestMenu();
+    const menu = await findMenu();
+    expect(
+      menu.queryByRole("link", { name: HISTORY_LINK }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("회원이 내 기록 링크를 누르면 정답률과 최근 풀이 화면으로 간다", async () => {
+    currentUser = USER;
+    const user = userEvent.setup();
+    renderApp("/");
+
+    const menu = await findMenu();
+    await user.click(await menu.findByRole("link", { name: HISTORY_LINK }));
+
+    await expectHistoryScreen();
+  });
+
+  it("비회원이 /history에 오면 로그인 화면으로 보낸다 (R8)", async () => {
+    renderApp("/history");
+
+    await expectLoginScreen();
+    expect(
+      screen.queryByRole("heading", { name: HISTORY_LINK, level: 1 }),
+    ).not.toBeInTheDocument();
+  });
+
+  // 이 route에는 skipAfterLogout을 붙이지 않아 loader가 다시 실행되고 401로 로그인 화면에 간다
+  it("기록 화면에서 로그아웃하면 로그인 화면으로 간다", async () => {
+    currentUser = USER;
+    const user = userEvent.setup();
+    renderApp("/history");
+    await expectHistoryScreen();
+
+    const menu = await findMenu();
+    await user.click(menu.getByRole("button", { name: "로그아웃" }));
+
+    await expectLoginScreen();
+    await expectGuestMenu();
+  });
+});
+
+describe("회원의 자기 채점 저장 (R2, R5)", () => {
+  const SHORT_ANSWER: readonly QuestionResponse[] = [
+    { id: 301, type: "SHORT_ANSWER", content: "주관식 문제", choices: [] },
+  ];
+
+  async function revealAndGrade(user: UserEvent) {
+    await user.type(
+      await screen.findByRole("textbox", { name: "내 답" }),
+      "내 답안",
+    );
+    await user.click(screen.getByRole("button", { name: "제출" }));
+    await user.click(await screen.findByRole("button", { name: "맞았어요" }));
+    await screen.findByRole("heading", { name: "풀이 결과" });
+  }
+
+  beforeEach(() => {
+    vi.mocked(getQuestions).mockResolvedValue(SHORT_ANSWER);
+    vi.mocked(submitTextAnswer).mockResolvedValue({
+      modelAnswer: "모범 답안",
+      explanation: null,
+    });
+    vi.mocked(submitSelfGrade).mockResolvedValue();
+  });
+
+  it("root loader가 회원이라고 알려 주면 자기 채점을 저장한다", async () => {
+    currentUser = USER;
+    const user = userEvent.setup();
+    renderApp(QUIZ_PATH);
+
+    await revealAndGrade(user);
+
+    expect(submitSelfGrade).toHaveBeenCalledTimes(1);
+    expect(submitSelfGrade).toHaveBeenCalledWith(301, true);
+  });
+
+  it("비회원이면 자기 채점을 저장하지 않는다", async () => {
+    const user = userEvent.setup();
+    renderApp(QUIZ_PATH);
+
+    await revealAndGrade(user);
+
+    expect(submitSelfGrade).not.toHaveBeenCalled();
   });
 });
 

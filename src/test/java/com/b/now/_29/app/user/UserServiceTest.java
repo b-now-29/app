@@ -63,7 +63,7 @@ class UserServiceTest {
         assertThat(saved.getValue().getPasswordHash()).startsWith("$2").isNotEqualTo(PASSWORD);
         assertThat(passwordEncoder.matches(PASSWORD, saved.getValue().getPasswordHash()))
                 .isTrue();
-        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL));
+        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER));
     }
 
     @Test
@@ -90,7 +90,7 @@ class UserServiceTest {
     void loginWithNormalizedEmail() {
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(savedUser()));
 
-        assertThat(userService.login(RAW_EMAIL, PASSWORD)).isEqualTo(new UserResponse(USER_ID, EMAIL));
+        assertThat(userService.login(RAW_EMAIL, PASSWORD)).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER));
     }
 
     @Test
@@ -129,7 +129,7 @@ class UserServiceTest {
         String password = "가".repeat(24);
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(savedUser(password)));
 
-        assertThat(userService.login(EMAIL, password)).isEqualTo(new UserResponse(USER_ID, EMAIL));
+        assertThat(userService.login(EMAIL, password)).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER));
     }
 
     @Test
@@ -164,7 +164,16 @@ class UserServiceTest {
     void getUser() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(savedUser()));
 
-        assertThat(userService.getUser(USER_ID)).isEqualTo(new UserResponse(USER_ID, EMAIL));
+        assertThat(userService.getUser(USER_ID)).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER));
+    }
+
+    @Test
+    @DisplayName("관리자를 조회하면 응답의 role이 ADMIN이다 (R3)")
+    void getAdminUser() {
+        given(userRepository.findById(USER_ID))
+                .willReturn(Optional.of(withId(new User(EMAIL, passwordEncoder.encode(PASSWORD), Role.ADMIN))));
+
+        assertThat(userService.getUser(USER_ID)).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.ADMIN));
     }
 
     @Test

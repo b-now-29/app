@@ -69,13 +69,14 @@ class UserControllerTest {
     @Test
     @DisplayName("가입하면 201, UserResponse, 바로 로그인되는 쿠키를 응답한다 (R1)")
     void signUp() throws Exception {
-        given(userService.signUp(EMAIL, PASSWORD)).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.signUp(EMAIL, PASSWORD)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         MvcResult result = postUser(body(EMAIL, PASSWORD))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email")))
+                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email", "role")))
                 .andExpect(jsonPath("$.id").value(USER_ID))
                 .andExpect(jsonPath("$.email").value(EMAIL))
+                .andExpect(jsonPath("$.role").value("USER"))
                 .andExpect(content().string(not(containsString(PASSWORD))))
                 .andDo(document(
                         "users-signup",
@@ -85,7 +86,8 @@ class UserControllerTest {
                         responseHeaders(headerWithName(HttpHeaders.SET_COOKIE).description("인증 쿠키 access_token")),
                         responseFields(
                                 fieldWithPath("id").description("사용자 ID"),
-                                fieldWithPath("email").description("정규화된 이메일"))))
+                                fieldWithPath("email").description("정규화된 이메일"),
+                                fieldWithPath("role").description("권한. 새로 가입하면 USER"))))
                 .andReturn();
 
         SetCookieHeader cookie = SetCookieHeader.from(result);
@@ -97,7 +99,7 @@ class UserControllerTest {
     @Test
     @DisplayName("앞뒤 공백과 대문자가 있는 이메일은 형식 오류가 아니다 (R2)")
     void signUpAcceptsUnnormalizedEmail() throws Exception {
-        given(userService.signUp(anyString(), eq(PASSWORD))).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.signUp(anyString(), eq(PASSWORD))).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         postUser(body("  User@Example.COM ", PASSWORD))
                 .andExpect(status().isCreated())
@@ -131,7 +133,7 @@ class UserControllerTest {
     @MethodSource("validPasswords")
     @DisplayName("8자 이상, UTF-8 72바이트 이하의 비밀번호는 가입할 수 있다 (R3)")
     void signUpWithValidPassword(String password) throws Exception {
-        given(userService.signUp(EMAIL, password)).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.signUp(EMAIL, password)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
 
         postUser(body(EMAIL, password)).andExpect(status().isCreated());
     }
@@ -208,7 +210,7 @@ class UserControllerTest {
     @DisplayName("정확히 255자인 형식상 유효한 이메일은 가입할 수 있다 (D19)")
     void signUpWithEmailAtMaxLength() throws Exception {
         String email = emailOfLength(MAX_EMAIL_LENGTH);
-        given(userService.signUp(email, PASSWORD)).willReturn(new UserResponse(USER_ID, email));
+        given(userService.signUp(email, PASSWORD)).willReturn(new UserResponse(USER_ID, email, Role.USER));
 
         postUser(body(email, PASSWORD)).andExpect(status().isCreated());
     }
@@ -222,21 +224,33 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("로그인 상태면 /users/me는 200과 id, email만 응답한다 (R4, R6)")
+    @DisplayName("로그인 상태면 /users/me는 200과 id, email, role만 응답한다 (R4, R6, 관리자 R3)")
     void getMe() throws Exception {
-        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL));
+        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL, Role.ADMIN));
 
         mvc.perform(get("/api/v1/users/me").cookie(new Cookie("access_token", TestJwts.valid(USER_ID))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email")))
+                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email", "role")))
                 .andExpect(jsonPath("$.id").value(USER_ID))
                 .andExpect(jsonPath("$.email").value(EMAIL))
+                .andExpect(jsonPath("$.role").value("ADMIN"))
                 .andDo(document(
                         "users-me",
                         requestCookies(cookieWithName("access_token").description("로그인할 때 받은 인증 쿠키")),
                         responseFields(
                                 fieldWithPath("id").description("사용자 ID"),
-                                fieldWithPath("email").description("이메일"))));
+                                fieldWithPath("email").description("이메일"),
+                                fieldWithPath("role").description("권한 (USER, ADMIN). ADMIN이면 관리 화면을 쓸 수 있다"))));
+    }
+
+    @Test
+    @DisplayName("일반 회원의 /users/me는 role USER를 응답한다 (R1, R3)")
+    void getMeOfUser() throws Exception {
+        given(userService.getUser(USER_ID)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER));
+
+        mvc.perform(get("/api/v1/users/me").cookie(new Cookie("access_token", TestJwts.valid(USER_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("USER"));
     }
 
     @Test

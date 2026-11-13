@@ -44,8 +44,9 @@ deploy/.env
 CLAUDE.local.md
 .claude/settings.local.json
 
-### 기능 문서 (로컬 작업용) ###
+### 기능 문서·로드맵 (로컬 작업용) ###
 docs/features/
+docs/roadmap.md
 
 ### Frontend ###
 node_modules/

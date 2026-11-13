@@ -1,7 +1,7 @@
 import type { QuestionResponse, QuestionType } from "../api/questions";
 
 // 적은 순서가 점수 줄 순서다 (R5)
-const QUESTION_TYPE_NAMES: Record<QuestionType, string> = {
+export const QUESTION_TYPE_NAMES: Record<QuestionType, string> = {
   MULTIPLE_CHOICE: "객관식",
   SHORT_ANSWER: "주관식",
   ESSAY: "서술형",

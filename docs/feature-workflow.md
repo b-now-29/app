@@ -6,7 +6,7 @@
 2. test-writer가 이 기능의 테스트를 모두 작성하고 한 번 실행해 백엔드·프론트 모두 red인지 확인한다. 컴파일 실패도 red다.
 3. backend-dev, frontend-dev가 프로덕션 코드를 작성한다. 컴파일만 확인하고 테스트는 실행하지 않는다.
 4. 사용자가 `./gradlew check`와 `./gradlew integrationTest`로 green을 확인한다. 메인 세션은 Gradle을 대신 실행하지 않는다.
-5. 테스트로 확인할 수 없는 레이아웃, 스크롤, 한글 입력이 바뀌었으면 사용자가 화면을 본다. 새 API가 있으면 메인 세션이 `scripts/api-smoke.sh`에 호출을 추가해 실제 jar로 확인한다.
+5. 테스트로 확인할 수 없는 레이아웃, 스크롤, 한글 입력이 바뀌었으면 사용자가 화면을 본다. API를 거친 실제 저장·권한 반영처럼 여러 계층에 걸친 동작은 `@SpringBootTest` 통합 테스트로 확인하고, 별도 스크립트는 두지 않는다.
 6. 사용자가 `/code-review`를 직접 실행하고 재작업 여부를 정한다. 메인 세션은 리뷰를 자동으로 실행하지 않는다.
 7. `develop`으로 PR (제목은 Conventional Commits 형식) → squash merge
 
