@@ -80,6 +80,27 @@ function sendJson(method: "POST" | "PUT", url: string, body: unknown) {
   });
 }
 
+export type AdminUserRole = "USER" | "ADMIN";
+
+export type AdminUserResponse = {
+  readonly id: number;
+  readonly email: string;
+  readonly role: AdminUserRole;
+  // 이 기능 전에 가입한 회원은 null
+  readonly createdAt: string | null;
+};
+
+export async function getAdminUsers(): Promise<readonly AdminUserResponse[]> {
+  return readJson(await fetch(`${BASE}/users`));
+}
+
+export async function changeUserRole(
+  id: number,
+  role: AdminUserRole,
+): Promise<AdminUserResponse> {
+  return readJson(await sendJson("PUT", `${BASE}/users/${id}/role`, { role }));
+}
+
 export async function getAdminCategories(): Promise<
   readonly AdminCategoryResponse[]
 > {

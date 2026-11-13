@@ -7,6 +7,8 @@ import {
   AdminQuestionEditPage,
   AdminQuestionNewPage,
 } from "./routes/AdminQuestionFormPage";
+import AdminUsersPage from "./routes/AdminUsersPage";
+import { adminUsersLoader } from "./routes/adminUsersLoader";
 import { adminLoader } from "./routes/adminLoader";
 import {
   adminQuestionListLoader,
@@ -88,6 +90,11 @@ export const appRoutes: RouteObject[] = [
             path: "questions",
             Component: AdminQuestionListPage,
             loader: adminQuestionListLoader,
+          },
+          {
+            path: "users",
+            Component: AdminUsersPage,
+            loader: adminUsersLoader,
           },
           { path: "questions/new", Component: AdminQuestionNewPage },
           {

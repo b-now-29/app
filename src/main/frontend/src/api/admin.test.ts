@@ -21,8 +21,15 @@
 //   createQuestion(request: QuestionRequest): Promise<AdminQuestionResponse>
 //   updateQuestion(id: number, request: QuestionRequest): Promise<AdminQuestionResponse>
 //   deleteQuestion(id: number): Promise<void>
+//
+// 회원 관리 (docs/features/admin-members.md API 계약, D6):
+//   AdminUserResponse { id: number, email: string, role: "USER" | "ADMIN", createdAt: string | null }
+//   getAdminUsers(): Promise<readonly AdminUserResponse[]>                      GET /api/v1/admin/users
+//   changeUserRole(id: number, role: "USER" | "ADMIN"): Promise<AdminUserResponse>
+//                                                    PUT /api/v1/admin/users/{id}/role  본문 { role }
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  changeUserRole,
   createCategory,
   createQuestion,
   deleteCategory,
@@ -30,12 +37,14 @@ import {
   getAdminCategories,
   getAdminQuestion,
   getAdminQuestions,
+  getAdminUsers,
   updateCategory,
   updateQuestion,
 } from "./admin";
 import type {
   AdminCategoryResponse,
   AdminQuestionResponse,
+  AdminUserResponse,
   QuestionRequest,
 } from "./admin";
 import { ApiError } from "./users";
@@ -258,6 +267,57 @@ describe("문제", () => {
       expect(error).toMatchObject({
         status: 400,
         message: "객관식은 보기가 2개 이상이어야 합니다.",
+      });
+    },
+  );
+});
+
+describe("회원 (admin-members)", () => {
+  const MEMBERS: readonly AdminUserResponse[] = [
+    { id: 1, email: "test@example.com", role: "USER", createdAt: null },
+    {
+      id: 3,
+      email: "new@example.com",
+      role: "ADMIN",
+      createdAt: "2026-11-13T05:12:30Z",
+    },
+  ];
+
+  it("getAdminUsers는 회원 목록을 조회한다 (R1)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(MEMBERS));
+
+    await expect(getAdminUsers()).resolves.toEqual(MEMBERS);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users");
+  });
+
+  it("changeUserRole은 id 경로로 role을 PUT하고 바뀐 회원을 돌려준다 (R3)", async () => {
+    const changed: AdminUserResponse = { ...MEMBERS[0], role: "ADMIN" };
+    fetchMock.mockResolvedValue(jsonResponse(changed));
+
+    await expect(changeUserRole(1, "ADMIN")).resolves.toEqual(changed);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users/1/role", {
+      method: "PUT",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ role: "ADMIN" }),
+    });
+  });
+
+  it.each([
+    ["getAdminUsers", () => getAdminUsers()],
+    ["changeUserRole", () => changeUserRole(1, "USER")],
+  ])(
+    "%s가 실패하면 상태와 ProblemDetail detail을 담은 ApiError를 던진다 (R4)",
+    async (_name, call) => {
+      fetchMock.mockResolvedValue(
+        problemResponse(409, "자기 자신의 관리자 권한은 해제할 수 없습니다."),
+      );
+
+      const error = await caught(call());
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        status: 409,
+        message: "자기 자신의 관리자 권한은 해제할 수 없습니다.",
       });
     },
   );
