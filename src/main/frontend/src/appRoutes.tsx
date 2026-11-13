@@ -10,6 +10,12 @@ import {
 import AdminUsersPage from "./routes/AdminUsersPage";
 import { adminUsersLoader } from "./routes/adminUsersLoader";
 import { adminLoader } from "./routes/adminLoader";
+import AdminCategoryStatsPage from "./routes/AdminCategoryStatsPage";
+import AdminQuestionStatsPage from "./routes/AdminQuestionStatsPage";
+import {
+  adminCategoryStatsLoader,
+  adminQuestionStatsLoader,
+} from "./routes/adminStatsLoaders";
 import {
   adminQuestionListLoader,
   adminQuestionLoader,
@@ -95,6 +101,16 @@ export const appRoutes: RouteObject[] = [
             path: "users",
             Component: AdminUsersPage,
             loader: adminUsersLoader,
+          },
+          {
+            path: "stats",
+            Component: AdminCategoryStatsPage,
+            loader: adminCategoryStatsLoader,
+          },
+          {
+            path: "stats/:slug",
+            Component: AdminQuestionStatsPage,
+            loader: adminQuestionStatsLoader,
           },
           { path: "questions/new", Component: AdminQuestionNewPage },
           {

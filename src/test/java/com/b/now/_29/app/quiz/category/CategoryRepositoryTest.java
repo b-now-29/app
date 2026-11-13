@@ -18,7 +18,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  * 구현할 Repository 메서드 (R4, R6, R7, D7):
  *
  * <ul>
- *   <li>{@code List<Category> findAllByDeletedAtIsNullOrderBySortOrderAsc()} — 공개 카테고리 목록 ({@code CategoryService})
+ *   <li>{@code List<Category> findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc()} — 공개 카테고리 목록 ({@code CategoryService})
  *   <li>{@code boolean existsBySlug(String slug)} — 삭제한 카테고리도 센다 (slug 중복 검사, D7)
  *   <li>{@code boolean existsBySlugAndDeletedAtIsNull(String slug)} — 공개 문제 목록의 카테고리 확인
  *   <li>{@code Optional<Category> findBySlugAndDeletedAtIsNull(String slug)} — 관리자 수정·삭제·문제 등록
@@ -40,7 +40,7 @@ class CategoryRepositoryTest {
     @Test
     @DisplayName("시드 카테고리를 표시 순서대로 조회한다")
     void findsSeededCategoriesInSortOrder() {
-        assertThat(categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc())
+        assertThat(categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc())
                 .extracting(Category::getSlug)
                 .containsSubsequence("java", "spring", "database");
     }
@@ -51,7 +51,7 @@ class CategoryRepositoryTest {
         categoryRepository.saveAndFlush(new Category("saved-first", "먼저 저장", 1001));
         categoryRepository.saveAndFlush(new Category("saved-second", "나중에 저장", 1000));
 
-        assertThat(categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc())
+        assertThat(categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc())
                 .extracting(Category::getSlug)
                 .containsSubsequence("saved-second", "saved-first");
     }
@@ -63,7 +63,7 @@ class CategoryRepositoryTest {
         saveDeleted("removed");
         entityManager.clear();
 
-        assertThat(categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAsc())
+        assertThat(categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc())
                 .extracting(Category::getSlug)
                 .contains("kept")
                 .doesNotContain("removed");

@@ -15,6 +15,9 @@ export default function AdminLayout() {
         <ActionButton asChild variant="neutralWeak" size="small">
           <Link to="/admin/users">회원</Link>
         </ActionButton>
+        <ActionButton asChild variant="neutralWeak" size="small">
+          <Link to="/admin/stats">통계</Link>
+        </ActionButton>
       </HStack>
       <Outlet />
     </VStack>
