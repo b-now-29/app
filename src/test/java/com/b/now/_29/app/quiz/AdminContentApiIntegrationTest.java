@@ -21,6 +21,7 @@ import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -313,6 +314,84 @@ class AdminContentApiIntegrationTest {
                         """.formatted(slug))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").value("고친 객관식"));
+    }
+
+    @Test
+    @DisplayName("답 제출·자기 채점으로 남긴 기록이 통계 API에 회원마다 최근 1건씩 반영되고, 안 푼 문제는 0이다 (통계 R1~R3, D2)")
+    void statsReflectRecordedAttempts() throws Exception {
+        createCategory(slug).andExpect(status().isCreated());
+        long multipleChoiceId = createMultipleChoice(slug);
+        long shortAnswerId = createShortAnswer(slug);
+        long essayId = createEssay(slug);
+        long correctChoiceId = choiceId(multipleChoiceId, 0);
+        long wrongChoiceId = choiceId(multipleChoiceId, 1);
+        Cookie first = signUp(uniqueEmail());
+        Cookie second = signUp(uniqueEmail());
+
+        // 첫 회원은 맞힌 뒤 다시 틀려 최근 기록이 틀림이다
+        submitChoice(multipleChoiceId, correctChoiceId, first);
+        submitChoice(multipleChoiceId, wrongChoiceId, first);
+        submitChoice(multipleChoiceId, correctChoiceId, second);
+        selfGrade(shortAnswerId, true, first);
+        // 관리자 자신의 기록도 센다 (D2)
+        selfGrade(shortAnswerId, false, admin);
+
+        MvcResult categories = mvc.perform(asAdmin(get(ADMIN + "/stats/categories")))
+                .andExpect(status().isOk())
+                .andReturn();
+        List<Map<String, Object>> types =
+                JsonPath.read(body(categories), "$[?(@.slug == '%s')].types[*]".formatted(slug));
+        assertThat(types)
+                .containsExactly(
+                        Map.of("type", "MULTIPLE_CHOICE", "solved", 2, "correct", 1),
+                        Map.of("type", "SHORT_ANSWER", "solved", 2, "correct", 1));
+
+        mvc.perform(asAdmin(get(ADMIN + "/stats/categories/{slug}/questions", slug)))
+                .andExpect(status().isOk())
+                .andExpect(content()
+                        .json("""
+                        [
+                          {"id": %d, "type": "MULTIPLE_CHOICE", "content": "객관식", "solvedUsers": 2, "correctUsers": 1},
+                          {"id": %d, "type": "SHORT_ANSWER", "content": "주관식", "solvedUsers": 2, "correctUsers": 1},
+                          {"id": %d, "type": "ESSAY", "content": "서술형", "solvedUsers": 0, "correctUsers": 0}
+                        ]
+                        """.formatted(multipleChoiceId, shortAnswerId, essayId), JsonCompareMode.STRICT));
+
+        Cookie member = signUp(uniqueEmail());
+        mvc.perform(get(ADMIN + "/stats/categories").cookie(member)).andExpect(status().isForbidden());
+        mvc.perform(get(ADMIN + "/stats/categories/{slug}/questions", slug)).andExpect(status().isUnauthorized());
+        mvc.perform(asAdmin(get(ADMIN + "/stats/categories/{slug}/questions", "it-nope-" + slug)))
+                .andExpect(status().isNotFound());
+    }
+
+    private void submitChoice(long questionId, long choiceId, Cookie member) throws Exception {
+        postJson(post("/api/v1/questions/{id}/answers", questionId).cookie(member), "{\"choiceId\": " + choiceId + "}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recorded").value(true));
+    }
+
+    private void selfGrade(long questionId, boolean correct, Cookie member) throws Exception {
+        postJson(
+                        post("/api/v1/questions/{id}/self-grades", questionId).cookie(member),
+                        "{\"correct\": " + correct + "}")
+                .andExpect(status().isNoContent());
+    }
+
+    private long createEssay(String slug) throws Exception {
+        MvcResult result = mvc.perform(asAdmin(json(post(ADMIN + "/questions"), """
+                        {"categorySlug": "%s", "type": "ESSAY", "content": "서술형", "explanation": null,
+                         "modelAnswer": "모범 답안", "sortOrder": 30, "choices": []}
+                        """.formatted(slug))))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(body(result), "$.id")).longValue();
+    }
+
+    private long choiceId(long questionId, int index) throws Exception {
+        MvcResult result = mvc.perform(asAdmin(get(ADMIN + "/questions/{id}", questionId)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return ((Number) JsonPath.read(body(result), "$.choices[%d].id".formatted(index))).longValue();
     }
 
     private ResultActions createCategory(String slug) throws Exception {
