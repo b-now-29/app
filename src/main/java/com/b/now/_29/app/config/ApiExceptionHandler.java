@@ -10,7 +10,9 @@ import com.b.now._29.app.quiz.question.QuestionTypeChangeNotAllowedException;
 import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
 import com.b.now._29.app.user.DuplicateEmailException;
 import com.b.now._29.app.user.InvalidCredentialsException;
+import com.b.now._29.app.user.SelfDemotionNotAllowedException;
 import com.b.now._29.app.user.UserNotFoundException;
+import com.b.now._29.app.user.admin.AdminUserNotFoundException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -37,7 +39,11 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
-    @ExceptionHandler({CategoryNotFoundException.class, QuestionNotFoundException.class})
+    @ExceptionHandler({
+        CategoryNotFoundException.class,
+        QuestionNotFoundException.class,
+        AdminUserNotFoundException.class
+    })
     public ProblemDetail handleNotFound(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     }
@@ -60,7 +66,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         DuplicateEmailException.class,
         DuplicateCategorySlugException.class,
         CategoryNotEmptyException.class,
-        QuestionTypeChangeNotAllowedException.class
+        QuestionTypeChangeNotAllowedException.class,
+        SelfDemotionNotAllowedException.class
     })
     public ProblemDetail handleConflict(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
