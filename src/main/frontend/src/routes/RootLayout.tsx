@@ -9,7 +9,8 @@ import {
 } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import type { UserResponse } from "../api/users";
-import type { ActionError } from "./authActions";
+import { displayName } from "../user/displayName";
+import type { ActionError } from "./actionError";
 
 export default function RootLayout() {
   const user = useRouteLoaderData("root") as UserResponse | null;
@@ -51,7 +52,9 @@ export default function RootLayout() {
                 <Link to="/admin">관리</Link>
               </ActionButton>
             )}
-            <Text textStyle="t4Regular">{user.email}</Text>
+            <ActionButton asChild variant="ghost" size="small">
+              <Link to="/me">{displayName(user)}</Link>
+            </ActionButton>
             <logoutFetcher.Form method="post">
               <ActionButton type="submit" variant="ghost" size="small">
                 로그아웃

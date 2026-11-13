@@ -1,20 +1,15 @@
 import { redirect } from "react-router";
 import type { ActionFunctionArgs } from "react-router";
-import { ApiError, login, logout, signUp } from "../api/users";
-
-export type ActionError = { readonly error: string };
+import { login, logout, signUp } from "../api/users";
+import { toActionError } from "./actionError";
+import type { ActionError } from "./actionError";
+import { formString } from "./formValue";
 
 function readCredentials(formData: FormData) {
-  const email = formData.get("email");
-  const password = formData.get("password");
   return {
-    email: typeof email === "string" ? email : "",
-    password: typeof password === "string" ? password : "",
+    email: formString(formData, "email"),
+    password: formString(formData, "password"),
   };
-}
-
-function toActionError(thrown: unknown, fallback: string): ActionError {
-  return { error: thrown instanceof ApiError ? thrown.message : fallback };
 }
 
 // action: 폼이 제출(POST)되면 React Router가 호출하는 함수.
@@ -30,9 +25,10 @@ export async function loginAction({ request }: ActionFunctionArgs) {
 }
 
 export async function signUpAction({ request }: ActionFunctionArgs) {
-  const { email, password } = readCredentials(await request.formData());
+  const formData = await request.formData();
+  const { email, password } = readCredentials(formData);
   try {
-    await signUp(email, password);
+    await signUp(email, password, formString(formData, "nickname"));
   } catch (thrown) {
     return toActionError(
       thrown,

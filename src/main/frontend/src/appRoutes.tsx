@@ -29,6 +29,8 @@ import QuizErrorPage from "./routes/QuizErrorPage";
 import { quizLoader } from "./routes/quizLoader";
 import HistoryPage from "./routes/HistoryPage";
 import { historyLoader } from "./routes/historyLoader";
+import MePage from "./routes/MePage";
+import { meAction } from "./routes/meRoute";
 import WrongAnswersPage from "./routes/WrongAnswersPage";
 import {
   wrongAnswerQuizLoader,
@@ -87,6 +89,13 @@ export const appRoutes: RouteObject[] = [
         path: "history",
         Component: HistoryPage,
         loader: historyLoader,
+        ErrorBoundary: ErrorPage,
+      },
+      {
+        // 닉네임 저장(action) 뒤 root loader가 다시 실행되어 메뉴가 바뀐다. skipAfterLogout 없음
+        path: "me",
+        Component: MePage,
+        action: meAction,
         ErrorBoundary: ErrorPage,
       },
       {

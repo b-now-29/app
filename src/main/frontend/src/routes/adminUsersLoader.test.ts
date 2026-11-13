@@ -12,7 +12,14 @@ import { adminUsersLoader } from "./adminUsersLoader";
 vi.mock("../api/admin");
 
 const MEMBERS: readonly AdminUserResponse[] = [
-  { id: 1, email: "admin@example.com", role: "ADMIN", createdAt: null },
+  {
+    id: 1,
+    email: "admin@example.com",
+    role: "ADMIN",
+    createdAt: null,
+    nickname: "관리자",
+    tag: 1,
+  },
 ];
 
 // redirect는 돌려줘도 던져도 React Router가 같은 이동으로 처리하므로 둘 다 받는다

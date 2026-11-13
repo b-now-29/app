@@ -49,7 +49,13 @@ vi.mock("./api/users", async (importOriginal) => ({
   signUp: vi.fn(),
 }));
 
-const USER: UserResponse = { id: 1, email: "user@example.com", role: "USER" };
+const USER: UserResponse = {
+  id: 1,
+  email: "user@example.com",
+  role: "USER",
+  nickname: "철수",
+  tag: 1,
+};
 const MENU_LINK = "오답 노트";
 const TITLE = "오답 노트";
 const CATEGORY_NAME = "자바";
