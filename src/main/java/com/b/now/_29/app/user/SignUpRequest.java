@@ -8,7 +8,9 @@ public record SignUpRequest(
         @NotBlank @Email @Size(max = MAX_EMAIL_LENGTH) String email,
 
         @NotBlank @Size(min = 8) @MaxBytes(MAX_PASSWORD_BYTES)
-        String password) {
+        String password,
+
+        @NicknameFormat String nickname) {
 
     /** BCrypt 입력 한도 (R3). 가입 검증과 로그인 사전 거절이 함께 쓴다 (D23). */
     public static final int MAX_PASSWORD_BYTES = 72;

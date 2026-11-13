@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,7 +28,7 @@ public class UserController {
 
     @PostMapping
     public ResponseEntity<UserResponse> signUp(@Valid @RequestBody SignUpRequest request) {
-        UserResponse response = userService.signUp(request.email(), request.password());
+        UserResponse response = userService.signUp(request.email(), request.password(), request.nickname());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header(
                         HttpHeaders.SET_COOKIE,
@@ -38,5 +39,11 @@ public class UserController {
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal Long userId) {
         return userService.getUser(userId);
+    }
+
+    @PutMapping("/me/nickname")
+    public UserResponse changeNickname(
+            @AuthenticationPrincipal Long userId, @Valid @RequestBody NicknameChangeRequest request) {
+        return userService.changeNickname(userId, request.nickname());
     }
 }

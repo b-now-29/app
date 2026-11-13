@@ -9,6 +9,7 @@ import com.b.now._29.app.quiz.category.CategoryRepository;
 import com.b.now._29.app.quiz.question.Question;
 import com.b.now._29.app.quiz.question.QuestionRepository;
 import com.b.now._29.app.quiz.question.QuestionType;
+import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.User;
 import com.b.now._29.app.user.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -55,8 +56,9 @@ class QuestionAttemptRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        me = userRepository.saveAndFlush(new User("attempt-me@example.com", "$2a$10$hash"));
-        other = userRepository.saveAndFlush(new User("attempt-other@example.com", "$2a$10$hash"));
+        me = userRepository.saveAndFlush(new User("attempt-me@example.com", "$2a$10$hash", new Nickname("풀이나"), 1));
+        other = userRepository.saveAndFlush(
+                new User("attempt-other@example.com", "$2a$10$hash", new Nickname("풀이남"), 1));
     }
 
     // 매핑

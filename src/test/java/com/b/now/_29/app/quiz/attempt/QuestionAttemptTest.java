@@ -7,6 +7,7 @@ import com.b.now._29.app.quiz.category.Category;
 import com.b.now._29.app.quiz.question.Question;
 import com.b.now._29.app.quiz.question.QuestionType;
 import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
+import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -79,7 +80,7 @@ class QuestionAttemptTest {
     }
 
     private static User user() {
-        return new User("user@example.com", "$2a$10$hash");
+        return new User("user@example.com", "$2a$10$hash", new Nickname("회원"), 1);
     }
 
     /** 모범 답안은 DB 시드로만 들어가고 생성자가 받지 않으므로 필드에 직접 채운다. */

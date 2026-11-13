@@ -61,7 +61,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *         <li>{@code AdminUserResponse changeRole(long id, Role role, long actorId)} — 없으면 {@code
  *             AdminUserNotFoundException}, 자기 해제는 {@code User.changeRole}이 {@code SelfDemotionNotAllowedException}
  *       </ul>
- *   <li>{@code record AdminUserResponse(Long id, String email, Role role, Instant createdAt)} — createdAt은 null 가능 (D6)
+ *   <li>{@code record AdminUserResponse(Long id, String email, Role role, Instant createdAt, String nickname, int tag)} —
+ *       createdAt은 null 가능 (D6). nickname, tag는 nickname.md R11에서 뒤에 추가
  *   <li>{@code record RoleChangeRequest(@NotNull Role role)}
  *   <li>{@code AdminUserNotFoundException(long id)} → 404. 기존 {@code UserNotFoundException}은 401로 매핑돼 있어 쓰지 않는다
  *   <li>{@code ApiExceptionHandler}: {@code AdminUserNotFoundException} → 404, {@code SelfDemotionNotAllowedException} → 409
@@ -97,25 +98,31 @@ class AdminUserControllerTest {
     // 회원 목록 (R1, R2)
 
     @Test
-    @DisplayName("회원 목록은 id, email, role, createdAt만 JSON 배열로 반환하고 기존 회원의 createdAt은 null이다 (R1, R2)")
+    @DisplayName(
+            "회원 목록은 id, email, role, createdAt, nickname, tag만 JSON 배열로 반환하고 기존 회원의 createdAt은 null이다 (R1, R2, nickname R11)")
     void getUsers() throws Exception {
         given(adminUserService.getUsers())
                 .willReturn(List.of(
-                        new AdminUserResponse(1L, "test@example.com", Role.USER, null),
+                        new AdminUserResponse(1L, "test@example.com", Role.USER, null, "회원", 1),
                         new AdminUserResponse(
-                                3L, "new@example.com", Role.ADMIN, Instant.parse("2026-11-13T05:12:30Z"))));
+                                3L, "new@example.com", Role.ADMIN, Instant.parse("2026-11-13T05:12:30Z"), "철수", 2)));
 
         mvc.perform(asAdmin(get(BASE)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].keys()", containsInAnyOrder("id", "email", "role", "createdAt")))
+                .andExpect(jsonPath(
+                        "$[0].keys()", containsInAnyOrder("id", "email", "role", "createdAt", "nickname", "tag")))
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[0].email").value("test@example.com"))
                 .andExpect(jsonPath("$[0].role").value("USER"))
                 .andExpect(jsonPath("$[0].createdAt").value(nullValue()))
+                .andExpect(jsonPath("$[0].nickname").value("회원"))
+                .andExpect(jsonPath("$[0].tag").value(1))
                 .andExpect(jsonPath("$[1].id").value(3))
                 .andExpect(jsonPath("$[1].role").value("ADMIN"))
                 .andExpect(jsonPath("$[1].createdAt").value("2026-11-13T05:12:30Z"))
+                .andExpect(jsonPath("$[1].nickname").value("철수"))
+                .andExpect(jsonPath("$[1].tag").value(2))
                 .andExpect(jsonPath("$[*].passwordHash").doesNotExist())
                 .andDo(document(
                         "admin-users-list",
@@ -126,7 +133,9 @@ class AdminUserControllerTest {
                                 fieldWithPath("[].role").description("`USER` 또는 `ADMIN`"),
                                 fieldWithPath("[].createdAt")
                                         .optional()
-                                        .description("가입 시각 (ISO-8601 UTC). 가입 시각 저장 전에 가입한 회원은 null"))));
+                                        .description("가입 시각 (ISO-8601 UTC). 가입 시각 저장 전에 가입한 회원은 null"),
+                                fieldWithPath("[].nickname").description("닉네임"),
+                                fieldWithPath("[].tag").description("같은 닉네임 안에서 회원을 구분하는 번호. 화면에는 `닉네임#번호`로 표시한다"))));
     }
 
     @Test
@@ -146,11 +155,14 @@ class AdminUserControllerTest {
     void changeRole() throws Exception {
         given(adminUserService.changeRole(3L, Role.ADMIN, ADMIN_ID))
                 .willReturn(new AdminUserResponse(
-                        3L, "new@example.com", Role.ADMIN, Instant.parse("2026-11-13T05:12:30Z")));
+                        3L, "new@example.com", Role.ADMIN, Instant.parse("2026-11-13T05:12:30Z"), "철수", 2));
 
         mvc.perform(asAdmin(json(put(ROLE_PATH, 3L), "{\"role\": \"ADMIN\"}")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email", "role", "createdAt")))
+                .andExpect(
+                        jsonPath("$.keys()", containsInAnyOrder("id", "email", "role", "createdAt", "nickname", "tag")))
+                .andExpect(jsonPath("$.nickname").value("철수"))
+                .andExpect(jsonPath("$.tag").value(2))
                 .andExpect(jsonPath("$.id").value(3))
                 .andExpect(jsonPath("$.email").value("new@example.com"))
                 .andExpect(jsonPath("$.role").value("ADMIN"))
@@ -163,7 +175,9 @@ class AdminUserControllerTest {
                                 fieldWithPath("id").description("회원 ID"),
                                 fieldWithPath("email").description("이메일"),
                                 fieldWithPath("role").description("바뀐 role"),
-                                fieldWithPath("createdAt").optional().description("가입 시각 (ISO-8601 UTC, 없으면 null)"))));
+                                fieldWithPath("createdAt").optional().description("가입 시각 (ISO-8601 UTC, 없으면 null)"),
+                                fieldWithPath("nickname").description("닉네임"),
+                                fieldWithPath("tag").description("같은 닉네임 안에서 회원을 구분하는 번호"))));
 
         then(adminUserService).should().changeRole(3L, Role.ADMIN, ADMIN_ID);
     }
@@ -172,7 +186,7 @@ class AdminUserControllerTest {
     @DisplayName("관리자를 USER로 해제할 수 있다 (R3)")
     void demoteOtherAdmin() throws Exception {
         given(adminUserService.changeRole(3L, Role.USER, ADMIN_ID))
-                .willReturn(new AdminUserResponse(3L, "new@example.com", Role.USER, null));
+                .willReturn(new AdminUserResponse(3L, "new@example.com", Role.USER, null, "철수", 2));
 
         mvc.perform(asAdmin(json(put(ROLE_PATH, 3L), "{\"role\": \"USER\"}")))
                 .andExpect(status().isOk())
@@ -184,7 +198,7 @@ class AdminUserControllerTest {
     @DisplayName("자기 자신을 ADMIN으로 지정하는 요청은 200이다 (R4)")
     void keepSelfAdmin() throws Exception {
         given(adminUserService.changeRole(ADMIN_ID, Role.ADMIN, ADMIN_ID))
-                .willReturn(new AdminUserResponse(ADMIN_ID, "admin@example.com", Role.ADMIN, null));
+                .willReturn(new AdminUserResponse(ADMIN_ID, "admin@example.com", Role.ADMIN, null, "관리자", 1));
 
         mvc.perform(asAdmin(json(put(ROLE_PATH, ADMIN_ID), "{\"role\": \"ADMIN\"}")))
                 .andExpect(status().isOk())
