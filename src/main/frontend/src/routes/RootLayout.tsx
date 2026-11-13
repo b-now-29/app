@@ -43,6 +43,9 @@ export default function RootLayout() {
             <ActionButton asChild variant="ghost" size="small">
               <Link to="/history">내 기록</Link>
             </ActionButton>
+            <ActionButton asChild variant="ghost" size="small">
+              <Link to="/wrong-answers">오답 노트</Link>
+            </ActionButton>
             {user.role === "ADMIN" && (
               <ActionButton asChild variant="ghost" size="small">
                 <Link to="/admin">관리</Link>
