@@ -39,6 +39,9 @@ export default function RootLayout() {
         <ActionButton asChild variant="ghost" size="small">
           <Link to="/about">소개</Link>
         </ActionButton>
+        <ActionButton asChild variant="ghost" size="small">
+          <Link to="/ranking">랭킹</Link>
+        </ActionButton>
         {user ? (
           <>
             <ActionButton asChild variant="ghost" size="small">
