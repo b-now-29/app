@@ -10,11 +10,15 @@ import com.b.now._29.app.quiz.question.QuestionTypeChangeNotAllowedException;
 import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
 import com.b.now._29.app.user.DuplicateEmailException;
 import com.b.now._29.app.user.InvalidCredentialsException;
+import com.b.now._29.app.user.InvalidNicknameException;
+import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.SelfDemotionNotAllowedException;
 import com.b.now._29.app.user.UserNotFoundException;
 import com.b.now._29.app.user.admin.AdminUserNotFoundException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -39,6 +43,18 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
+    private static final String EMAIL_MESSAGE = "이메일 형식이 올바르지 않거나 255자를 넘습니다.";
+    private static final String PASSWORD_MESSAGE = "비밀번호는 8자 이상, UTF-8 72바이트 이하여야 합니다.";
+
+    /** 가입 검증 실패 필드 이름 → 문구. 응답에는 이 순서로 이어 붙인다. */
+    private static final Map<String, String> SIGN_UP_FIELD_MESSAGES = new LinkedHashMap<>();
+
+    static {
+        SIGN_UP_FIELD_MESSAGES.put("email", EMAIL_MESSAGE);
+        SIGN_UP_FIELD_MESSAGES.put("password", PASSWORD_MESSAGE);
+        SIGN_UP_FIELD_MESSAGES.put("nickname", Nickname.RULE_MESSAGE);
+    }
+
     @ExceptionHandler({
         CategoryNotFoundException.class,
         QuestionNotFoundException.class,
@@ -51,7 +67,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler({
         InvalidChoiceException.class,
         UnsupportedAnswerTypeException.class,
-        InvalidQuestionException.class
+        InvalidQuestionException.class,
+        InvalidNicknameException.class
     })
     public ProblemDetail handleBadRequest(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
@@ -83,23 +100,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         Set<String> failed = ex.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getField)
                 .collect(Collectors.toCollection(TreeSet::new));
-        Set<String> remaining = new TreeSet<>(failed);
-        boolean email = remaining.remove("email");
-        boolean password = remaining.remove("password");
-        if ((!email && !password)
-                || !remaining.isEmpty()
+        List<String> messages = new ArrayList<>();
+        SIGN_UP_FIELD_MESSAGES.forEach((field, message) -> {
+            if (failed.contains(field)) {
+                messages.add(message);
+            }
+        });
+        boolean onlySignUpFields = SIGN_UP_FIELD_MESSAGES.keySet().containsAll(failed);
+        if (messages.isEmpty()
+                || !onlySignUpFields
                 || !ex.getBindingResult().getGlobalErrors().isEmpty()) {
             String detail =
                     failed.isEmpty() ? "입력값이 올바르지 않습니다." : "입력값이 올바르지 않습니다. (항목: " + String.join(", ", failed) + ")";
             ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
             return handleExceptionInternal(ex, problem, headers, status, request);
-        }
-        List<String> messages = new ArrayList<>();
-        if (email) {
-            messages.add("이메일 형식이 올바르지 않거나 255자를 넘습니다.");
-        }
-        if (password) {
-            messages.add("비밀번호는 8자 이상, UTF-8 72바이트 이하여야 합니다.");
         }
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, String.join(" ", messages));
         return handleExceptionInternal(ex, problem, headers, status, request);

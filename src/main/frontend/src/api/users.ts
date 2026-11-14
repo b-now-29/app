@@ -2,6 +2,8 @@ export type UserResponse = {
   readonly id: number;
   readonly email: string;
   readonly role: "USER" | "ADMIN";
+  readonly nickname: string;
+  readonly tag: number;
 };
 
 // 서버가 준 상태 코드(401, 409 등)와 메시지를 화면까지 전달하기 위한 에러
@@ -35,15 +37,15 @@ export async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, fallback);
 }
 
-async function postCredentials(
+async function sendJson(
   url: string,
-  email: string,
-  password: string,
+  method: "POST" | "PUT",
+  body: object,
 ): Promise<UserResponse> {
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     throw await toApiError(response);
@@ -51,12 +53,16 @@ async function postCredentials(
   return (await response.json()) as UserResponse;
 }
 
-export function signUp(email: string, password: string) {
-  return postCredentials("/api/v1/users", email, password);
+export function signUp(email: string, password: string, nickname: string) {
+  return sendJson("/api/v1/users", "POST", { email, password, nickname });
 }
 
 export function login(email: string, password: string) {
-  return postCredentials("/api/v1/auth/login", email, password);
+  return sendJson("/api/v1/auth/login", "POST", { email, password });
+}
+
+export function changeNickname(nickname: string) {
+  return sendJson("/api/v1/users/me/nickname", "PUT", { nickname });
 }
 
 export async function logout(): Promise<void> {

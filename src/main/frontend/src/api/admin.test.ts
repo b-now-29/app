@@ -23,7 +23,8 @@
 //   deleteQuestion(id: number): Promise<void>
 //
 // 회원 관리 (docs/features/admin-members.md API 계약, D6):
-//   AdminUserResponse { id: number, email: string, role: "USER" | "ADMIN", createdAt: string | null }
+//   AdminUserResponse { id: number, email: string, role: "USER" | "ADMIN", createdAt: string | null,
+//     nickname: string, tag: number }  (nickname, tag는 docs/features/nickname.md R11)
 //   getAdminUsers(): Promise<readonly AdminUserResponse[]>                      GET /api/v1/admin/users
 //   changeUserRole(id: number, role: "USER" | "ADMIN"): Promise<AdminUserResponse>
 //                                                    PUT /api/v1/admin/users/{id}/role  본문 { role }
@@ -348,16 +349,25 @@ describe("통계 (admin-stats)", () => {
 
 describe("회원 (admin-members)", () => {
   const MEMBERS: readonly AdminUserResponse[] = [
-    { id: 1, email: "test@example.com", role: "USER", createdAt: null },
+    {
+      id: 1,
+      email: "test@example.com",
+      role: "USER",
+      createdAt: null,
+      nickname: "회원",
+      tag: 1,
+    },
     {
       id: 3,
       email: "new@example.com",
       role: "ADMIN",
       createdAt: "2026-11-13T05:12:30Z",
+      nickname: "철수",
+      tag: 2,
     },
   ];
 
-  it("getAdminUsers는 회원 목록을 조회한다 (R1)", async () => {
+  it("getAdminUsers는 닉네임과 번호를 포함한 회원 목록을 조회한다 (R1, nickname R11)", async () => {
     fetchMock.mockResolvedValue(jsonResponse(MEMBERS));
 
     await expect(getAdminUsers()).resolves.toEqual(MEMBERS);

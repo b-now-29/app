@@ -9,6 +9,7 @@ paths:
 
 - `src/api/` — API 호출 함수와 응답 타입. 타입 이름·필드는 백엔드 DTO와 맞춘다. 컴포넌트에서 `fetch`를 직접 쓰지 않는다.
 - `src/quiz/` — 풀이 흐름 상태 (현재 문제, 제출 여부, 자기 채점 결과, 점수 집계)를 다루는 reducer. React를 import하지 않는 순수 TypeScript. 채점·정답 판단 같은 도메인 규칙은 프론트에 두지 않는다 (서버 책임).
+- `src/user/` — 회원 표시 등 회원 관련 순수 함수 (`닉네임#번호` 만들기 등). React를 import하지 않고, 함수마다 옆에 `*.test.ts`를 둔다.
 - `src/components/` — 재사용 UI 컴포넌트 (보기 목록, 유형별 답 입력칸 등).
 - `src/routes/` — 화면 + `loader`/`action`. 에러 화면은 route의 `ErrorBoundary`.
 - `src/seed-design/` — SEED Design CLI가 생성한 코드 (린트·포맷 제외). 직접 고치지 않고, 추가는 `npx @seed-design/cli@latest add ui:<이름>`. 화면은 SEED 컴포넌트를 먼저 쓰고, 없을 때만 CSS를 직접 작성한다. 당근 로고·이름·캐릭터, 당근 고유 컴포넌트 (`manner-temp` 등)는 쓰지 않는다.

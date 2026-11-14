@@ -34,6 +34,8 @@ const MEMBER: UserResponse = {
   id: 1,
   email: "user@example.com",
   role: "USER",
+  nickname: "철수",
+  tag: 1,
 };
 
 // root loader가 돌려줄 현재 사용자. 기본은 비회원이고, 회원 테스트에서만 바꾼다

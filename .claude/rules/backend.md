@@ -27,6 +27,9 @@ paths:
 - 계층: Controller (요청 검증·DTO 변환) → Service (비즈니스 로직·트랜잭션) → Repository. 컨트롤러에 로직을 넣지 않는다.
 - 도메인 규칙 (생성 시 검증, 채점)은 Service가 아니라 엔티티/도메인 객체의 메서드에 둔다. Service는 조회 → 도메인 메서드 호출 → DTO 변환만 한다.
 - Service는 클래스에 `@Transactional(readOnly = true)`, 쓰기 메서드에만 `@Transactional`.
+- `@Transactional`이 붙은 메서드를 같은 클래스 안에서 호출하지 않는다. 자기 호출은 프록시를 거치지 않아 호출된 메서드의 설정이 무시되고 호출한 쪽 (예: 클래스 기본값 readOnly)의 트랜잭션이 이어진다. 오버로드처럼 공통 로직이 필요하면 어노테이션 없는 private 메서드로 빼고, 트랜잭션 설정은 public 입구에만 둔다. 트랜잭션 동작은 단위 테스트 (프록시 없음)로 확인되지 않으므로 통합 테스트로 확인한다.
+- DB 제약 위반을 재시도하는 쓰기는 "한 번 시도"를 별도 Service 빈의 `@Transactional` 메서드로 두고, 재시도 반복은 호출하는 Service의 `@Transactional(propagation = NOT_SUPPORTED)` 메서드가 한다. 제약 위반이 난 트랜잭션은 rollback-only가 되어 같은 트랜잭션에서 다시 시도할 수 없기 때문이다. 트랜잭션 경계는 Repository가 아니라 Service에 둔다.
+- 다른 트랜잭션이 바꿀 수 있는 컬럼이 있는 엔티티를 일부만 고칠 때는 `@DynamicUpdate`로 바뀐 컬럼만 UPDATE해 덮어쓰기 (lost update)를 막는다. 상태 변경은 JPQL `update`가 아니라 엔티티 메서드로 한다.
 - `open-in-view: false`이므로 엔티티 → DTO 변환은 Service 안 (트랜잭션 안)에서 끝낸다.
 - 엔티티: setter를 두지 않고 생성자/정적 팩토리로 만든다. 연관관계는 `@ManyToOne(fetch = LAZY)`. 연관 데이터를 함께 쓰는 조회는 fetch join 또는 `@EntityGraph`로 N+1을 막는다.
 - `TEXT` 컬럼에 매핑하는 `String`은 `@Column(columnDefinition = "text")` (`ddl-auto: validate` 통과용).

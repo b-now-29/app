@@ -13,6 +13,7 @@ import com.b.now._29.app.quiz.attempt.QuestionAttemptRepository;
 import com.b.now._29.app.quiz.category.Category;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.CategoryRepository;
+import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.User;
 import com.b.now._29.app.user.UserRepository;
 import java.util.List;
@@ -267,7 +268,7 @@ class QuestionServiceTest {
     }
 
     private static User user() {
-        User user = new User("user@example.com", "$2a$10$hash");
+        User user = new User("user@example.com", "$2a$10$hash", new Nickname("회원"), 1);
         ReflectionTestUtils.setField(user, "id", USER_ID);
         return user;
     }

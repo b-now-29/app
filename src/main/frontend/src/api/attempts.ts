@@ -24,7 +24,7 @@ export type AttemptResponse = {
 };
 
 // 비회원(401)을 로그인 화면으로 보내려면 상태 코드가 필요하므로 ApiError로 던진다
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
     throw await toApiError(response);

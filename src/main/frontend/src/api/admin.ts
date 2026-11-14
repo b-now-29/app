@@ -86,6 +86,8 @@ export type AdminUserResponse = {
   readonly id: number;
   readonly email: string;
   readonly role: AdminUserRole;
+  readonly nickname: string;
+  readonly tag: number;
   // 이 기능 전에 가입한 회원은 null
   readonly createdAt: string | null;
 };

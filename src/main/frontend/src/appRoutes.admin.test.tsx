@@ -60,8 +60,16 @@ const ADMIN: UserResponse = {
   id: 1,
   email: "admin@example.com",
   role: "ADMIN",
+  nickname: "관리자",
+  tag: 1,
 };
-const USER: UserResponse = { id: 2, email: "user@example.com", role: "USER" };
+const USER: UserResponse = {
+  id: 2,
+  email: "user@example.com",
+  role: "USER",
+  nickname: "회원",
+  tag: 1,
+};
 
 const HOME_CATEGORY = "홈 카테고리";
 

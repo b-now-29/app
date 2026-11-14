@@ -9,7 +9,8 @@ import {
 } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import type { UserResponse } from "../api/users";
-import type { ActionError } from "./authActions";
+import NicknameText from "../components/NicknameText";
+import type { ActionError } from "./actionError";
 
 export default function RootLayout() {
   const user = useRouteLoaderData("root") as UserResponse | null;
@@ -38,17 +39,27 @@ export default function RootLayout() {
         <ActionButton asChild variant="ghost" size="small">
           <Link to="/about">소개</Link>
         </ActionButton>
+        <ActionButton asChild variant="ghost" size="small">
+          <Link to="/ranking">랭킹</Link>
+        </ActionButton>
         {user ? (
           <>
             <ActionButton asChild variant="ghost" size="small">
               <Link to="/history">내 기록</Link>
+            </ActionButton>
+            <ActionButton asChild variant="ghost" size="small">
+              <Link to="/wrong-answers">오답 노트</Link>
             </ActionButton>
             {user.role === "ADMIN" && (
               <ActionButton asChild variant="ghost" size="small">
                 <Link to="/admin">관리</Link>
               </ActionButton>
             )}
-            <Text textStyle="t4Regular">{user.email}</Text>
+            <ActionButton asChild variant="ghost" size="small">
+              <Link to="/me">
+                <NicknameText member={user} />
+              </Link>
+            </ActionButton>
             <logoutFetcher.Form method="post">
               <ActionButton type="submit" variant="ghost" size="small">
                 로그아웃

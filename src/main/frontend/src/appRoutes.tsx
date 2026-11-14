@@ -29,6 +29,15 @@ import QuizErrorPage from "./routes/QuizErrorPage";
 import { quizLoader } from "./routes/quizLoader";
 import HistoryPage from "./routes/HistoryPage";
 import { historyLoader } from "./routes/historyLoader";
+import MePage from "./routes/MePage";
+import { meAction } from "./routes/meRoute";
+import WrongAnswersPage from "./routes/WrongAnswersPage";
+import {
+  wrongAnswerQuizLoader,
+  wrongAnswersLoader,
+} from "./routes/wrongAnswerLoaders";
+import RankingPage from "./routes/RankingPage";
+import { rankingLoader } from "./routes/rankingLoader";
 import AboutPage from "./routes/AboutPage";
 import NotFoundPage from "./routes/NotFoundPage";
 import LoginPage from "./routes/LoginPage";
@@ -50,6 +59,8 @@ const skipAfterLogout: ShouldRevalidateFunction = ({
     new URL(formAction, "http://localhost").pathname === "/";
   return isLogout ? false : defaultShouldRevalidate;
 };
+
+const WRONG_ANSWERS_BACK_LINK = { to: "/wrong-answers", label: "오답 노트" };
 
 export const appRoutes: RouteObject[] = [
   {
@@ -81,6 +92,39 @@ export const appRoutes: RouteObject[] = [
         Component: HistoryPage,
         loader: historyLoader,
         ErrorBoundary: ErrorPage,
+      },
+      {
+        // 닉네임 저장(action) 뒤 root loader가 다시 실행되어 메뉴가 바뀐다. skipAfterLogout 없음
+        path: "me",
+        Component: MePage,
+        action: meAction,
+        ErrorBoundary: ErrorPage,
+      },
+      {
+        // skipAfterLogout을 붙이지 않는다. 로그아웃 뒤 loader가 다시 실행되어 401로 /login에 간다
+        path: "wrong-answers",
+        Component: WrongAnswersPage,
+        loader: wrongAnswersLoader,
+        ErrorBoundary: ErrorPage,
+      },
+      {
+        // 공개 화면. 고른 카테고리는 주소 (?category=)에 남고 loader가 읽는다
+        path: "ranking",
+        Component: RankingPage,
+        loader: rankingLoader,
+        ErrorBoundary: QuizErrorPage,
+      },
+      {
+        // 풀이 화면(QuizPage)을 재사용하고 loader와 돌아갈 링크만 다르다. skipAfterLogout 없음
+        path: "wrong-answers/:slug",
+        element: (
+          <QuizPage
+            backLink={WRONG_ANSWERS_BACK_LINK}
+            emptyTitle="남은 오답이 없어요"
+          />
+        ),
+        loader: wrongAnswerQuizLoader,
+        ErrorBoundary: QuizErrorPage,
       },
       {
         // 관리자 화면. 로그아웃 뒤에는 loader가 다시 실행되어 401로 /login에 간다

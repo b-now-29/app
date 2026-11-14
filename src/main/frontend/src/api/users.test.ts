@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, getCurrentUser, login, logout, signUp } from "./users";
+// 닉네임 (docs/features/nickname.md R1, R5, R8, API 계약)에서 구현할 것:
+//   UserResponse에 nickname: string, tag: number 추가
+//   signUp(email, password, nickname): 요청 본문 { email, password, nickname }
+//   changeNickname(nickname: string): Promise<UserResponse> — PUT /api/v1/users/me/nickname { nickname }
+import {
+  ApiError,
+  changeNickname,
+  getCurrentUser,
+  login,
+  logout,
+  signUp,
+} from "./users";
 import type { UserResponse } from "./users";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
@@ -8,9 +19,12 @@ const USER: UserResponse = {
   id: 1,
   email: "user@example.com",
   role: "USER",
+  nickname: "철수",
+  tag: 3,
 };
 const EMAIL = "user@example.com";
 const PASSWORD = "password1234";
+const NICKNAME = "철수";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
@@ -29,14 +43,18 @@ beforeEach(() => {
 });
 
 describe("signUp", () => {
-  it("이메일과 비밀번호를 POST하고 응답 본문을 돌려준다", async () => {
+  it("이메일, 비밀번호, 닉네임을 POST하고 닉네임과 번호를 포함한 응답 본문을 돌려준다 (nickname R1, R8)", async () => {
     fetchMock.mockResolvedValue(jsonResponse(USER, 201));
 
-    await expect(signUp(EMAIL, PASSWORD)).resolves.toEqual(USER);
+    await expect(signUp(EMAIL, PASSWORD, NICKNAME)).resolves.toEqual(USER);
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+      body: JSON.stringify({
+        email: EMAIL,
+        password: PASSWORD,
+        nickname: NICKNAME,
+      }),
     });
   });
 
@@ -48,7 +66,7 @@ describe("signUp", () => {
     async (status, detail) => {
       fetchMock.mockResolvedValue(problemResponse(status, detail));
 
-      const error = await caught(signUp(EMAIL, PASSWORD));
+      const error = await caught(signUp(EMAIL, PASSWORD, NICKNAME));
 
       expect(error).toBeInstanceOf(ApiError);
       expect(error).toMatchObject({ status, message: detail });
@@ -106,6 +124,35 @@ describe("logout", () => {
 
     await expect(logout()).rejects.toBeInstanceOf(ApiError);
   });
+});
+
+describe("changeNickname (nickname R5)", () => {
+  it("새 닉네임을 PUT하고 바뀐 내 정보를 돌려준다", async () => {
+    const changed: UserResponse = { ...USER, nickname: "영희", tag: 2 };
+    fetchMock.mockResolvedValue(jsonResponse(changed));
+
+    await expect(changeNickname("영희")).resolves.toEqual(changed);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/users/me/nickname", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname: "영희" }),
+    });
+  });
+
+  it.each([
+    [400, "입력값이 올바르지 않습니다. (항목: nickname)"],
+    [401, "로그인이 필요합니다."],
+  ])(
+    "%i 응답은 상태와 서버 메시지를 담은 ApiError다",
+    async (status, detail) => {
+      fetchMock.mockResolvedValue(problemResponse(status, detail));
+
+      const error = await caught(changeNickname("영희#1"));
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status, message: detail });
+    },
+  );
 });
 
 describe("getCurrentUser", () => {

@@ -44,7 +44,9 @@ class TestAccountDevProfileIntegrationTest {
     @Test
     @DisplayName("dev 프로필이면 테스트 계정으로 로그인하고, 쿠키에 Secure가 없다 (R11, D8, D9)")
     void loginWithTestAccount() throws Exception {
-        MvcResult result = login().andExpect(status().isOk()).andReturn();
+        MvcResult result = login().andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("테스트"))
+                .andReturn();
 
         assertThat(SetCookieHeader.from(result).attributes()).doesNotContain("Secure");
     }
@@ -64,6 +66,8 @@ class TestAccountDevProfileIntegrationTest {
         MvcResult admin = login("admin@example.com", "admin1234!")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.nickname").value("관리자"))
+                .andExpect(jsonPath("$.tag").isNumber())
                 .andReturn();
         MvcResult user = login().andExpect(status().isOk()).andReturn();
 

@@ -14,6 +14,7 @@ import com.b.now._29.app.quiz.question.Question;
 import com.b.now._29.app.quiz.question.QuestionDraft;
 import com.b.now._29.app.quiz.question.QuestionRepository;
 import com.b.now._29.app.quiz.question.QuestionType;
+import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.User;
 import com.b.now._29.app.user.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -96,9 +97,11 @@ class AdminStatsRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        alice = userRepository.saveAndFlush(new User("stats-alice@example.com", "$2a$10$hash"));
-        bob = userRepository.saveAndFlush(new User("stats-bob@example.com", "$2a$10$hash"));
-        carol = userRepository.saveAndFlush(new User("stats-carol@example.com", "$2a$10$hash"));
+        alice = userRepository.saveAndFlush(
+                new User("stats-alice@example.com", "$2a$10$hash", new Nickname("alice"), 1));
+        bob = userRepository.saveAndFlush(new User("stats-bob@example.com", "$2a$10$hash", new Nickname("bob"), 1));
+        carol = userRepository.saveAndFlush(
+                new User("stats-carol@example.com", "$2a$10$hash", new Nickname("carol"), 1));
     }
 
     // 회원·문제마다 최근 기록 1건 (R1)

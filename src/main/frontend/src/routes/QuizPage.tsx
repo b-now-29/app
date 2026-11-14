@@ -32,7 +32,18 @@ import type { SelfGradedQuestionType } from "../quiz/quizReducer";
 import { countQuestionsByType, scoreLines } from "../quiz/quizScore";
 import type { quizLoader } from "./quizLoader";
 
-export default function QuizPage() {
+// 끝난 뒤(와 빈 화면)에 돌아갈 곳. route마다 다르게 넘긴다 (기본은 카테고리 목록)
+export type BackLink = { readonly to: string; readonly label: string };
+
+const CATEGORY_LIST_LINK: BackLink = { to: "/", label: "카테고리 목록" };
+
+export default function QuizPage({
+  backLink = CATEGORY_LIST_LINK,
+  emptyTitle = "아직 문제가 없습니다",
+}: {
+  readonly backLink?: BackLink;
+  readonly emptyTitle?: string;
+}) {
   const questions = useLoaderData<typeof quizLoader>();
   const { slug } = useParams();
 
@@ -40,21 +51,23 @@ export default function QuizPage() {
     return (
       <VStack gap="x4" alignItems="flex-start">
         <Text as="h1" textStyle="screenTitle">
-          아직 문제가 없습니다
+          {emptyTitle}
         </Text>
-        <CategoryListLink />
+        <BackLinkButton backLink={backLink} />
       </VStack>
     );
   }
   // 같은 route에서는 컴포넌트와 풀이 상태가 재사용된다.
   // key가 바뀌면 React가 새 컴포넌트로 만들므로, 카테고리가 바뀌면 처음부터 시작한다.
-  return <QuizSession key={slug} questions={questions} />;
+  return <QuizSession key={slug} questions={questions} backLink={backLink} />;
 }
 
 function QuizSession({
   questions,
+  backLink,
 }: {
   readonly questions: readonly QuestionResponse[];
+  readonly backLink: BackLink;
 }) {
   const [state, dispatch] = useReducer(
     quizReducer,
@@ -86,7 +99,7 @@ function QuizSession({
         {state.loginExpiredAt !== null && (
           <LoginExpiredNotice questionNumber={state.loginExpiredAt + 1} />
         )}
-        <CategoryListLink />
+        <BackLinkButton backLink={backLink} />
       </VStack>
     );
   }
@@ -297,10 +310,10 @@ function GradingResult({ result }: { readonly result: AnswerResponse }) {
   );
 }
 
-function CategoryListLink() {
+function BackLinkButton({ backLink }: { readonly backLink: BackLink }) {
   return (
     <ActionButton asChild variant="neutralSolid">
-      <Link to="/">카테고리 목록</Link>
+      <Link to={backLink.to}>{backLink.label}</Link>
     </ActionButton>
   );
 }

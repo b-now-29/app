@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategoryStats, getRecentAttempts } from "../api/attempts";
 import type { AttemptResponse, CategoryStatResponse } from "../api/attempts";
 import { ApiError } from "../api/users";
@@ -171,6 +171,37 @@ describe("내 기록 화면 (R10)", () => {
       // 같은 문제를 다시 푼 기록도 따로 한 줄이다
       expect(items[2]).toHaveTextContent("서술형 문제 본문");
       expect(items[2]).toHaveTextContent("맞음");
+    });
+
+    // 날짜는 모든 화면 공통 formatDate 형식 (docs/features/ranking.md D13, quiz/date.test.ts 참고)
+    describe("푼 날짜 (D13)", () => {
+      beforeEach(() => {
+        vi.stubEnv("TZ", "Asia/Seoul");
+      });
+
+      afterEach(() => {
+        vi.unstubAllEnvs();
+      });
+
+      it("줄마다 브라우저 시간대의 푼 날짜를 'YYYY.MM.DD'로 보여 준다", async () => {
+        await startHistory();
+
+        const items = recentItems();
+        expect(items[0]).toHaveTextContent("2026.11.06");
+        expect(items[1]).toHaveTextContent("2026.11.05");
+        expect(items[2]).toHaveTextContent("2026.11.04");
+      });
+
+      it("UTC가 아니라 브라우저 시간대의 날짜다", async () => {
+        // UTC로는 11월 12일이지만 서울(UTC+9)로는 11월 13일이다
+        vi.mocked(getRecentAttempts).mockResolvedValue([
+          attempt(1, { attemptedAt: "2026-11-12T23:30:00Z" }),
+        ]);
+        await startHistory();
+
+        expect(recentItems()[0]).toHaveTextContent("2026.11.13");
+        expect(recentItems()[0]).not.toHaveTextContent("2026.11.12");
+      });
     });
 
     it("서버가 준 20건을 모두 보여 주고 페이지 이동은 없다", async () => {

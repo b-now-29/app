@@ -9,7 +9,9 @@ import { changeUserRole } from "../api/admin";
 import type { AdminUserResponse } from "../api/admin";
 import { errorMessage } from "../api/users";
 import type { UserResponse } from "../api/users";
-import { formatJoinedDate, roleAction } from "../quiz/adminUsers";
+import { formatDate } from "../quiz/date";
+import { roleAction } from "../quiz/adminUsers";
+import NicknameText from "../components/NicknameText";
 import { ActionButton } from "seed-design/ui/action-button";
 
 export default function AdminUsersPage() {
@@ -65,10 +67,13 @@ export default function AdminUsersPage() {
                     <Text textStyle="t3Regular">나</Text>
                   )}
                 </HStack>
+                <Text textStyle="t3Regular">
+                  <NicknameText member={member} />
+                </Text>
                 <HStack gap="x1">
                   <Text textStyle="t3Regular">{member.role}</Text>
                   <Text textStyle="t3Regular">
-                    {formatJoinedDate(member.createdAt)}
+                    {formatDate(member.createdAt)}
                   </Text>
                 </HStack>
               </VStack>

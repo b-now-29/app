@@ -2,6 +2,7 @@ import { Text, VStack } from "@seed-design/react";
 import { useLoaderData } from "react-router";
 import type { AttemptResponse, CategoryStatResponse } from "../api/attempts";
 import { accuracyLine } from "../quiz/accuracy";
+import { formatDate } from "../quiz/date";
 import { QUESTION_TYPE_NAMES } from "../quiz/quizScore";
 import type { historyLoader } from "./historyLoader";
 
@@ -80,7 +81,7 @@ function CategoryStatItem({ stat }: { readonly stat: CategoryStatResponse }) {
 }
 
 function AttemptItem({ attempt }: { readonly attempt: AttemptResponse }) {
-  const date = new Date(attempt.attemptedAt).toLocaleDateString("ko-KR");
+  const date = formatDate(attempt.attemptedAt);
   return (
     <li>
       <Text as="p" textStyle="t5Regular">
