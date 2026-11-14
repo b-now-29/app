@@ -18,28 +18,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 
-/**
- * 회원 관리 (docs/features/admin-members.md R1, R2, D4)에서 추가로 구현할 것:
- *
- * <ul>
- *   <li>{@code V12__add_users_created_at.sql} (이름은 자유): {@code users.created_at TIMESTAMPTZ} nullable, DEFAULT 없음, 기존 행은
- *       NULL
- *   <li>{@code User.createdAt} ({@code Instant}) 을 {@code created_at} 컬럼에 매핑
- *   <li>{@code UserRepository.findAllByOrderByIdAsc(): List<User>} — 회원 목록 id 오름차순 (R1)
- * </ul>
- *
- * <p>닉네임 (docs/features/nickname.md R2, R3, R7, D3, D7, 데이터)에서 추가로 구현할 것:
- *
- * <ul>
- *   <li>{@code V13__*.sql}: {@code users.nickname VARCHAR(20) NOT NULL}, {@code users.tag INTEGER NOT NULL} (1 이상 CHECK),
- *       {@code CONSTRAINT uk_users_nickname_tag UNIQUE (nickname, tag)}. 기존 행 채우기는 {@code UserNicknameMigrationTest}
- *   <li>{@code UserRepository.findMaxTagByNickname(String nickname): Optional<Integer>} — 그 닉네임의 가장 큰 번호, 없으면 empty.
- *       대소문자를 구분한다 (R7)
- *   <li>(D12) {@code UserRepository.updateNickname}과 Repository의 {@code @Transactional}은 지운다. {@code User}에 {@code
- *       @DynamicUpdate}를 붙여 엔티티 메서드 {@code changeNickname}으로 바꾼 컬럼만 UPDATE한다
- *   <li>(Standards 리뷰) {@code User.nicknameTag} ({@code @Embedded NicknameTag})가 {@code nickname}, {@code tag} 컬럼에 매핑된다
- * </ul>
- */
+/** 회원 엔티티의 컬럼 매핑, 조회 쿼리, DB 제약을 실제 PostgreSQL로 확인한다. */
 @Tag("integration")
 @DataJpaTest
 @Import(TestcontainersConfiguration.class)
@@ -79,7 +58,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("대소문자만 다른 이메일은 DB 제약으로도 저장할 수 없다 (R2)")
+    @DisplayName("대소문자만 다른 이메일은 DB 제약으로도 저장할 수 없다")
     void rejectsEmailDifferingOnlyByCase() {
         userRepository.saveAndFlush(new User(EMAIL, HASH, NICKNAME, 1));
         User duplicate = new User("Repository@Example.COM", HASH, NICKNAME, 2);
@@ -89,7 +68,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("role 컬럼을 role 필드로 읽고 쓴다 (R1, D1)")
+    @DisplayName("role 컬럼을 role 필드로 읽고 쓴다")
     void mapsRoleColumn() {
         userRepository.saveAndFlush(new User(EMAIL, HASH, NICKNAME, 1));
         userRepository.saveAndFlush(new User("admin-repository@example.com", HASH, Role.ADMIN, NICKNAME, 2));
@@ -109,7 +88,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("role 없이 넣은 기존 회원 행은 USER다 (R1, 마이그레이션 기본값)")
+    @DisplayName("role 없이 넣은 기존 회원 행은 마이그레이션 기본값인 USER다")
     void existingRowsDefaultToUser() {
         insertLegacyRow(EMAIL, "기존", 1);
         entityManager.clear();
@@ -117,10 +96,10 @@ class UserRepositoryTest {
         assertThat(userRepository.findByEmail(EMAIL).orElseThrow().getRole()).isEqualTo(Role.USER);
     }
 
-    // 가입 시각 (R2, D4)
+    // 가입 시각
 
     @Test
-    @DisplayName("새 회원의 createdAt을 created_at 컬럼에 저장하고 다시 읽는다 (R2, D4)")
+    @DisplayName("새 회원의 createdAt을 created_at 컬럼에 저장하고 다시 읽는다")
     void mapsCreatedAtColumn() {
         User saved = userRepository.saveAndFlush(user(EMAIL));
         entityManager.clear();
@@ -137,7 +116,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("created_at 없이 넣은 기존 회원 행은 createdAt이 null이다 (R2, D4: DB DEFAULT 없음)")
+    @DisplayName("created_at 없이 넣은 기존 회원 행은 DB DEFAULT가 없어 createdAt이 null이다")
     void existingRowsHaveNullCreatedAt() {
         insertLegacyRow(EMAIL, "기존", 1);
         entityManager.clear();
@@ -146,10 +125,10 @@ class UserRepositoryTest {
                 .isNull();
     }
 
-    // 회원 목록 (R1)
+    // 회원 목록
 
     @Test
-    @DisplayName("회원 목록은 id 오름차순이다. 나중에 수정한 행도 순서가 바뀌지 않는다 (R1)")
+    @DisplayName("회원 목록은 id 오름차순이다. 나중에 수정한 행도 순서가 바뀌지 않는다")
     void listsUsersByIdAscending() {
         User first = userRepository.saveAndFlush(new User("order-1@example.com", HASH, NICKNAME, 1));
         User second = userRepository.saveAndFlush(new User("order-2@example.com", HASH, NICKNAME, 2));
@@ -170,10 +149,10 @@ class UserRepositoryTest {
                 .isSorted();
     }
 
-    // 닉네임과 번호 (nickname R2, R3, R7, D3, D7)
+    // 닉네임과 번호
 
     @Test
-    @DisplayName("닉네임과 번호를 nickname, tag 컬럼에 저장하고 다시 읽는다 (nickname 데이터)")
+    @DisplayName("닉네임과 번호를 nickname, tag 컬럼에 저장하고 다시 읽는다")
     void mapsNicknameAndTagColumns() {
         userRepository.saveAndFlush(new User(EMAIL, HASH, new Nickname("철수"), 7));
         entityManager.clear();
@@ -190,7 +169,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("그 닉네임을 쓰는 회원이 없으면 가장 큰 번호는 empty다 (nickname R3)")
+    @DisplayName("그 닉네임을 쓰는 회원이 없으면 가장 큰 번호는 empty다")
     void maxTagOfUnusedNicknameIsEmpty() {
         userRepository.saveAndFlush(new User(EMAIL, HASH, new Nickname("다른이름"), 1));
 
@@ -198,7 +177,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("가장 큰 번호를 돌려주므로 중간의 빈 번호는 채우지 않는다 (nickname R3, D3)")
+    @DisplayName("가장 큰 번호를 돌려주므로 중간의 빈 번호는 채우지 않는다")
     void maxTagSkipsGaps() {
         userRepository.saveAndFlush(new User("gap-1@example.com", HASH, new Nickname("빈번호"), 1));
         userRepository.saveAndFlush(new User("gap-3@example.com", HASH, new Nickname("빈번호"), 3));
@@ -208,7 +187,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("닉네임은 대소문자를 구분하므로 Kim과 kim의 번호는 따로 센다 (nickname R7)")
+    @DisplayName("닉네임은 대소문자를 구분하므로 Kim과 kim의 번호는 따로 센다")
     void maxTagIsCaseSensitive() {
         userRepository.saveAndFlush(new User("kim-upper-1@example.com", HASH, new Nickname("Kim"), 1));
         userRepository.saveAndFlush(new User("kim-upper-2@example.com", HASH, new Nickname("Kim"), 2));
@@ -220,7 +199,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("같은 닉네임은 번호가 다르면 함께 저장되고, 같은 번호는 닉네임이 다르면 함께 저장된다 (nickname R2)")
+    @DisplayName("같은 닉네임은 번호가 다르면 함께 저장되고, 같은 번호는 닉네임이 다르면 함께 저장된다")
     void allowsSameNicknameOrSameTag() {
         assertThatCode(() -> {
                     userRepository.saveAndFlush(new User("same-1@example.com", HASH, new Nickname("철수"), 1));
@@ -233,7 +212,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("같은 (닉네임, 번호)는 DB 제약 uk_users_nickname_tag로 저장할 수 없다 (nickname R2, D4)")
+    @DisplayName("같은 (닉네임, 번호)는 DB 제약 uk_users_nickname_tag로 저장할 수 없다")
     void rejectsDuplicateNicknameAndTag() {
         userRepository.saveAndFlush(new User("dup-1@example.com", HASH, new Nickname("철수"), 1));
         User duplicate = new User("dup-2@example.com", HASH, new Nickname("철수"), 1);
@@ -244,7 +223,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("이메일 중복 위반은 번호 제약과 다른 이름 users_email_key로 구분된다 (nickname 제약 사항)")
+    @DisplayName("이메일 중복은 재시도하지 않고 409로 바꿔야 하므로, 번호 제약과 다른 이름 users_email_key로 구분된다")
     void emailViolationHasDifferentConstraintName() {
         userRepository.saveAndFlush(new User(EMAIL, HASH, new Nickname("철수"), 1));
         User duplicate = new User(EMAIL, HASH, new Nickname("영희"), 1);
@@ -256,7 +235,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("닉네임과 번호는 NicknameTag 값 객체 (nicknameTag)로 매핑되어 JPQL로도 읽힌다 (Standards 리뷰: @Embeddable)")
+    @DisplayName("닉네임과 번호는 NicknameTag 값 객체 (nicknameTag)로 매핑되어 JPQL로도 읽힌다")
     void mapsNicknameTagAsEmbeddable() {
         userRepository.saveAndFlush(new User(EMAIL, HASH, new Nickname("철수"), 7));
         entityManager.clear();
@@ -271,10 +250,10 @@ class UserRepositoryTest {
                 .isEqualTo(new NicknameTag("철수", 7));
     }
 
-    // 닉네임 변경 저장 (nickname 제약 사항: lost update, D12)
+    // 닉네임 변경 저장: 다른 트랜잭션이 바꾼 컬럼을 덮어쓰는 lost update가 없어야 한다
 
     @Test
-    @DisplayName("엔티티 메서드로 닉네임만 바꿔 저장하면 읽은 뒤 다른 곳에서 바뀐 role을 덮어쓰지 않는다 (D12: @DynamicUpdate)")
+    @DisplayName("엔티티 메서드로 닉네임만 바꿔 저장하면 바뀐 컬럼만 UPDATE되어, 읽은 뒤 다른 곳에서 바뀐 role을 덮어쓰지 않는다")
     void changeNicknameDoesNotOverwriteRoleChangedMeanwhile() {
         User saved = userRepository.saveAndFlush(new User(EMAIL, HASH, new Nickname("철수"), 1));
         entityManager.clear();
@@ -298,7 +277,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("엔티티 메서드로 같은 (닉네임, 번호)를 만들면 flush에서 uk_users_nickname_tag 위반이다 (nickname D4)")
+    @DisplayName("엔티티 메서드로 같은 (닉네임, 번호)를 만들면 flush에서 uk_users_nickname_tag 위반이다")
     void changeNicknameRejectsDuplicateNicknameAndTag() {
         userRepository.saveAndFlush(new User("update-dup-1@example.com", HASH, new Nickname("영희"), 1));
         User other = userRepository.saveAndFlush(new User("update-dup-2@example.com", HASH, new Nickname("철수"), 1));
@@ -311,7 +290,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("보조 평면 문자 20개 닉네임도 VARCHAR(20)에 저장된다. 길이 검증과 컬럼 길이가 모두 code point 기준이다 (nickname D7)")
+    @DisplayName("보조 평면 문자 20개 닉네임도 VARCHAR(20)에 저장된다. 길이 검증과 컬럼 길이가 모두 code point 기준이다")
     void storesTwentyCodePointNickname() {
         String nickname = "𝒜".repeat(20);
 
@@ -323,7 +302,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("nickname 없이는 행을 넣을 수 없다 (nickname R6: NOT NULL)")
+    @DisplayName("nickname 컬럼은 NOT NULL이라 없이는 행을 넣을 수 없다")
     void nicknameIsNotNull() {
         assertThatThrownBy(() -> entityManager
                         .createNativeQuery("INSERT INTO users (email, password_hash, tag) VALUES (:email, :hash, 1)")
@@ -334,7 +313,7 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("tag 없이는 행을 넣을 수 없다 (nickname R6: NOT NULL)")
+    @DisplayName("tag 컬럼은 NOT NULL이라 없이는 행을 넣을 수 없다")
     void tagIsNotNull() {
         assertThatThrownBy(() -> entityManager
                         .createNativeQuery(
@@ -346,9 +325,65 @@ class UserRepositoryTest {
     }
 
     @Test
-    @DisplayName("tag가 0이면 DB 제약으로 넣을 수 없다 (nickname 데이터: 1 이상)")
+    @DisplayName("번호는 1 이상이므로 tag가 0이면 DB 제약으로 넣을 수 없다")
     void tagMustBePositive() {
         assertThatThrownBy(() -> insertLegacyRow(EMAIL, "철수", 0)).isInstanceOf(RuntimeException.class);
+    }
+
+    // 토큰 버전
+
+    @Test
+    @DisplayName("회원 ID로 토큰 버전만 조회한다. 새 회원은 0이다")
+    void findsTokenVersionById() {
+        User saved = userRepository.saveAndFlush(user(EMAIL));
+        entityManager.clear();
+
+        assertThat(userRepository.findTokenVersionById(saved.getId())).contains(0);
+    }
+
+    @Test
+    @DisplayName("없는 회원의 토큰 버전은 빈 값이다")
+    void tokenVersionOfUnknownUserIsEmpty() {
+        User saved = userRepository.saveAndFlush(user(EMAIL));
+
+        assertThat(userRepository.findTokenVersionById(saved.getId() + 1000)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("token_version 없이 넣은 기존 회원 행은 토큰 버전이 0이다 (마이그레이션 기본값)")
+    void existingRowsHaveTokenVersionZero() {
+        insertLegacyRow(EMAIL, "기존", 1);
+        entityManager.clear();
+
+        User found = userRepository.findByEmail(EMAIL).orElseThrow();
+        assertThat(found.getTokenVersion()).isZero();
+        assertThat(userRepository.findTokenVersionById(found.getId())).contains(0);
+    }
+
+    @Test
+    @DisplayName("revokeTokens로 올린 토큰 버전을 token_version 컬럼에 저장하고, 읽은 뒤 다른 곳에서 바뀐 role을 덮어쓰지 않는다")
+    void revokeTokensStoresVersionWithoutOverwritingRole() {
+        User saved = userRepository.saveAndFlush(user(EMAIL));
+        entityManager.clear();
+        User loaded = userRepository.findById(saved.getId()).orElseThrow();
+        entityManager
+                .createNativeQuery("UPDATE users SET role = 'ADMIN' WHERE id = :id")
+                .setParameter("id", saved.getId())
+                .executeUpdate();
+
+        loaded.revokeTokens();
+        userRepository.flush();
+        entityManager.clear();
+
+        assertThat(userRepository.findTokenVersionById(saved.getId())).contains(1);
+        assertThat(((Number) entityManager
+                                .createNativeQuery("SELECT token_version FROM users WHERE id = :id")
+                                .setParameter("id", saved.getId())
+                                .getSingleResult())
+                        .intValue())
+                .isEqualTo(1);
+        assertThat(userRepository.findById(saved.getId()).orElseThrow().getRole())
+                .isEqualTo(Role.ADMIN);
     }
 
     private static User user(String email) {

@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,14 +30,15 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<UserResponse> login(
             @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-        UserResponse response = userService.login(request.email(), request.password(), httpRequest.getRemoteAddr());
+        SignInResult result = userService.login(request.email(), request.password(), httpRequest.getRemoteAddr());
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, authCookies.issueFor(response.id()))
-                .body(response);
+                .header(HttpHeaders.SET_COOKIE, authCookies.issueFor(result.tokenSubject()))
+                .body(result.user());
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout() {
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal Long userId) {
+        userService.logout(userId);
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, authCookies.expire())
                 .build();

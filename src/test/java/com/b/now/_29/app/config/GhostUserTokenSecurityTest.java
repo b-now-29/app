@@ -28,6 +28,7 @@ import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
 import com.b.now._29.app.user.Role;
+import com.b.now._29.app.user.TokenSubject;
 import com.b.now._29.app.user.TokenUserVerifier;
 import com.b.now._29.app.user.UserController;
 import com.b.now._29.app.user.UserResponse;
@@ -96,8 +97,8 @@ class GhostUserTokenSecurityTest {
 
     @BeforeEach
     void setUp() {
-        given(tokenUserVerifier.exists(GHOST_ID)).willReturn(false);
-        given(tokenUserVerifier.exists(MEMBER_ID)).willReturn(true);
+        given(tokenUserVerifier.isCurrent(subject(GHOST_ID))).willReturn(false);
+        given(tokenUserVerifier.isCurrent(subject(MEMBER_ID))).willReturn(true);
     }
 
     // 회원이 없는 토큰
@@ -107,7 +108,7 @@ class GhostUserTokenSecurityTest {
     void meOfGhostIsUnauthorized() throws Exception {
         expectUnauthorized(mvc.perform(get(ME).cookie(cookie(TestJwts.valid(GHOST_ID)))));
 
-        then(tokenUserVerifier).should().exists(GHOST_ID);
+        then(tokenUserVerifier).should().isCurrent(subject(GHOST_ID));
         then(userService).shouldHaveNoInteractions();
     }
 
@@ -190,7 +191,7 @@ class GhostUserTokenSecurityTest {
     // 회원이 있는 토큰은 그대로
 
     @Test
-    @DisplayName("회원이 있는 토큰이면 /users/me는 200이고, 토큰의 sub로 회원 존재를 확인한다")
+    @DisplayName("회원이 있는 토큰이면 /users/me는 200이고, 토큰의 sub와 ver로 회원을 확인한다")
     void memberIsAuthenticated() throws Exception {
         given(userService.getUser(MEMBER_ID))
                 .willReturn(new UserResponse(MEMBER_ID, "user@example.com", Role.USER, "철수", 1));
@@ -199,7 +200,7 @@ class GhostUserTokenSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(MEMBER_ID));
 
-        then(tokenUserVerifier).should().exists(MEMBER_ID);
+        then(tokenUserVerifier).should().isCurrent(subject(MEMBER_ID));
     }
 
     @Test
@@ -242,7 +243,11 @@ class GhostUserTokenSecurityTest {
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/ping")).andExpect(status().isOk());
 
-        then(tokenUserVerifier).should(never()).exists(anyLong());
+        then(tokenUserVerifier).should(never()).isCurrent(any());
+    }
+
+    private static TokenSubject subject(long userId) {
+        return new TokenSubject(userId, TestJwts.DEFAULT_VERSION);
     }
 
     /** 남은 시간이 10분인 정상 토큰 (연장 대상). */

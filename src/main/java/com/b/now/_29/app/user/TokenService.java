@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 public class TokenService {
 
     private static final String AUTH_TIME = "auth_time";
+    private static final String VERSION = "ver";
 
     private final JwtEncoder encoder;
     private final JwtDecoder decoder;
@@ -29,29 +30,30 @@ public class TokenService {
         this.clock = clock;
     }
 
-    public IssuedToken issue(long userId) {
+    public IssuedToken issue(TokenSubject subject) {
         Instant now = now();
-        return encode(userId, now, now, now.plus(ValidToken.LIFETIME));
+        return encode(subject, now, now, now.plus(ValidToken.LIFETIME));
     }
 
     /** 잘못된 토큰은 예외 없이 빈 값이다. 비회원으로 처리하기 위해서다. */
-    public Optional<Long> parseUserId(String token) {
-        return validate(token).map(ValidToken::userId);
+    public Optional<TokenSubject> parse(String token) {
+        return validate(token).map(ValidToken::subject);
     }
 
     /** 연장할 때만 새 토큰을 준다. 잘못된 토큰이나 연장이 필요 없는 토큰은 빈 값이다. */
     public Optional<IssuedToken> renew(String token) {
         Instant now = now();
         return validate(token).flatMap(current -> current.renewedExpiry(now)
-                .map(expiresAt -> encode(current.userId(), current.authTime(), now, expiresAt)));
+                .map(expiresAt -> encode(current.subject(), current.authTime(), now, expiresAt)));
     }
 
-    private IssuedToken encode(long userId, Instant authTime, Instant issuedAt, Instant expiresAt) {
+    private IssuedToken encode(TokenSubject subject, Instant authTime, Instant issuedAt, Instant expiresAt) {
         JwtClaimsSet claims = JwtClaimsSet.builder()
-                .subject(String.valueOf(userId))
+                .subject(String.valueOf(subject.userId()))
                 .issuedAt(issuedAt)
                 .expiresAt(expiresAt)
                 .claim(AUTH_TIME, authTime.getEpochSecond())
+                .claim(VERSION, subject.tokenVersion())
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         String value = encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
@@ -63,11 +65,15 @@ public class TokenService {
             Jwt jwt = decoder.decode(token);
             Object authTimeClaim = jwt.getClaims().get(AUTH_TIME);
             Instant expiresAt = jwt.getExpiresAt();
-            if (!(authTimeClaim instanceof Number authTimeSeconds) || expiresAt == null) {
+            Object versionClaim = jwt.getClaims().get(VERSION);
+            if (!(authTimeClaim instanceof Number authTimeSeconds)
+                    || !(versionClaim instanceof Number version)
+                    || expiresAt == null) {
                 return Optional.empty();
             }
             Instant authTime = Instant.ofEpochSecond(authTimeSeconds.longValue());
-            ValidToken valid = new ValidToken(Long.parseLong(jwt.getSubject()), authTime, expiresAt);
+            TokenSubject subject = new TokenSubject(Long.parseLong(jwt.getSubject()), version.intValue());
+            ValidToken valid = new ValidToken(subject, authTime, expiresAt);
             Instant now = now();
             if (!valid.isUnexpired(now) || valid.isPastAbsoluteLimit(now)) {
                 return Optional.empty();

@@ -36,8 +36,8 @@ public class AuthCookies {
     }
 
     /** 회원의 새 토큰을 담은 {@code Set-Cookie} 헤더 값. */
-    public String issueFor(long userId) {
-        return issue(tokenService.issue(userId));
+    public String issueFor(TokenSubject subject) {
+        return issue(tokenService.issue(subject));
     }
 
     public String issue(IssuedToken token) {

@@ -2,6 +2,7 @@ package com.b.now._29.app.config;
 
 import com.b.now._29.app.user.AuthCookies;
 import com.b.now._29.app.user.TokenService;
+import com.b.now._29.app.user.TokenSubject;
 import com.b.now._29.app.user.TokenUserVerifier;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,8 +29,9 @@ class AccessTokenFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         authCookies
                 .tokenFrom(request)
-                .flatMap(tokenService::parseUserId)
-                .filter(tokenUserVerifier::exists)
+                .flatMap(tokenService::parse)
+                .filter(tokenUserVerifier::isCurrent)
+                .map(TokenSubject::userId)
                 .ifPresent(AuthenticatedUser::set);
         filterChain.doFilter(request, response);
     }
