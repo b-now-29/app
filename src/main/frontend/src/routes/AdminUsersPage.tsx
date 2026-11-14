@@ -11,7 +11,7 @@ import { errorMessage } from "../api/users";
 import type { UserResponse } from "../api/users";
 import { formatDate } from "../quiz/date";
 import { roleAction } from "../quiz/adminUsers";
-import { displayName } from "../user/displayName";
+import NicknameText from "../components/NicknameText";
 import { ActionButton } from "seed-design/ui/action-button";
 
 export default function AdminUsersPage() {
@@ -67,7 +67,9 @@ export default function AdminUsersPage() {
                     <Text textStyle="t3Regular">나</Text>
                   )}
                 </HStack>
-                <Text textStyle="t3Regular">{displayName(member)}</Text>
+                <Text textStyle="t3Regular">
+                  <NicknameText member={member} />
+                </Text>
                 <HStack gap="x1">
                   <Text textStyle="t3Regular">{member.role}</Text>
                   <Text textStyle="t3Regular">

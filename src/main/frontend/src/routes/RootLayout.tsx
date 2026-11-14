@@ -9,7 +9,7 @@ import {
 } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import type { UserResponse } from "../api/users";
-import { displayName } from "../user/displayName";
+import NicknameText from "../components/NicknameText";
 import type { ActionError } from "./actionError";
 
 export default function RootLayout() {
@@ -53,7 +53,9 @@ export default function RootLayout() {
               </ActionButton>
             )}
             <ActionButton asChild variant="ghost" size="small">
-              <Link to="/me">{displayName(user)}</Link>
+              <Link to="/me">
+                <NicknameText member={user} />
+              </Link>
             </ActionButton>
             <logoutFetcher.Form method="post">
               <ActionButton type="submit" variant="ghost" size="small">
