@@ -81,6 +81,8 @@ operation::self-grades-submit-question-not-found[snippets='http-response']
 
 인증은 `access_token` 쿠키로 한다. 가입과 로그인이 `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=3600` 속성으로 쿠키를 설정한다. 토큰 수명은 1시간이다. 유효한 토큰의 남은 시간이 30분 미만이면 그 요청의 응답에 같은 속성의 새 쿠키가 `Set-Cookie`로 붙어 기한이 연장된다 (로그아웃 제외). 연장해도 처음 로그인한 때부터 1일이 지나면 토큰이 만료되므로 다시 로그인해야 하며, 이 절대 기한에 가까워지면 새 쿠키의 `Max-Age`는 3600보다 짧아진다. 1시간 동안 요청이 없으면 토큰이 만료된다. `GET /api/v1/users/me`, `PUT /api/v1/users/me/nickname`, `GET /api/v1/users/me/category-stats`, `GET /api/v1/users/me/attempts`, `POST /api/v1/questions/{questionId}/self-grades`만 인증이 필요하고, 나머지 API는 쿠키가 없거나 만료·위조되어도 비회원으로 정상 이용할 수 있다.
 
+토큰의 회원이 없으면 비회원으로 처리한다. 유효한 토큰이라도 그 회원이 없어졌으면 쿠키가 없을 때와 같이 응답하며, 새 쿠키로 연장하지 않는다.
+
 회원은 닉네임과 번호(`tag`)를 가지며 다른 회원에게는 `닉네임#번호`로 보인다. 닉네임은 다른 회원과 같아도 되고, 같은 닉네임 안에서 번호로 구분한다. 번호는 그 닉네임의 현재 가장 큰 번호 + 1이며 (없으면 1), 중간의 빈 번호는 채우지 않는다. 가장 큰 번호를 쓰던 회원이 닉네임을 바꾸면 그 번호는 다음 사람이 다시 받을 수 있다. 닉네임은 대소문자를 구분한다 (`Kim`과 `kim`은 다른 닉네임).
 
 === 회원 가입

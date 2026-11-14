@@ -27,7 +27,9 @@ class TokenRenewalFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         // 응답이 커밋된 뒤에는 헤더를 붙일 수 없으므로 doFilter 전에 붙인다.
         // 로그아웃 응답에는 만료 쿠키만 있어야 하므로 로그아웃 경로는 연장하지 않는다.
-        if (!AuthController.LOGOUT_PATH.equals(request.getRequestURI())) {
+        // 인증 필터가 회원 확인까지 마친 요청만 연장한다. 회원이 없는 토큰은 연장하지 않는다.
+        if (!AuthController.LOGOUT_PATH.equals(request.getRequestURI())
+                && AuthenticatedUser.current().isPresent()) {
             authCookies
                     .tokenFrom(request)
                     .flatMap(tokenService::renew)

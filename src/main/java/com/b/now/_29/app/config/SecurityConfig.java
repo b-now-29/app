@@ -2,6 +2,7 @@ package com.b.now._29.app.config;
 
 import com.b.now._29.app.user.AuthCookies;
 import com.b.now._29.app.user.TokenService;
+import com.b.now._29.app.user.TokenUserVerifier;
 import com.b.now._29.app.user.UserRoleService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -19,7 +20,6 @@ import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -46,6 +46,7 @@ public class SecurityConfig {
             TokenService tokenService,
             JsonMapper jsonMapper,
             UserRoleService userRoleService,
+            TokenUserVerifier tokenUserVerifier,
             AuthCookies authCookies) {
         JsonMapper problemMapper = jsonMapper
                 .rebuild()
@@ -70,7 +71,8 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, exception) ->
                                 writeProblem(problemMapper, request, response, HttpStatus.FORBIDDEN, "접근 권한이 없습니다.")))
                 .addFilterBefore(
-                        new AccessTokenFilter(tokenService, authCookies), UsernamePasswordAuthenticationFilter.class)
+                        new AccessTokenFilter(tokenService, authCookies, tokenUserVerifier),
+                        UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(
                         new TokenRenewalFilter(tokenService, authCookies), UsernamePasswordAuthenticationFilter.class);
         return http.build();
@@ -81,11 +83,9 @@ public class SecurityConfig {
      */
     private static AuthorizationManager<RequestAuthorizationContext> adminOnly(UserRoleService userRoleService) {
         return (authentication, context) -> {
-            Authentication current = authentication.get();
-            boolean admin = current != null
-                    && current.isAuthenticated()
-                    && current.getPrincipal() instanceof Long userId
-                    && userRoleService.isAdmin(userId);
+            boolean admin = AuthenticatedUser.of(authentication.get())
+                    .map(userRoleService::isAdmin)
+                    .orElse(false);
             return new AuthorizationDecision(admin);
         };
     }
