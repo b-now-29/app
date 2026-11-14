@@ -52,7 +52,17 @@ final class RankingSql {
             )
             """;
 
-    static final String TOP = "SELECT rank, nickname, tag, score FROM ranked ORDER BY rank LIMIT :limit";
-
-    static final String USER = "SELECT rank, nickname, tag, score FROM ranked WHERE user_id = :userId";
+    /**
+     * 상위 limit명과 내 줄을 한 번에 가져온다. 상위 판정 (in_top)과 내 줄 판정 (mine)은 안쪽 쿼리에서 한 번만 계산한다 (같은 단계 별칭은 WHERE에서
+     * 못 쓴다). userId가 null이면 mine은 모두 false이고 상위 목록만 나온다. Postgres가 null 파라미터의 타입을 정하지 못하지 않도록 CAST를 쓴다.
+     */
+    static final String RANKINGS = """
+            SELECT rank, nickname, tag, score, in_top, mine
+            FROM (SELECT rank, nickname, tag, score,
+                         rank <= :limit AS in_top,
+                         (user_id = CAST(:userId AS bigint)) IS TRUE AS mine
+                  FROM ranked) r
+            WHERE in_top OR mine
+            ORDER BY rank
+            """;
 }
