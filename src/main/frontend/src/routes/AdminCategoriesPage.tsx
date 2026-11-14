@@ -1,10 +1,11 @@
 import { HStack, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
-import { useRevalidator, useRouteLoaderData } from "react-router";
+import { useRevalidator } from "react-router";
 import type { FormEvent } from "react";
 import { createCategory, deleteCategory, updateCategory } from "../api/admin";
 import type { AdminCategoryResponse } from "../api/admin";
 import { errorMessage } from "./actionError";
+import { useAdminCategories } from "./routeLoaderData";
 import {
   EMPTY_CATEGORY_FORM,
   formFromCategory,
@@ -18,9 +19,7 @@ import { ActionButton } from "seed-design/ui/action-button";
 import { TextField, TextFieldInput } from "seed-design/ui/text-field";
 
 export default function AdminCategoriesPage() {
-  const categories = useRouteLoaderData(
-    "admin",
-  ) as readonly AdminCategoryResponse[];
+  const categories = useAdminCategories();
   const { revalidate } = useRevalidator();
   const [form, setForm] = useState<CategoryFormValues>(EMPTY_CATEGORY_FORM);
   // null이면 추가, 값이 있으면 그 slug의 카테고리를 수정 중

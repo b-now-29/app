@@ -1,22 +1,19 @@
 import { HStack, Text, VStack } from "@seed-design/react";
 import { useState } from "react";
-import {
-  useLoaderData,
-  useRevalidator,
-  useRouteLoaderData,
-} from "react-router";
+import { useLoaderData, useRevalidator } from "react-router";
 import { changeUserRole } from "../api/admin";
 import type { AdminUserResponse } from "../api/admin";
 import { errorMessage } from "./actionError";
-import type { UserResponse } from "../api/users";
+import type { adminUsersLoader } from "./adminUsersLoader";
+import { useCurrentUser } from "./routeLoaderData";
 import { formatDate } from "../quiz/date";
 import { roleAction } from "../quiz/adminUsers";
 import NicknameText from "../components/NicknameText";
 import { ActionButton } from "seed-design/ui/action-button";
 
 export default function AdminUsersPage() {
-  const users = useLoaderData() as readonly AdminUserResponse[];
-  const me = useRouteLoaderData("root") as UserResponse | null;
+  const users = useLoaderData<typeof adminUsersLoader>();
+  const me = useCurrentUser();
   const { revalidate } = useRevalidator();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);

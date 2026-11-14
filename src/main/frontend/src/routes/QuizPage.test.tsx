@@ -167,7 +167,7 @@ function CategoryListStub() {
 }
 
 function renderQuiz() {
-  // 풀이 화면은 회원 여부를 useRouteLoaderData("root")로 읽으므로 앱과 같은 id의 부모 route를 둔다
+  // 풀이 화면은 회원 여부를 useCurrentUser (id "root" route의 loader 데이터)로 읽으므로 앱과 같은 id의 부모 route를 둔다
   const router = createMemoryRouter(
     [
       {

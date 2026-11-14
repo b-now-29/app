@@ -1,19 +1,13 @@
 import { HStack, Text, VStack } from "@seed-design/react";
 import { useEffect } from "react";
-import {
-  Link,
-  Outlet,
-  useFetcher,
-  useLocation,
-  useRouteLoaderData,
-} from "react-router";
+import { Link, Outlet, useFetcher, useLocation } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
-import type { UserResponse } from "../api/users";
 import NicknameText from "../components/NicknameText";
 import type { ActionError } from "./actionError";
+import { useCurrentUser } from "./routeLoaderData";
 
 export default function RootLayout() {
-  const user = useRouteLoaderData("root") as UserResponse | null;
+  const user = useCurrentUser();
   // fetcher: 화면 이동 없이 action(로그아웃)만 호출한다. 성공하면 loader가 다시 실행되어 메뉴가 바뀐다.
   const logoutFetcher = useFetcher<ActionError | null>();
   const { pathname } = useLocation();

@@ -1,23 +1,15 @@
 import { Text, VStack } from "@seed-design/react";
-import {
-  Link,
-  useLoaderData,
-  useParams,
-  useRouteLoaderData,
-} from "react-router";
-import type {
-  AdminCategoryResponse,
-  AdminQuestionStatResponse,
-} from "../api/admin";
+import { Link, useLoaderData, useParams } from "react-router";
 import { questionStatLine } from "../quiz/adminStats";
 import { QUESTION_TYPE_NAMES } from "../quiz/questionType";
+import type { adminQuestionStatsLoader } from "./adminStatsLoaders";
+import { useAdminCategories } from "./routeLoaderData";
 
 export default function AdminQuestionStatsPage() {
-  const questions = useLoaderData() as readonly AdminQuestionStatResponse[];
-  const categories = useRouteLoaderData("admin") as
-    readonly AdminCategoryResponse[] | undefined;
+  const questions = useLoaderData<typeof adminQuestionStatsLoader>();
+  const categories = useAdminCategories();
   const { slug } = useParams();
-  const title = categories?.find((c) => c.slug === slug)?.name ?? slug;
+  const title = categories.find((c) => c.slug === slug)?.name ?? slug;
 
   return (
     <VStack gap="x4">

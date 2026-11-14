@@ -6,12 +6,11 @@ import {
   Navigate,
   useActionData,
   useNavigation,
-  useRouteLoaderData,
 } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import { TextField, TextFieldInput } from "seed-design/ui/text-field";
-import type { UserResponse } from "../api/users";
 import type { ActionError } from "../routes/actionError";
+import { useCurrentUser } from "../routes/routeLoaderData";
 
 type Props = {
   readonly title: string;
@@ -30,7 +29,7 @@ export default function AuthForm({
   altLink,
   children,
 }: Props) {
-  const user = useRouteLoaderData("root") as UserResponse | null; // 루트 loader 결과
+  const user = useCurrentUser();
   const actionData = useActionData<ActionError>(); // action이 돌려준 에러
   const submitting = useNavigation().state === "submitting";
 

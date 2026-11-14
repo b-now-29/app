@@ -5,16 +5,14 @@ import {
   useLoaderData,
   useNavigate,
   useParams,
-  useRouteLoaderData,
   useSearchParams,
 } from "react-router";
 import { createQuestion, deleteQuestion, updateQuestion } from "../api/admin";
-import type {
-  AdminCategoryResponse,
-  AdminQuestionResponse,
-} from "../api/admin";
+import type { AdminCategoryResponse } from "../api/admin";
 import type { QuestionType } from "../api/questions";
 import { errorMessage } from "./actionError";
+import type { adminQuestionLoader } from "./adminQuestionLoaders";
+import { useAdminCategories } from "./routeLoaderData";
 import { ActionButton } from "seed-design/ui/action-button";
 import {
   TextField,
@@ -42,9 +40,7 @@ function listPath(categorySlug: string): string {
 
 // 새 문제 (/admin/questions/new)
 export function AdminQuestionNewPage() {
-  const categories = useRouteLoaderData(
-    "admin",
-  ) as readonly AdminCategoryResponse[];
+  const categories = useAdminCategories();
   const [searchParams] = useSearchParams();
   const category = searchParams.get("category") ?? categories[0]?.slug ?? "";
   return (
@@ -59,10 +55,8 @@ export function AdminQuestionNewPage() {
 
 // 문제 수정 (/admin/questions/:id)
 export function AdminQuestionEditPage() {
-  const categories = useRouteLoaderData(
-    "admin",
-  ) as readonly AdminCategoryResponse[];
-  const question = useLoaderData() as AdminQuestionResponse;
+  const categories = useAdminCategories();
+  const question = useLoaderData<typeof adminQuestionLoader>();
   const { id } = useParams();
   return (
     <QuestionForm
