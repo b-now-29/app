@@ -9,7 +9,8 @@ import { changeUserRole } from "../api/admin";
 import type { AdminUserResponse } from "../api/admin";
 import { errorMessage } from "../api/users";
 import type { UserResponse } from "../api/users";
-import { formatJoinedDate, roleAction } from "../quiz/adminUsers";
+import { formatDate } from "../quiz/date";
+import { roleAction } from "../quiz/adminUsers";
 import { displayName } from "../user/displayName";
 import { ActionButton } from "seed-design/ui/action-button";
 
@@ -70,7 +71,7 @@ export default function AdminUsersPage() {
                 <HStack gap="x1">
                   <Text textStyle="t3Regular">{member.role}</Text>
                   <Text textStyle="t3Regular">
-                    {formatJoinedDate(member.createdAt)}
+                    {formatDate(member.createdAt)}
                   </Text>
                 </HStack>
               </VStack>

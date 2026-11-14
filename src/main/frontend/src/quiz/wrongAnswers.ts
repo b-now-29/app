@@ -2,7 +2,7 @@ import type {
   WrongAnswerCategoryResponse,
   WrongAnswerQuestionResponse,
 } from "../api/wrongAnswers";
-import { formatAttemptDate } from "./attemptDate";
+import { formatDate } from "./date";
 import { QUESTION_TYPE_NAMES } from "./quizScore";
 
 // 카테고리 제목: "이름 N문제"
@@ -16,5 +16,5 @@ export function wrongAnswerCategoryTitle(
 export function wrongAnswerQuestionMeta(
   question: WrongAnswerQuestionResponse,
 ): string {
-  return `${QUESTION_TYPE_NAMES[question.type]} · ${formatAttemptDate(question.attemptedAt)}`;
+  return `${QUESTION_TYPE_NAMES[question.type]} · ${formatDate(question.attemptedAt)}`;
 }

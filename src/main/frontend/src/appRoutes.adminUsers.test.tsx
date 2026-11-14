@@ -5,11 +5,12 @@
 // - src/routes/AdminLayout.tsx: <nav aria-label="관리 메뉴">에 "회원" 링크 (href="/admin/users") 추가
 // - src/appRoutes.tsx: admin 자식에 { path: "users", Component: AdminUsersPage, loader: adminUsersLoader }
 // - src/routes/AdminUsersPage.tsx (default export), src/routes/adminUsersLoader.ts (adminUsersLoader.test.ts 참고)
-// - 계산은 src/quiz/adminUsers.ts의 formatJoinedDate·roleAction (adminUsers.test.ts 참고)
+// - 계산은 src/quiz/adminUsers.ts의 roleAction (adminUsers.test.ts 참고), 가입일은 src/quiz/date.ts의 formatDate
+//   (date.test.ts 참고, docs/features/ranking.md D13)
 //
 // 화면 계약 (frontend-dev가 맞출 이름·라벨):
 // - h1 "회원 관리". 목록 <ul aria-label="회원 목록">의 항목(listitem)마다 이메일, role (USER·ADMIN 그대로),
-//   가입일 (YYYY-MM-DD, null이면 "-"), 버튼 (USER면 "관리자로 지정", ADMIN이면 "관리자 해제"). 서버가 준 순서대로.
+//   가입일 (YYYY.MM.DD, null이면 "-"), 버튼 (USER면 "관리자로 지정", ADMIN이면 "관리자 해제"). 서버가 준 순서대로.
 // - (nickname.md R11) 항목마다 이메일 옆에 "닉네임#번호" 텍스트 (그 문자열만 있는 요소)
 // - 내 행 (root loader의 /users/me id와 같은 회원)은 버튼이 비활성이고 "나" 표시가 있다 (텍스트 "나"만 있는 요소).
 // - 버튼 → window.confirm → true면 changeUserRole(id, 다음 role) → 성공하면 목록 다시 불러오기 (revalidate).
@@ -190,10 +191,10 @@ describe("회원 목록 (R1, R2, R7)", () => {
 
     expect(rows[1]).toHaveTextContent("user@example.com");
     expect(rows[1]).toHaveTextContent("USER");
-    expect(rows[1]).toHaveTextContent("2026-11-13");
+    expect(rows[1]).toHaveTextContent("2026.11.13");
 
     expect(rows[2]).toHaveTextContent("other-admin@example.com");
-    expect(rows[2]).toHaveTextContent("2026-03-05");
+    expect(rows[2]).toHaveTextContent("2026.03.05");
   });
 
   it("회원마다 이메일 옆에 닉네임#번호를 보여 준다 (nickname R11, D9)", async () => {
