@@ -8,10 +8,26 @@
 //     readonly name?: string;      // "이름을 입력해 주세요." (공백만 있어도)
 //     readonly sortOrder?: string; // "표시 순서는 정수로 입력해 주세요." (parseSortOrder 규칙)
 //   };
-//   export function validateCategoryForm(form: CategoryFormValues, mode: "create" | "edit"): CategoryFormErrors
+//   export type CategoryFormMode = "create" | "edit";
+//   export function validateCategoryForm(form: CategoryFormValues, mode: CategoryFormMode): CategoryFormErrors
 //     에러가 없으면 빈 객체 {}. slug는 ^[a-z0-9-]{1,50}$로 검사하고, 수정할 때는 보지 않는다. 설명은 보지 않는다.
+//
+//   export const EMPTY_CATEGORY_FORM: CategoryFormValues
+//   export function formFromCategory(category: AdminCategoryResponse): CategoryFormValues
+//   export function prepareCategorySubmit(form: CategoryFormValues, mode: "create"):
+//     | { ok: false; errors: CategoryFormErrors }
+//     | { ok: true; request: CategoryCreateRequest }
+//   export function prepareCategorySubmit(form: CategoryFormValues, mode: "edit"):
+//     | { ok: false; errors: CategoryFormErrors }
+//     | { ok: true; request: CategoryUpdateRequest }   // { name, description, sortOrder }, slug 없음
 import { describe, expect, it } from "vitest";
-import { validateCategoryForm } from "./categoryForm";
+import type { AdminCategoryResponse } from "../api/admin";
+import {
+  EMPTY_CATEGORY_FORM,
+  formFromCategory,
+  prepareCategorySubmit,
+  validateCategoryForm,
+} from "./categoryForm";
 
 const SLUG_ERROR = "slug는 영어 소문자, 숫자, -로 50자 이내로 입력해 주세요.";
 const NAME_ERROR = "이름을 입력해 주세요.";
@@ -101,5 +117,128 @@ describe("validateCategoryForm (D23)", () => {
       name: NAME_ERROR,
       sortOrder: SORT_ORDER_ERROR,
     });
+  });
+});
+
+describe("EMPTY_CATEGORY_FORM", () => {
+  it("모든 칸이 비고 표시 순서는 0이다", () => {
+    expect(EMPTY_CATEGORY_FORM).toEqual({
+      slug: "",
+      name: "",
+      description: "",
+      sortOrder: "0",
+    });
+  });
+});
+
+describe("formFromCategory", () => {
+  function category(
+    overrides: Partial<AdminCategoryResponse> = {},
+  ): AdminCategoryResponse {
+    return {
+      slug: "java",
+      name: "Java",
+      description: "자바 기초",
+      sortOrder: 10,
+      questionCount: 3,
+      ...overrides,
+    };
+  }
+
+  it("응답 값을 폼 값으로 옮기고 표시 순서는 문자열로 바꾼다", () => {
+    expect(formFromCategory(category())).toEqual({
+      slug: "java",
+      name: "Java",
+      description: "자바 기초",
+      sortOrder: "10",
+    });
+  });
+
+  it("설명이 null이면 빈 문자열이다", () => {
+    expect(formFromCategory(category({ description: null }))).toMatchObject({
+      description: "",
+    });
+  });
+
+  it("음수 표시 순서도 문자열로 바꾼다", () => {
+    expect(formFromCategory(category({ sortOrder: -2 }))).toMatchObject({
+      sortOrder: "-2",
+    });
+  });
+});
+
+describe("prepareCategorySubmit", () => {
+  it.each(["create", "edit"] as const)(
+    "%s에서 검사 에러가 있으면 ok가 false이고 errors는 validateCategoryForm 결과 그대로다",
+    (mode) => {
+      const values = form({ slug: "Bad Slug", name: " ", sortOrder: "x" });
+
+      expect(prepareCategorySubmit(values, mode)).toEqual({
+        ok: false,
+        errors: validateCategoryForm(values, mode),
+      });
+    },
+  );
+
+  it("추가할 때 slug만 틀려도 ok가 false다", () => {
+    expect(prepareCategorySubmit(form({ slug: "Bad" }), "create")).toEqual({
+      ok: false,
+      errors: { slug: SLUG_ERROR },
+    });
+  });
+
+  it("값이 맞으면 표시 순서를 정수로 바꾼 요청을 만든다", () => {
+    expect(
+      prepareCategorySubmit(
+        form({ description: "코틀린 기초", sortOrder: " 5 " }),
+        "create",
+      ),
+    ).toEqual({
+      ok: true,
+      request: {
+        slug: "kotlin",
+        name: "Kotlin",
+        description: "코틀린 기초",
+        sortOrder: 5,
+      },
+    });
+  });
+
+  it("설명이 비어 있으면 null로 보낸다", () => {
+    expect(prepareCategorySubmit(form({ description: "" }), "create")).toEqual({
+      ok: true,
+      request: {
+        slug: "kotlin",
+        name: "Kotlin",
+        description: null,
+        sortOrder: 0,
+      },
+    });
+  });
+
+  it("수정할 때는 slug 형식이 틀려도 요청을 만든다", () => {
+    const result = prepareCategorySubmit(
+      form({ slug: "Old_Slug", sortOrder: "-1" }),
+      "edit",
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("수정 요청에는 slug가 없고 이름·설명·표시 순서만 담는다", () => {
+    const result = prepareCategorySubmit(
+      form({ slug: "Old_Slug", description: "코틀린 기초", sortOrder: "-1" }),
+      "edit",
+    );
+
+    if (!result.ok) {
+      throw new Error("수정 요청을 만들지 못했다");
+    }
+    expect(result.request).toEqual({
+      name: "Kotlin",
+      description: "코틀린 기초",
+      sortOrder: -1,
+    });
+    expect("slug" in result.request).toBe(false);
   });
 });

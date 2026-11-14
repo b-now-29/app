@@ -1,5 +1,5 @@
 import type { TypeStatResponse } from "../api/attempts";
-import { QUESTION_TYPE_NAMES } from "./quizScore";
+import { QUESTION_TYPE_NAMES } from "./questionType";
 
 // 소수점 아래는 반올림한다
 export function accuracyPercent(solved: number, correct: number): number {

@@ -10,7 +10,7 @@ import type {
   AdminQuestionStatResponse,
 } from "../api/admin";
 import { questionStatLine } from "../quiz/adminStats";
-import { QUESTION_TYPE_NAMES } from "../quiz/quizScore";
+import { QUESTION_TYPE_NAMES } from "../quiz/questionType";
 
 export default function AdminQuestionStatsPage() {
   const questions = useLoaderData() as readonly AdminQuestionStatResponse[];
