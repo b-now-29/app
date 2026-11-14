@@ -1,4 +1,7 @@
 # 로컬 개발 전용. 운영에서는 쓰지 않는다.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/dev-seed
 app:
   jwt:
     secret: dev-only-jwt-secret-not-for-production-0123456789
