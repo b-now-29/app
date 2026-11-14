@@ -4,7 +4,7 @@ import { useRevalidator, useRouteLoaderData } from "react-router";
 import type { FormEvent } from "react";
 import { createCategory, deleteCategory, updateCategory } from "../api/admin";
 import type { AdminCategoryResponse } from "../api/admin";
-import { errorMessage } from "../api/users";
+import { errorMessage } from "./actionError";
 import { validateCategoryForm } from "../quiz/categoryForm";
 import type {
   CategoryFormErrors,

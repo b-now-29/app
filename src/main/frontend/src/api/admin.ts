@@ -1,5 +1,5 @@
 import type { QuestionType } from "./questions";
-import { toApiError } from "./users";
+import { getJson, sendJson, sendWithoutBody } from "./http";
 
 export type AdminCategoryResponse = {
   readonly slug: string;
@@ -56,30 +56,6 @@ export type QuestionRequest = {
 
 const BASE = "/api/v1/admin";
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
-// 실패(401·403·400·409 등)는 상태 코드와 서버 메시지를 담은 ApiError로 던진다
-async function readJson<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    throw await toApiError(response);
-  }
-  return (await response.json()) as T;
-}
-
-async function expectNoContent(response: Response): Promise<void> {
-  if (!response.ok) {
-    throw await toApiError(response);
-  }
-}
-
-function sendJson(method: "POST" | "PUT", url: string, body: unknown) {
-  return fetch(url, {
-    method,
-    headers: JSON_HEADERS,
-    body: JSON.stringify(body),
-  });
-}
-
 export type AdminUserRole = "USER" | "ADMIN";
 
 export type AdminUserResponse = {
@@ -92,15 +68,15 @@ export type AdminUserResponse = {
   readonly createdAt: string | null;
 };
 
-export async function getAdminUsers(): Promise<readonly AdminUserResponse[]> {
-  return readJson(await fetch(`${BASE}/users`));
+export function getAdminUsers(): Promise<readonly AdminUserResponse[]> {
+  return getJson(`${BASE}/users`);
 }
 
-export async function changeUserRole(
+export function changeUserRole(
   id: number,
   role: AdminUserRole,
 ): Promise<AdminUserResponse> {
-  return readJson(await sendJson("PUT", `${BASE}/users/${id}/role`, { role }));
+  return sendJson("PUT", `${BASE}/users/${id}/role`, { role });
 }
 
 export type AdminTypeStatResponse = {
@@ -123,86 +99,75 @@ export type AdminQuestionStatResponse = {
   readonly correctUsers: number;
 };
 
-export async function getAdminCategoryStats(): Promise<
+export function getAdminCategoryStats(): Promise<
   readonly AdminCategoryStatResponse[]
 > {
-  return readJson(await fetch(`${BASE}/stats/categories`));
+  return getJson(`${BASE}/stats/categories`);
 }
 
-export async function getAdminQuestionStats(
+export function getAdminQuestionStats(
   categorySlug: string,
 ): Promise<readonly AdminQuestionStatResponse[]> {
-  return readJson(
-    await fetch(
-      `${BASE}/stats/categories/${encodeURIComponent(categorySlug)}/questions`,
-    ),
+  return getJson(
+    `${BASE}/stats/categories/${encodeURIComponent(categorySlug)}/questions`,
   );
 }
 
-export async function getAdminCategories(): Promise<
+export function getAdminCategories(): Promise<
   readonly AdminCategoryResponse[]
 > {
-  return readJson(await fetch(`${BASE}/categories`));
+  return getJson(`${BASE}/categories`);
 }
 
-export async function createCategory(
+export function createCategory(
   request: CategoryCreateRequest,
 ): Promise<AdminCategoryResponse> {
-  return readJson(await sendJson("POST", `${BASE}/categories`, request));
+  return sendJson("POST", `${BASE}/categories`, request);
 }
 
-export async function updateCategory(
+export function updateCategory(
   slug: string,
   request: CategoryUpdateRequest,
 ): Promise<AdminCategoryResponse> {
-  return readJson(
-    await sendJson(
-      "PUT",
-      `${BASE}/categories/${encodeURIComponent(slug)}`,
-      request,
-    ),
+  return sendJson(
+    "PUT",
+    `${BASE}/categories/${encodeURIComponent(slug)}`,
+    request,
   );
 }
 
-export async function deleteCategory(slug: string): Promise<void> {
-  return expectNoContent(
-    await fetch(`${BASE}/categories/${encodeURIComponent(slug)}`, {
-      method: "DELETE",
-    }),
+export function deleteCategory(slug: string): Promise<void> {
+  return sendWithoutBody(
+    "DELETE",
+    `${BASE}/categories/${encodeURIComponent(slug)}`,
   );
 }
 
-export async function getAdminQuestions(
+export function getAdminQuestions(
   categorySlug: string,
 ): Promise<readonly AdminQuestionResponse[]> {
-  return readJson(
-    await fetch(
-      `${BASE}/questions?category=${encodeURIComponent(categorySlug)}`,
-    ),
+  return getJson(
+    `${BASE}/questions?category=${encodeURIComponent(categorySlug)}`,
   );
 }
 
-export async function getAdminQuestion(
-  id: number,
-): Promise<AdminQuestionResponse> {
-  return readJson(await fetch(`${BASE}/questions/${id}`));
+export function getAdminQuestion(id: number): Promise<AdminQuestionResponse> {
+  return getJson(`${BASE}/questions/${id}`);
 }
 
-export async function createQuestion(
+export function createQuestion(
   request: QuestionRequest,
 ): Promise<AdminQuestionResponse> {
-  return readJson(await sendJson("POST", `${BASE}/questions`, request));
+  return sendJson("POST", `${BASE}/questions`, request);
 }
 
-export async function updateQuestion(
+export function updateQuestion(
   id: number,
   request: QuestionRequest,
 ): Promise<AdminQuestionResponse> {
-  return readJson(await sendJson("PUT", `${BASE}/questions/${id}`, request));
+  return sendJson("PUT", `${BASE}/questions/${id}`, request);
 }
 
-export async function deleteQuestion(id: number): Promise<void> {
-  return expectNoContent(
-    await fetch(`${BASE}/questions/${id}`, { method: "DELETE" }),
-  );
+export function deleteQuestion(id: number): Promise<void> {
+  return sendWithoutBody("DELETE", `${BASE}/questions/${id}`);
 }

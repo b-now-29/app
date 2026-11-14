@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError, NotFoundError } from "./http";
 import {
   getQuestions,
-  NotFoundError,
   submitAnswer,
   submitSelfGrade,
   submitTextAnswer,
 } from "./questions";
-import { ApiError } from "./users";
 import type {
   AnswerResponse,
   QuestionResponse,
@@ -19,8 +18,12 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
-function problemResponse(status: number): Response {
-  return jsonResponse({ title: "실패", status }, status);
+function problemResponse(status: number, detail?: string): Response {
+  return jsonResponse({ title: "실패", status, detail }, status);
+}
+
+async function caught(promise: Promise<unknown>): Promise<unknown> {
+  return promise.catch((thrown: unknown) => thrown);
 }
 
 beforeEach(() => {
@@ -58,18 +61,20 @@ describe("getQuestions", () => {
   it("404 응답은 NotFoundError로 던진다 (R8)", async () => {
     fetchMock.mockResolvedValue(problemResponse(404));
 
-    await expect(getQuestions("nope")).rejects.toBeInstanceOf(NotFoundError);
+    const error = await caught(getQuestions("nope"));
+
+    expect(error).toBeInstanceOf(NotFoundError);
+    expect(error).toMatchObject({ status: 404 });
   });
 
-  it("500 응답은 NotFoundError가 아닌 Error로 던진다 (R8)", async () => {
-    fetchMock.mockResolvedValue(problemResponse(500));
+  it("500 응답은 NotFoundError가 아닌, 상태와 서버 메시지를 담은 ApiError로 던진다 (R8)", async () => {
+    fetchMock.mockResolvedValue(problemResponse(500, "서버 오류"));
 
-    const error: unknown = await getQuestions("java").catch(
-      (thrown: unknown) => thrown,
-    );
+    const error = await caught(getQuestions("java"));
 
-    expect(error).toBeInstanceOf(Error);
+    expect(error).toBeInstanceOf(ApiError);
     expect(error).not.toBeInstanceOf(NotFoundError);
+    expect(error).toMatchObject({ status: 500, message: "서버 오류" });
   });
 
   it.each([
@@ -120,11 +125,17 @@ describe("submitAnswer", () => {
     });
   });
 
-  it.each([400, 404, 500])("%i 응답이면 예외를 던진다 (R7)", async (status) => {
-    fetchMock.mockResolvedValue(problemResponse(status));
+  it.each([400, 404, 500])(
+    "%i 응답이면 상태와 서버 메시지를 담은 ApiError를 던진다 (R7)",
+    async (status) => {
+      fetchMock.mockResolvedValue(problemResponse(status, "채점 실패 이유"));
 
-    await expect(submitAnswer(7, 10)).rejects.toThrow();
-  });
+      const error = await caught(submitAnswer(7, 10));
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status, message: "채점 실패 이유" });
+    },
+  );
 
   it("네트워크 실패면 예외를 던진다 (R7)", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
@@ -157,10 +168,24 @@ describe("submitTextAnswer", () => {
     await expect(submitTextAnswer(7, "답")).resolves.toEqual(reveal);
   });
 
-  it.each([400, 404, 500])("%i 응답이면 예외를 던진다 (R7)", async (status) => {
-    fetchMock.mockResolvedValue(problemResponse(status));
+  it.each([400, 404, 500])(
+    "%i 응답이면 상태와 서버 메시지를 담은 ApiError를 던진다 (R7)",
+    async (status) => {
+      fetchMock.mockResolvedValue(problemResponse(status, "제출 실패 이유"));
 
-    await expect(submitTextAnswer(7, "답")).rejects.toThrow();
+      const error = await caught(submitTextAnswer(7, "답"));
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status, message: "제출 실패 이유" });
+    },
+  );
+
+  it("404 응답은 NotFoundError다", async () => {
+    fetchMock.mockResolvedValue(problemResponse(404));
+
+    await expect(submitTextAnswer(7, "답")).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
   });
 
   it("네트워크 실패면 예외를 던진다 (R7)", async () => {

@@ -9,15 +9,15 @@ import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategories } from "./api/categories";
+import { ApiError, NotFoundError } from "./api/http";
 import {
   getQuestions,
-  NotFoundError,
   submitAnswer,
   submitSelfGrade,
   submitTextAnswer,
 } from "./api/questions";
 import type { QuestionResponse } from "./api/questions";
-import { ApiError, getCurrentUser, logout } from "./api/users";
+import { getCurrentUser, logout } from "./api/users";
 import type { UserResponse } from "./api/users";
 import { getWrongAnswerQuestions, getWrongAnswers } from "./api/wrongAnswers";
 import type { WrongAnswerCategoryResponse } from "./api/wrongAnswers";
@@ -40,14 +40,7 @@ vi.mock("./api/wrongAnswers", async (importOriginal) => ({
   getWrongAnswerQuestions: vi.fn(),
 }));
 
-// 모듈 전체를 자동으로 대체하면 ApiError도 가짜가 되어 status와 message가 비게 된다
-vi.mock("./api/users", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./api/users")>()),
-  getCurrentUser: vi.fn(),
-  login: vi.fn(),
-  logout: vi.fn(),
-  signUp: vi.fn(),
-}));
+vi.mock("./api/users");
 
 const USER: UserResponse = {
   id: 1,

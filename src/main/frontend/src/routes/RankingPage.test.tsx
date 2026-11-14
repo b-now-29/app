@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategories } from "../api/categories";
-import { NotFoundError } from "../api/questions";
+import { NotFoundError } from "../api/http";
 import { getCategoryRankings, getRankings } from "../api/rankings";
 import type { RankingResponse } from "../api/rankings";
 import QuizErrorPage from "./QuizErrorPage";

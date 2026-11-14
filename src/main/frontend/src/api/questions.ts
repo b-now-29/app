@@ -1,4 +1,4 @@
-import { toApiError } from "./users";
+import { getJson, sendJson, sendJsonForNoContent } from "./http";
 
 export type ChoiceResponse = {
   readonly id: number;
@@ -27,66 +27,39 @@ export type AnswerResponse = {
   readonly recorded: boolean;
 };
 
-// 없는 카테고리(404)와 서버 장애를 화면에서 다르게 보여 주기 위한 구분용 에러
-export class NotFoundError extends Error {}
-
-export async function getQuestions(
+export function getQuestions(
   slug: string,
 ): Promise<readonly QuestionResponse[]> {
   // slug는 주소창에서 온 값이므로, 인코딩하지 않으면 "../"가 호출 경로를 바꿀 수 있다
-  const response = await fetch(
-    `/api/v1/categories/${encodeURIComponent(slug)}/questions`,
-  );
-  if (response.status === 404) {
-    throw new NotFoundError(`없는 카테고리: ${slug}`);
-  }
-  if (!response.ok) {
-    throw new Error(`문제 목록 조회 실패: HTTP ${response.status}`);
-  }
-  return (await response.json()) as readonly QuestionResponse[];
+  return getJson(`/api/v1/categories/${encodeURIComponent(slug)}/questions`);
 }
 
-export async function submitAnswer(
+export function submitAnswer(
   questionId: number,
   choiceId: number,
 ): Promise<AnswerResponse> {
-  const response = await fetch(`/api/v1/questions/${questionId}/answers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ choiceId }),
+  return sendJson("POST", `/api/v1/questions/${questionId}/answers`, {
+    choiceId,
   });
-  if (!response.ok) {
-    throw new Error(`채점 요청 실패: HTTP ${response.status}`);
-  }
-  return (await response.json()) as AnswerResponse;
 }
 
-// 회원의 자기 채점 결과를 기록으로 저장한다. 화면이 401(로그인 만료)을 따로 처리하므로 상태 코드를 담아 던진다 (D9)
-export async function submitSelfGrade(
+// 회원의 자기 채점 결과를 기록으로 저장한다.
+export function submitSelfGrade(
   questionId: number,
   correct: boolean,
 ): Promise<void> {
-  const response = await fetch(`/api/v1/questions/${questionId}/self-grades`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ correct }),
-  });
-  if (!response.ok) {
-    throw await toApiError(response);
-  }
+  return sendJsonForNoContent(
+    "POST",
+    `/api/v1/questions/${questionId}/self-grades`,
+    { correct },
+  );
 }
 
-export async function submitTextAnswer(
+export function submitTextAnswer(
   questionId: number,
   answer: string,
 ): Promise<TextAnswerResponse> {
-  const response = await fetch(`/api/v1/questions/${questionId}/text-answers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answer }),
+  return sendJson("POST", `/api/v1/questions/${questionId}/text-answers`, {
+    answer,
   });
-  if (!response.ok) {
-    throw new Error(`답 제출 실패: HTTP ${response.status}`);
-  }
-  return (await response.json()) as TextAnswerResponse;
 }

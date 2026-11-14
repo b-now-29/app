@@ -6,8 +6,8 @@
 //   export function toActionError(thrown: unknown, fallback: string): ActionError
 //   authActions.ts와 meRoute.ts는 여기서 import한다
 import { describe, expect, it } from "vitest";
-import { ApiError } from "../api/users";
-import { toActionError } from "./actionError";
+import { ApiError } from "../api/http";
+import { errorMessage, toActionError } from "./actionError";
 
 const FALLBACK = "요청에 실패했습니다. 다시 시도해 주세요.";
 
@@ -26,5 +26,25 @@ describe("toActionError", () => {
 
   it("Error가 아닌 값이 던져져도 기본 문구를 쓴다", () => {
     expect(toActionError("oops", FALLBACK)).toEqual({ error: FALLBACK });
+  });
+});
+
+describe("errorMessage", () => {
+  const DEFAULT_MESSAGE = "요청에 실패했습니다. 다시 시도해 주세요.";
+
+  it("ApiError면 서버 메시지를 쓴다", () => {
+    expect(errorMessage(new ApiError(409, "사용 중인 카테고리입니다."))).toBe(
+      "사용 중인 카테고리입니다.",
+    );
+  });
+
+  it("네트워크 오류처럼 ApiError가 아니면 기본 문구를 쓴다", () => {
+    expect(errorMessage(new TypeError("Failed to fetch"))).toBe(
+      DEFAULT_MESSAGE,
+    );
+  });
+
+  it("Error가 아닌 값이 던져져도 기본 문구를 쓴다", () => {
+    expect(errorMessage("oops")).toBe(DEFAULT_MESSAGE);
   });
 });

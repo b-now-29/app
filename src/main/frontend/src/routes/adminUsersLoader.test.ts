@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAdminUsers } from "../api/admin";
 import type { AdminUserResponse } from "../api/admin";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import { adminUsersLoader } from "./adminUsersLoader";
 
 vi.mock("../api/admin");

@@ -3,7 +3,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategoryStats, getRecentAttempts } from "../api/attempts";
 import type { AttemptResponse, CategoryStatResponse } from "../api/attempts";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import ErrorPage from "./ErrorPage";
 import HistoryPage from "./HistoryPage";
 import { historyLoader } from "./historyLoader";

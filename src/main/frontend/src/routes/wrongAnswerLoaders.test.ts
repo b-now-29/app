@@ -7,9 +7,8 @@
 // 둘 다 401이면 /login으로 보내고 (historyLoader와 같은 방식), 그 밖의 실패 (404 포함)는 ErrorBoundary가 그리도록 다시 던진다.
 import type { LoaderFunctionArgs } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFoundError } from "../api/questions";
+import { ApiError, NotFoundError } from "../api/http";
 import type { QuestionResponse } from "../api/questions";
-import { ApiError } from "../api/users";
 import { getWrongAnswerQuestions, getWrongAnswers } from "../api/wrongAnswers";
 import type { WrongAnswerCategoryResponse } from "../api/wrongAnswers";
 import {

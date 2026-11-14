@@ -14,7 +14,7 @@ import type {
   AdminCategoryStatResponse,
   AdminQuestionStatResponse,
 } from "../api/admin";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import {
   adminCategoryStatsLoader,
   adminQuestionStatsLoader,

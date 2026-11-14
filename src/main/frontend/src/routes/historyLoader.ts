@@ -1,6 +1,6 @@
 import { redirect } from "react-router";
 import { getCategoryStats, getRecentAttempts } from "../api/attempts";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 
 // 컴포넌트 파일에서 loader를 함께 export하면 react-refresh 린트 규칙에 걸려서 파일을 나눴다
 export async function historyLoader() {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, getCurrentUser } from "../api/users";
+import { ApiError } from "../api/http";
+import { getCurrentUser } from "../api/users";
 import { rootLoader } from "./rootLoader";
 
 vi.mock("../api/users", async (importOriginal) => ({

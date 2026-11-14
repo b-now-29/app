@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError, NotFoundError } from "../api/http";
 import {
   getQuestions,
-  NotFoundError,
   submitAnswer,
   submitSelfGrade,
   submitTextAnswer,
@@ -15,7 +15,6 @@ import type {
   QuestionResponse,
   TextAnswerResponse,
 } from "../api/questions";
-import { ApiError } from "../api/users";
 import type { UserResponse } from "../api/users";
 import QuizErrorPage from "./QuizErrorPage";
 import QuizPage from "./QuizPage";

@@ -8,10 +8,9 @@
 // 실패는 상태 코드를 담은 ApiError로 던진다. 카테고리 랭킹의 404는 기존 문제 API처럼 NotFoundError로 던져
 // QuizErrorPage가 404 화면을 그리게 한다 (R9).
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFoundError } from "./questions";
+import { ApiError, NotFoundError } from "./http";
 import { getCategoryRankings, getRankings } from "./rankings";
 import type { RankingResponse } from "./rankings";
-import { ApiError } from "./users";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 

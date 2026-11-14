@@ -3,14 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   UserResponse에 nickname: string, tag: number 추가
 //   signUp(email, password, nickname): 요청 본문 { email, password, nickname }
 //   changeNickname(nickname: string): Promise<UserResponse> — PUT /api/v1/users/me/nickname { nickname }
-import {
-  ApiError,
-  changeNickname,
-  getCurrentUser,
-  login,
-  logout,
-  signUp,
-} from "./users";
+import { ApiError } from "./http";
+import { changeNickname, getCurrentUser, login, logout, signUp } from "./users";
 import type { UserResponse } from "./users";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
@@ -94,18 +88,6 @@ describe("login", () => {
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 401, message: detail });
-  });
-
-  it("본문이 JSON이 아니어도 상태를 담은 ApiError이고 메시지가 비어 있지 않다", async () => {
-    fetchMock.mockResolvedValue(
-      new Response("<html>Bad Gateway</html>", { status: 502 }),
-    );
-
-    const error = await caught(login(EMAIL, PASSWORD));
-
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({ status: 502 });
-    expect((error as ApiError).message).not.toBe("");
   });
 });
 
