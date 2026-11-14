@@ -1,6 +1,5 @@
 package com.b.now._29.app.user;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -32,6 +31,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final NicknameTagAssigner assigner;
+    private final PasswordWriter passwordWriter;
 
     private final AuthLimiters limiters;
 
@@ -39,19 +39,19 @@ public class UserService {
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             NicknameTagAssigner assigner,
+            PasswordWriter passwordWriter,
             AuthLimiters limiters) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.assigner = assigner;
+        this.passwordWriter = passwordWriter;
         this.limiters = limiters;
     }
 
     /** 성공·실패와 상관없이 시도로 센다 (R9). 막혔으면 아무것도 하지 않는다. */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SignInResult signUp(String email, String password, String nickname, String clientIp) {
-        if (!limiters.signUpIp().tryAcquire(clientIp)) {
-            throw new TooManySignUpAttemptsException(limiters.signUpIp().retryAfter(clientIp));
-        }
+        limiters.signUpIp().acquireOrThrow(clientIp, TooManySignUpAttemptsException::new);
         UserResponse created = register(email, password, nickname, Role.USER);
         return new SignInResult(created, TokenSubject.initial(created.id()));
     }
@@ -122,8 +122,7 @@ public class UserService {
         }
         // BCrypt 입력 한도를 넘는 비밀번호는 가입할 수 없으므로 맞을 수 없다 (D13).
         // PostgreSQL은 NUL 문자를 거부해 500이 되므로 조회 전에 거른다 (D21)
-        if (password.getBytes(StandardCharsets.UTF_8).length > SignUpRequest.MAX_PASSWORD_BYTES
-                || email.indexOf('\0') >= 0) {
+        if (PasswordRule.exceedsMaxBytes(password) || email.indexOf('\0') >= 0) {
             throw new InvalidCredentialsException();
         }
         Optional<User> found = userRepository.findByEmail(User.normalizeEmail(email));
@@ -147,6 +146,28 @@ public class UserService {
             return;
         }
         userRepository.findById(userId).ifPresent(User::revokeTokens);
+    }
+
+    /**
+     * BCrypt 비교·해시가 DB 커넥션을 잡지 않도록 트랜잭션 밖에서 하고, 저장만 {@link PasswordWriter}의 짧은 트랜잭션에 맡긴다 (D3). 시도는
+     * 회원 ID 키로 센다 (D2).
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public TokenSubject changePassword(long userId, String currentPassword, String newPassword) {
+        limiters.passwordChange().acquireOrThrow(userId, TooManyPasswordChangeAttemptsException::new);
+        // 가입할 수 없는 길이라 맞을 수 없다. BCrypt 없이 거부하고 시도로 센다 (D6)
+        if (PasswordRule.exceedsMaxBytes(currentPassword)) {
+            throw new WrongCurrentPasswordException();
+        }
+        User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
+        String currentHash = user.getPasswordHash();
+        if (!passwordEncoder.matches(currentPassword, currentHash)) {
+            throw new WrongCurrentPasswordException();
+        }
+        TokenSubject subject = passwordWriter.changePassword(userId, currentHash, passwordEncoder.encode(newPassword));
+        // 저장까지 성공한 뒤에만 지운다. 경합으로 실패하면 실패로 남는다 (D12)
+        limiters.passwordChange().reset(userId);
+        return subject;
     }
 
     public UserResponse getUser(long id) {

@@ -1,4 +1,10 @@
-import { ApiError, getJson, sendJson, sendWithoutBody } from "./http";
+import {
+  ApiError,
+  getJson,
+  sendJson,
+  sendJsonForNoContent,
+  sendWithoutBody,
+} from "./http";
 
 export type UserResponse = {
   readonly id: number;
@@ -26,6 +32,16 @@ export function login(email: string, password: string) {
 export function changeNickname(nickname: string) {
   return sendJson<UserResponse>("PUT", "/api/v1/users/me/nickname", {
     nickname,
+  });
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  return sendJsonForNoContent("PUT", "/api/v1/users/me/password", {
+    currentPassword,
+    newPassword,
   });
 }
 

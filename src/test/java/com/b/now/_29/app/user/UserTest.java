@@ -285,6 +285,60 @@ class UserTest {
         assertThat(user.tokenSubject()).isEqualTo(new TokenSubject(OTHER_ID, 1));
     }
 
+    // 비밀번호 변경 (password-change R4, D4, D5)
+
+    @Test
+    @DisplayName("지금 해시가 비교에 쓴 해시와 같으면 changePassword는 해시를 바꾸고 토큰 버전을 1 올려, 바꾸기 전에 발급한 토큰을 모두 무효로 한다 (R4, D4)")
+    void changePasswordReplacesHashAndRevokesTokens() {
+        User user = withId(new User("user@example.com", "old-hash", Role.ADMIN, NICKNAME, 2), OTHER_ID);
+        user.revokeTokens();
+
+        user.changePassword("old-hash", "new-hash");
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        assertThat(user.getTokenVersion()).isEqualTo(2);
+        assertThat(user.tokenSubject()).isEqualTo(new TokenSubject(OTHER_ID, 2));
+        assertThat(user.getEmail()).isEqualTo("user@example.com");
+        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(user.getNicknameTag()).isEqualTo(new NicknameTag("철수", 2));
+    }
+
+    @Test
+    @DisplayName("같은 해시로 바꿔도 토큰은 무효가 된다 (D7: 다른 기기 로그아웃 용도)")
+    void changePasswordToSameHashStillRevokes() {
+        User user = new User("user@example.com", "same-hash", NICKNAME, 1);
+
+        user.changePassword("same-hash", "same-hash");
+
+        assertThat(user.getPasswordHash()).isEqualTo("same-hash");
+        assertThat(user.getTokenVersion()).isEqualTo(User.INITIAL_TOKEN_VERSION + 1);
+    }
+
+    @Test
+    @DisplayName("비교한 뒤 다른 요청이 비밀번호를 바꿔 지금 해시가 기대한 해시와 다르면, R2와 같은 예외이고 해시와 토큰 버전을 바꾸지 않는다 (D4, D5)")
+    void changePasswordRejectsWhenHashChangedSinceComparison() {
+        User user = withId(new User("user@example.com", "changed-by-other", NICKNAME, 1), OTHER_ID);
+
+        assertThatThrownBy(() -> user.changePassword("old-hash", "new-hash"))
+                .isInstanceOf(WrongCurrentPasswordException.class)
+                .hasMessage("현재 비밀번호가 맞지 않습니다.");
+
+        assertThat(user.getPasswordHash()).isEqualTo("changed-by-other");
+        assertThat(user.getTokenVersion()).isEqualTo(User.INITIAL_TOKEN_VERSION);
+    }
+
+    @Test
+    @DisplayName("기대한 해시와 새 해시가 같아도 지금 해시와 다르면 바꾸지 않는다 (D5)")
+    void changePasswordComparesWithCurrentHashNotNewHash() {
+        User user = new User("user@example.com", "changed-by-other", NICKNAME, 1);
+
+        assertThatThrownBy(() -> user.changePassword("old-hash", "old-hash"))
+                .isInstanceOf(WrongCurrentPasswordException.class);
+
+        assertThat(user.getPasswordHash()).isEqualTo("changed-by-other");
+        assertThat(user.getTokenVersion()).isEqualTo(User.INITIAL_TOKEN_VERSION);
+    }
+
     private static User withId(User user, long id) {
         ReflectionTestUtils.setField(user, "id", id);
         return user;

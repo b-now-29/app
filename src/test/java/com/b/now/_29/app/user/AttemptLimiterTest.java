@@ -1,6 +1,9 @@
 package com.b.now._29.app.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.b.now._29.app.support.MutableClock;
 import java.time.Duration;
@@ -12,6 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,12 +43,93 @@ class AttemptLimiterTest {
     private static final String KEY = "user@example.com|key-a";
 
     private MutableClock clock;
-    private AttemptLimiter limiter;
+    private AttemptLimiter<String> limiter;
 
     @BeforeEach
     void setUp() {
         clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
-        limiter = new AttemptLimiter(MAX_ATTEMPTS, WINDOW, clock);
+        limiter = new AttemptLimiter<>(MAX_ATTEMPTS, WINDOW, clock);
+    }
+
+    // acquireOrThrow: 한도 확인과 차단 예외를 한 번에 (password-change D14)
+
+    /** 차단 예외가 받은 남은 시간을 그대로 꺼내 보려고 쓰는 예외. */
+    private static final class Blocked extends RuntimeException {
+
+        private final transient Duration retryAfter;
+
+        Blocked(Duration retryAfter) {
+            super("blocked");
+            this.retryAfter = retryAfter;
+        }
+    }
+
+    @Test
+    @DisplayName("acquireOrThrow는 한도 안이면 예외 없이 통과하고 횟수를 1 늘린다 (password-change D14)")
+    void acquireOrThrowPassesWithinLimitAndCounts() {
+        for (int i = 0; i < MAX_ATTEMPTS; i++) {
+            assertThatCode(() -> limiter.acquireOrThrow(KEY, Blocked::new))
+                    .as("%d번째 시도", i + 1)
+                    .doesNotThrowAnyException();
+        }
+
+        assertThat(limiter.tryAcquire(KEY)).isFalse();
+    }
+
+    @Test
+    @DisplayName("acquireOrThrow는 한도를 넘으면 받은 함수가 만든 예외를 창이 끝날 때까지 남은 시간과 함께 던진다 (password-change D14)")
+    void acquireOrThrowThrowsWithRetryAfterWhenBlocked() {
+        limiter.tryAcquire(KEY);
+        clock.advance(Duration.ofMinutes(4));
+        acquireTimes(KEY, MAX_ATTEMPTS - 1);
+
+        Throwable thrown = catchThrowable(() -> limiter.acquireOrThrow(KEY, Blocked::new));
+
+        assertThat(thrown).isInstanceOf(Blocked.class);
+        assertThat(((Blocked) thrown).retryAfter).isEqualTo(WINDOW.minus(Duration.ofMinutes(4)));
+    }
+
+    @Test
+    @DisplayName("acquireOrThrow로 막힌 시도는 세지 않는다: release 한 번이면 다시 한 번 통과한다 (password-change D14)")
+    void blockedAcquireOrThrowIsNotCounted() {
+        acquireTimes(KEY, MAX_ATTEMPTS);
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> limiter.acquireOrThrow(KEY, Blocked::new)).isInstanceOf(Blocked.class);
+        }
+
+        limiter.release(KEY);
+
+        assertThatCode(() -> limiter.acquireOrThrow(KEY, Blocked::new)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> limiter.acquireOrThrow(KEY, Blocked::new)).isInstanceOf(Blocked.class);
+    }
+
+    @Test
+    @DisplayName("acquireOrThrow는 한도 안이면 예외 함수를 부르지 않는다 (password-change D14)")
+    void acquireOrThrowDoesNotCreateExceptionWithinLimit() {
+        AtomicInteger created = new AtomicInteger();
+
+        limiter.acquireOrThrow(KEY, retryAfter -> {
+            created.incrementAndGet();
+            return new Blocked(retryAfter);
+        });
+
+        assertThat(created).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("키 타입은 제네릭이라 회원 ID(Long)를 키로 쓸 수 있고, 같은 값의 Long은 같은 키다 (password-change D14)")
+    void longKeys() {
+        AttemptLimiter<Long> byUserId = new AttemptLimiter<>(MAX_ATTEMPTS, WINDOW, clock);
+        for (int i = 0; i < MAX_ATTEMPTS; i++) {
+            // 캐시 범위 밖의 값이라 매번 다른 Long 객체다
+            assertThat(byUserId.tryAcquire(Long.valueOf(100_000L))).isTrue();
+        }
+
+        assertThat(byUserId.tryAcquire(100_000L)).isFalse();
+        assertThat(byUserId.tryAcquire(100_001L)).isTrue();
+
+        byUserId.reset(100_000L);
+        assertThat(byUserId.tryAcquire(100_000L)).isTrue();
     }
 
     @Test
