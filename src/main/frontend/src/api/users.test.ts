@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   UserResponse에 nickname: string, tag: number 추가
 //   signUp(email, password, nickname): 요청 본문 { email, password, nickname }
 //   changeNickname(nickname: string): Promise<UserResponse> — PUT /api/v1/users/me/nickname { nickname }
-import { ApiError } from "./http";
+import { ApiError, ResponseFormatError } from "./http";
 import {
   changeNickname,
   changePassword,
@@ -191,6 +191,12 @@ describe("getCurrentUser", () => {
     fetchMock.mockResolvedValue(problemResponse(401, "로그인이 필요합니다."));
 
     await expect(getCurrentUser()).resolves.toBeNull();
+  });
+
+  it("응답 모양이 다르면 null이 아니라 ResponseFormatError를 던진다 (api-response-validation R2)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...USER, role: "GUEST" }));
+
+    await expect(getCurrentUser()).rejects.toBeInstanceOf(ResponseFormatError);
   });
 
   it("401이 아닌 실패는 에러로 던진다", async () => {

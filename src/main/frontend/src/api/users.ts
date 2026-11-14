@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { AdminUserRoleSchema } from "./admin";
 import {
   ApiError,
   getJson,
@@ -6,33 +8,37 @@ import {
   sendWithoutBody,
 } from "./http";
 
-export type UserResponse = {
-  readonly id: number;
-  readonly email: string;
-  readonly role: "USER" | "ADMIN";
-  readonly nickname: string;
-  readonly tag: number;
-};
+const UserSchema = z
+  .object({
+    id: z.number(),
+    email: z.string(),
+    role: AdminUserRoleSchema,
+    nickname: z.string(),
+    tag: z.number(),
+  })
+  .readonly();
+export type UserResponse = z.infer<typeof UserSchema>;
 
 export function signUp(email: string, password: string, nickname: string) {
-  return sendJson<UserResponse>("POST", "/api/v1/users", {
-    email,
-    password,
-    nickname,
-  });
+  return sendJson(
+    "POST",
+    "/api/v1/users",
+    { email, password, nickname },
+    UserSchema,
+  );
 }
 
 export function login(email: string, password: string) {
-  return sendJson<UserResponse>("POST", "/api/v1/auth/login", {
-    email,
-    password,
-  });
+  return sendJson(
+    "POST",
+    "/api/v1/auth/login",
+    { email, password },
+    UserSchema,
+  );
 }
 
 export function changeNickname(nickname: string) {
-  return sendJson<UserResponse>("PUT", "/api/v1/users/me/nickname", {
-    nickname,
-  });
+  return sendJson("PUT", "/api/v1/users/me/nickname", { nickname }, UserSchema);
 }
 
 export function changePassword(
@@ -52,7 +58,7 @@ export function logout(): Promise<void> {
 // 비회원(401)은 에러가 아니라 null이다
 export async function getCurrentUser(): Promise<UserResponse | null> {
   try {
-    return await getJson<UserResponse>("/api/v1/users/me");
+    return await getJson("/api/v1/users/me", UserSchema);
   } catch (thrown) {
     if (thrown instanceof ApiError && thrown.status === 401) {
       return null;

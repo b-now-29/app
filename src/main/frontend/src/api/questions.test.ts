@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, NotFoundError } from "./http";
+import { ApiError, NotFoundError, ResponseFormatError } from "./http";
 import {
   getQuestions,
   submitAnswer,
@@ -56,6 +56,18 @@ describe("getQuestions", () => {
     fetchMock.mockResolvedValue(jsonResponse([]));
 
     await expect(getQuestions("java")).resolves.toEqual([]);
+  });
+
+  it("응답 모양이 다르면 ResponseFormatError를 던진다 (api-response-validation R2)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { id: 1, type: "TRUE_FALSE", content: "문제 내용", choices: [] },
+      ]),
+    );
+
+    await expect(getQuestions("java")).rejects.toBeInstanceOf(
+      ResponseFormatError,
+    );
   });
 
   it("404 응답은 NotFoundError로 던진다 (R8)", async () => {

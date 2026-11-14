@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategoryStats, getRecentAttempts } from "./attempts";
 import type { AttemptResponse, CategoryStatResponse } from "./attempts";
-import { ApiError } from "./http";
+import { ApiError, ResponseFormatError } from "./http";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 
@@ -44,6 +44,24 @@ describe("getCategoryStats", () => {
     fetchMock.mockResolvedValue(jsonResponse([]));
 
     await expect(getCategoryStats()).resolves.toEqual([]);
+  });
+
+  it("응답 모양이 다르면 ResponseFormatError를 던진다 (api-response-validation R2)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        {
+          slug: "java",
+          name: "자바",
+          types: [
+            { type: "TRUE_FALSE", solvedQuestions: 1, correctQuestions: 1 },
+          ],
+        },
+      ]),
+    );
+
+    await expect(getCategoryStats()).rejects.toBeInstanceOf(
+      ResponseFormatError,
+    );
   });
 
   // loader가 401이면 로그인 화면으로 보내야 하므로 상태 코드를 담아 던진다

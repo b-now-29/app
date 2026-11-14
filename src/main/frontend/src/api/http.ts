@@ -1,3 +1,5 @@
+import type { z } from "zod";
+
 // 서버가 준 상태 코드(401, 409 등)와 메시지를 화면까지 전달하기 위한 에러
 export class ApiError extends Error {
   readonly status: number;
@@ -44,9 +46,35 @@ async function ensureOk(response: Response): Promise<Response> {
   return response;
 }
 
-export async function getJson<T>(url: string): Promise<T> {
+// 응답은 200인데 본문 모양이 스키마와 다를 때의 에러.
+// ApiError는 서버가 준 상태 코드를 뜻하므로 상속하지 않는다 (401·404 판단과 섞이지 않게).
+export class ResponseFormatError extends Error {
+  constructor(url: string, cause: unknown) {
+    super(`응답 형식이 올바르지 않습니다. (${url})`, { cause });
+    this.name = "ResponseFormatError";
+  }
+}
+
+// 본문을 unknown으로 읽어 스키마로 검증하고, 통과한 값만 돌려준다
+async function parseBody<S extends z.ZodType>(
+  response: Response,
+  url: string,
+  schema: S,
+): Promise<z.output<S>> {
+  const body: unknown = await response.json();
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    throw new ResponseFormatError(url, result.error);
+  }
+  return result.data;
+}
+
+export async function getJson<S extends z.ZodType>(
+  url: string,
+  schema: S,
+): Promise<z.output<S>> {
   const response = await ensureOk(await fetch(url));
-  return (await response.json()) as T;
+  return parseBody(response, url, schema);
 }
 
 function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {
@@ -57,13 +85,14 @@ function jsonRequest(method: "POST" | "PUT", body: unknown): RequestInit {
   };
 }
 
-export async function sendJson<T>(
+export async function sendJson<S extends z.ZodType>(
   method: "POST" | "PUT",
   url: string,
   body: unknown,
-): Promise<T> {
+  schema: S,
+): Promise<z.output<S>> {
   const response = await ensureOk(await fetch(url, jsonRequest(method, body)));
-  return (await response.json()) as T;
+  return parseBody(response, url, schema);
 }
 
 // JSON 본문을 보내고 응답 본문은 읽지 않는다 (204)

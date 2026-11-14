@@ -1,13 +1,17 @@
-import type { QuestionType } from "./questions";
+import { z } from "zod";
+import { QuestionTypeSchema, type QuestionType } from "./questions";
 import { getJson, sendJson, sendWithoutBody } from "./http";
 
-export type AdminCategoryResponse = {
-  readonly slug: string;
-  readonly name: string;
-  readonly description: string | null;
-  readonly sortOrder: number;
-  readonly questionCount: number;
-};
+const AdminCategorySchema = z
+  .object({
+    slug: z.string(),
+    name: z.string(),
+    description: z.string().nullable(),
+    sortOrder: z.number(),
+    questionCount: z.number(),
+  })
+  .readonly();
+export type AdminCategoryResponse = z.infer<typeof AdminCategorySchema>;
 
 export type CategoryCreateRequest = {
   readonly slug: string;
@@ -22,22 +26,28 @@ export type CategoryUpdateRequest = {
   readonly sortOrder: number;
 };
 
-export type AdminChoiceResponse = {
-  readonly id: number;
-  readonly content: string;
-  readonly correct: boolean;
-};
+const AdminChoiceSchema = z
+  .object({
+    id: z.number(),
+    content: z.string(),
+    correct: z.boolean(),
+  })
+  .readonly();
+export type AdminChoiceResponse = z.infer<typeof AdminChoiceSchema>;
 
-export type AdminQuestionResponse = {
-  readonly id: number;
-  readonly categorySlug: string;
-  readonly type: QuestionType;
-  readonly content: string;
-  readonly explanation: string | null;
-  readonly modelAnswer: string | null;
-  readonly sortOrder: number;
-  readonly choices: readonly AdminChoiceResponse[];
-};
+const AdminQuestionSchema = z
+  .object({
+    id: z.number(),
+    categorySlug: z.string(),
+    type: QuestionTypeSchema,
+    content: z.string(),
+    explanation: z.string().nullable(),
+    modelAnswer: z.string().nullable(),
+    sortOrder: z.number(),
+    choices: z.array(AdminChoiceSchema).readonly(),
+  })
+  .readonly();
+export type AdminQuestionResponse = z.infer<typeof AdminQuestionSchema>;
 
 export type ChoiceRequest = {
   readonly content: string;
@@ -56,53 +66,73 @@ export type QuestionRequest = {
 
 const BASE = "/api/v1/admin";
 
-export type AdminUserRole = "USER" | "ADMIN";
+export const AdminUserRoleSchema = z.enum(["USER", "ADMIN"]);
+export type AdminUserRole = z.infer<typeof AdminUserRoleSchema>;
 
-export type AdminUserResponse = {
-  readonly id: number;
-  readonly email: string;
-  readonly role: AdminUserRole;
-  readonly nickname: string;
-  readonly tag: number;
-  // 이 기능 전에 가입한 회원은 null
-  readonly createdAt: string | null;
-};
+const AdminUserSchema = z
+  .object({
+    id: z.number(),
+    email: z.string(),
+    role: AdminUserRoleSchema,
+    nickname: z.string(),
+    tag: z.number(),
+    // 이 기능 전에 가입한 회원은 null
+    createdAt: z.string().nullable(),
+  })
+  .readonly();
+export type AdminUserResponse = z.infer<typeof AdminUserSchema>;
+
+const AdminUserListSchema = z.array(AdminUserSchema).readonly();
 
 export function getAdminUsers(): Promise<readonly AdminUserResponse[]> {
-  return getJson(`${BASE}/users`);
+  return getJson(`${BASE}/users`, AdminUserListSchema);
 }
 
 export function changeUserRole(
   id: number,
   role: AdminUserRole,
 ): Promise<AdminUserResponse> {
-  return sendJson("PUT", `${BASE}/users/${id}/role`, { role });
+  return sendJson("PUT", `${BASE}/users/${id}/role`, { role }, AdminUserSchema);
 }
 
-export type AdminTypeStatResponse = {
-  readonly type: QuestionType;
-  readonly solved: number;
-  readonly correct: number;
-};
+const AdminTypeStatSchema = z
+  .object({
+    type: QuestionTypeSchema,
+    solved: z.number(),
+    correct: z.number(),
+  })
+  .readonly();
+export type AdminTypeStatResponse = z.infer<typeof AdminTypeStatSchema>;
 
-export type AdminCategoryStatResponse = {
-  readonly slug: string;
-  readonly name: string;
-  readonly types: readonly AdminTypeStatResponse[];
-};
+const AdminCategoryStatSchema = z
+  .object({
+    slug: z.string(),
+    name: z.string(),
+    types: z.array(AdminTypeStatSchema).readonly(),
+  })
+  .readonly();
+export type AdminCategoryStatResponse = z.infer<typeof AdminCategoryStatSchema>;
 
-export type AdminQuestionStatResponse = {
-  readonly id: number;
-  readonly type: QuestionType;
-  readonly content: string;
-  readonly solvedUsers: number;
-  readonly correctUsers: number;
-};
+const AdminQuestionStatSchema = z
+  .object({
+    id: z.number(),
+    type: QuestionTypeSchema,
+    content: z.string(),
+    solvedUsers: z.number(),
+    correctUsers: z.number(),
+  })
+  .readonly();
+export type AdminQuestionStatResponse = z.infer<typeof AdminQuestionStatSchema>;
+
+const AdminCategoryStatListSchema = z.array(AdminCategoryStatSchema).readonly();
+const AdminQuestionStatListSchema = z.array(AdminQuestionStatSchema).readonly();
+const AdminCategoryListSchema = z.array(AdminCategorySchema).readonly();
+const AdminQuestionListSchema = z.array(AdminQuestionSchema).readonly();
 
 export function getAdminCategoryStats(): Promise<
   readonly AdminCategoryStatResponse[]
 > {
-  return getJson(`${BASE}/stats/categories`);
+  return getJson(`${BASE}/stats/categories`, AdminCategoryStatListSchema);
 }
 
 export function getAdminQuestionStats(
@@ -110,19 +140,20 @@ export function getAdminQuestionStats(
 ): Promise<readonly AdminQuestionStatResponse[]> {
   return getJson(
     `${BASE}/stats/categories/${encodeURIComponent(categorySlug)}/questions`,
+    AdminQuestionStatListSchema,
   );
 }
 
 export function getAdminCategories(): Promise<
   readonly AdminCategoryResponse[]
 > {
-  return getJson(`${BASE}/categories`);
+  return getJson(`${BASE}/categories`, AdminCategoryListSchema);
 }
 
 export function createCategory(
   request: CategoryCreateRequest,
 ): Promise<AdminCategoryResponse> {
-  return sendJson("POST", `${BASE}/categories`, request);
+  return sendJson("POST", `${BASE}/categories`, request, AdminCategorySchema);
 }
 
 export function updateCategory(
@@ -133,6 +164,7 @@ export function updateCategory(
     "PUT",
     `${BASE}/categories/${encodeURIComponent(slug)}`,
     request,
+    AdminCategorySchema,
   );
 }
 
@@ -148,24 +180,30 @@ export function getAdminQuestions(
 ): Promise<readonly AdminQuestionResponse[]> {
   return getJson(
     `${BASE}/questions?category=${encodeURIComponent(categorySlug)}`,
+    AdminQuestionListSchema,
   );
 }
 
 export function getAdminQuestion(id: number): Promise<AdminQuestionResponse> {
-  return getJson(`${BASE}/questions/${id}`);
+  return getJson(`${BASE}/questions/${id}`, AdminQuestionSchema);
 }
 
 export function createQuestion(
   request: QuestionRequest,
 ): Promise<AdminQuestionResponse> {
-  return sendJson("POST", `${BASE}/questions`, request);
+  return sendJson("POST", `${BASE}/questions`, request, AdminQuestionSchema);
 }
 
 export function updateQuestion(
   id: number,
   request: QuestionRequest,
 ): Promise<AdminQuestionResponse> {
-  return sendJson("PUT", `${BASE}/questions/${id}`, request);
+  return sendJson(
+    "PUT",
+    `${BASE}/questions/${id}`,
+    request,
+    AdminQuestionSchema,
+  );
 }
 
 export function deleteQuestion(id: number): Promise<void> {

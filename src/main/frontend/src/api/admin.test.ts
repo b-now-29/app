@@ -60,7 +60,7 @@ import type {
   AdminUserResponse,
   QuestionRequest,
 } from "./admin";
-import { ApiError, NotFoundError } from "./http";
+import { ApiError, NotFoundError, ResponseFormatError } from "./http";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 
@@ -197,6 +197,16 @@ describe("카테고리", () => {
       });
     },
   );
+
+  it("응답 모양이 다르면 ResponseFormatError를 던진다 (api-response-validation R2)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([{ ...CATEGORY, questionCount: "5" }]),
+    );
+
+    await expect(getAdminCategories()).rejects.toBeInstanceOf(
+      ResponseFormatError,
+    );
+  });
 
   it.each([401, 403])(
     "%i 응답도 상태를 담은 ApiError다 (loader가 로그인·홈으로 보낸다)",
