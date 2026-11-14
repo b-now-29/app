@@ -18,12 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
-    private final TokenService tokenService;
     private final AuthCookies authCookies;
 
-    public UserController(UserService userService, TokenService tokenService, AuthCookies authCookies) {
+    public UserController(UserService userService, AuthCookies authCookies) {
         this.userService = userService;
-        this.tokenService = tokenService;
         this.authCookies = authCookies;
     }
 
@@ -33,9 +31,7 @@ public class UserController {
         UserResponse response = userService.signUp(
                 request.email(), request.password(), request.nickname(), httpRequest.getRemoteAddr());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .header(
-                        HttpHeaders.SET_COOKIE,
-                        authCookies.issue(tokenService.issue(response.id())).toString())
+                .header(HttpHeaders.SET_COOKIE, authCookies.issueFor(response.id()))
                 .body(response);
     }
 
