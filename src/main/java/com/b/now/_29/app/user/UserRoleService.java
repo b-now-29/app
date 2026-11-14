@@ -3,7 +3,7 @@ package com.b.now._29.app.user;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 관리자 요청마다 DB에서 role을 확인한다. JWT에는 role을 넣지 않으므로 role 변경이 바로 반영된다 (D3). */
+/** 보안 계층이 요청마다 쓰는 회원 role 조회. JWT에는 role을 넣지 않으므로 role 변경이 바로 반영된다. */
 @Service
 @Transactional(readOnly = true)
 public class UserRoleService {
