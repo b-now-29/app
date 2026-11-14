@@ -22,13 +22,16 @@ import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWit
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
 import jakarta.servlet.http.Cookie;
+import java.time.Duration;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -86,10 +89,12 @@ class UserControllerTest {
     @MockitoBean
     UserService userService;
 
+    private final String clientIp = ClientIps.unique();
+
     @Test
     @DisplayName("가입하면 201, 닉네임과 번호를 포함한 UserResponse, 바로 로그인되는 쿠키를 응답한다 (R1, nickname R1, R8)")
     void signUp() throws Exception {
-        given(userService.signUp(EMAIL, PASSWORD, NICKNAME)).willReturn(response(Role.USER));
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp)).willReturn(response(Role.USER));
 
         MvcResult result = postUser(body(EMAIL, PASSWORD))
                 .andExpect(status().isCreated())
@@ -121,7 +126,8 @@ class UserControllerTest {
     @Test
     @DisplayName("앞뒤 공백과 대문자가 있는 이메일은 형식 오류가 아니다 (R2)")
     void signUpAcceptsUnnormalizedEmail() throws Exception {
-        given(userService.signUp(anyString(), eq(PASSWORD), anyString())).willReturn(response(Role.USER));
+        given(userService.signUp(anyString(), eq(PASSWORD), anyString(), eq(clientIp)))
+                .willReturn(response(Role.USER));
 
         postUser(body("  User@Example.COM ", PASSWORD))
                 .andExpect(status().isCreated())
@@ -132,7 +138,7 @@ class UserControllerTest {
     @DisplayName("중복 이메일은 409 ProblemDetail이고 쿠키를 주지 않는다 (R2)")
     void signUpWithDuplicateEmail() throws Exception {
         DuplicateEmailException exception = new DuplicateEmailException(EMAIL);
-        given(userService.signUp(EMAIL, PASSWORD, NICKNAME)).willThrow(exception);
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp)).willThrow(exception);
 
         MvcResult result = postUser(body(EMAIL, PASSWORD))
                 .andExpect(problemDetail(HttpStatus.CONFLICT))
@@ -155,7 +161,7 @@ class UserControllerTest {
     @MethodSource("validPasswords")
     @DisplayName("8자 이상, UTF-8 72바이트 이하의 비밀번호는 가입할 수 있다 (R3)")
     void signUpWithValidPassword(String password) throws Exception {
-        given(userService.signUp(EMAIL, password, NICKNAME)).willReturn(response(Role.USER));
+        given(userService.signUp(EMAIL, password, NICKNAME, clientIp)).willReturn(response(Role.USER));
 
         postUser(body(EMAIL, password)).andExpect(status().isCreated());
     }
@@ -232,7 +238,7 @@ class UserControllerTest {
     @DisplayName("정확히 255자인 형식상 유효한 이메일은 가입할 수 있다 (D19)")
     void signUpWithEmailAtMaxLength() throws Exception {
         String email = emailOfLength(MAX_EMAIL_LENGTH);
-        given(userService.signUp(email, PASSWORD, NICKNAME))
+        given(userService.signUp(email, PASSWORD, NICKNAME, clientIp))
                 .willReturn(new UserResponse(USER_ID, email, Role.USER, NICKNAME, TAG));
 
         postUser(body(email, PASSWORD)).andExpect(status().isCreated());
@@ -262,7 +268,8 @@ class UserControllerTest {
     @MethodSource("validNicknames")
     @DisplayName("규칙에 맞는 닉네임은 가입할 수 있다 (nickname R1, D7)")
     void signUpWithValidNickname(String description, String nickname) throws Exception {
-        given(userService.signUp(eq(EMAIL), eq(PASSWORD), anyString())).willReturn(response(Role.USER));
+        given(userService.signUp(eq(EMAIL), eq(PASSWORD), anyString(), eq(clientIp)))
+                .willReturn(response(Role.USER));
 
         postUser(body(EMAIL, PASSWORD, json(nickname))).andExpect(status().isCreated());
     }
@@ -457,9 +464,72 @@ class UserControllerTest {
         then(userService).shouldHaveNoInteractions();
     }
 
+    // 가입 시도 제한 (login-hardening R9, D5, D12, API 계약)
+
+    @Test
+    @DisplayName("요청의 remoteAddr를 클라이언트 IP로 Service에 넘긴다 (D12)")
+    void signUpPassesRemoteAddrToService() throws Exception {
+        String ip = ClientIps.unique();
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, ip)).willReturn(response(Role.USER));
+
+        mvc.perform(post("/api/v1/users")
+                        .with(ClientIps.from(ip))
+                        .header("X-Forwarded-For", ClientIps.unique())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(EMAIL, PASSWORD)))
+                .andExpect(status().isCreated());
+
+        then(userService).should().signUp(EMAIL, PASSWORD, NICKNAME, ip);
+    }
+
+    @Test
+    @DisplayName("가입 시도가 너무 많으면 429 ProblemDetail과 남은 초를 올림한 Retry-After를 주고 쿠키는 주지 않는다 (R9, R15, D5)")
+    void signUpWithTooManyAttempts() throws Exception {
+        // 42분 0.3초 남음 → 2521초로 올림
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp))
+                .willThrow(new TooManySignUpAttemptsException(
+                        Duration.ofMinutes(42).plusMillis(300)));
+
+        MvcResult result = postUser(body(EMAIL, PASSWORD))
+                .andExpect(problemDetail(HttpStatus.TOO_MANY_REQUESTS))
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "2521"))
+                .andExpect(jsonPath("$.title").value("Too Many Requests"))
+                .andExpect(jsonPath("$.detail").value("가입 시도가 너무 많습니다. 잠시 뒤에 다시 시도해 주세요."))
+                .andExpect(jsonPath("$.instance").value("/api/v1/users"))
+                .andDo(document(
+                        "users-signup-too-many-attempts",
+                        responseHeaders(
+                                headerWithName(HttpHeaders.RETRY_AFTER).description("다시 가입을 시도할 수 있을 때까지 남은 시간 (초)"))))
+                .andReturn();
+
+        assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE)).isNull();
+    }
+
+    static Stream<Arguments> retryAfterSeconds() {
+        return Stream.of(
+                arguments(Duration.ofSeconds(30), "30"),
+                arguments(Duration.ofSeconds(30).plusNanos(1), "31"), // 올림
+                arguments(Duration.ofMillis(1), "1"), // 1초 미만도 올림
+                arguments(Duration.ZERO, "1")); // 최소 1
+    }
+
+    @ParameterizedTest(name = "{0} → {1}")
+    @MethodSource("retryAfterSeconds")
+    @DisplayName("Retry-After는 남은 시간을 초 단위로 올림하고 최소 1이다 (R15)")
+    void retryAfterIsCeilingSecondsAtLeastOne(Duration retryAfter, String expected) throws Exception {
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp))
+                .willThrow(new TooManySignUpAttemptsException(retryAfter));
+
+        postUser(body(EMAIL, PASSWORD))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, expected));
+    }
+
     private ResultActions postUser(String requestBody) throws Exception {
-        return mvc.perform(
-                post("/api/v1/users").contentType(MediaType.APPLICATION_JSON).content(requestBody));
+        return mvc.perform(post("/api/v1/users")
+                .with(ClientIps.from(clientIp))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody));
     }
 
     private ResultActions putNickname(String requestBody, Cookie cookie) throws Exception {

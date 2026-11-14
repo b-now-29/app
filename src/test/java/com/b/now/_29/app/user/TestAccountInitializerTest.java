@@ -28,6 +28,9 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  *   <li>{@code UserService.signUp(String email, String password, String nickname, Role role): UserResponse} — 기존
  *       {@code signUp(email, password, nickname)}은 {@code Role.USER}로 이것을 부른다
  * </ul>
+ *
+ * <p>(login-hardening R17) 제한 없는 가입 경로는 {@code UserService.createAccount(String email, String password, String
+ * nickname, Role role)}로 이름이 바뀐다. 테스트 계정은 IP 제한을 받지 않으므로 이것을 쓴다.
  */
 @ExtendWith(MockitoExtension.class)
 class TestAccountInitializerTest {
@@ -78,7 +81,7 @@ class TestAccountInitializerTest {
 
         initializer().run(new DefaultApplicationArguments());
 
-        then(userService).should().signUp(EMAIL, PASSWORD, NICKNAME, Role.USER);
+        then(userService).should().createAccount(EMAIL, PASSWORD, NICKNAME, Role.USER);
         then(userService).shouldHaveNoMoreInteractions();
     }
 
@@ -90,7 +93,7 @@ class TestAccountInitializerTest {
 
         initializer().run(new DefaultApplicationArguments());
 
-        then(userService).should().signUp(ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NICKNAME, Role.ADMIN);
+        then(userService).should().createAccount(ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NICKNAME, Role.ADMIN);
         then(userService).shouldHaveNoMoreInteractions();
     }
 
@@ -102,8 +105,8 @@ class TestAccountInitializerTest {
 
         initializer().run(new DefaultApplicationArguments());
 
-        then(userService).should().signUp(EMAIL, PASSWORD, NICKNAME, Role.USER);
-        then(userService).should().signUp(ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NICKNAME, Role.ADMIN);
+        then(userService).should().createAccount(EMAIL, PASSWORD, NICKNAME, Role.USER);
+        then(userService).should().createAccount(ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NICKNAME, Role.ADMIN);
     }
 
     @Test

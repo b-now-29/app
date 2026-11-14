@@ -31,7 +31,7 @@ public class TestAccountInitializer implements ApplicationRunner {
 
     private void createIfMissing(String email, String password, Role role, String nickname) {
         if (!userRepository.existsByEmail(email)) {
-            userService.signUp(email, password, nickname, role);
+            userService.createAccount(email, password, nickname, role);
         }
     }
 }
