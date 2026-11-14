@@ -8,7 +8,7 @@
 // 실패는 상태 코드를 담은 ApiError로 던진다. 카테고리 랭킹의 404는 기존 문제 API처럼 NotFoundError로 던져
 // QuizErrorPage가 404 화면을 그리게 한다 (R9).
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, NotFoundError } from "./http";
+import { ApiError, NotFoundError, ResponseFormatError } from "./http";
 import { getCategoryRankings, getRankings } from "./rankings";
 import type { RankingResponse } from "./rankings";
 
@@ -51,6 +51,14 @@ describe("getRankings", () => {
     fetchMock.mockResolvedValue(jsonResponse(empty));
 
     await expect(getRankings()).resolves.toEqual(empty);
+  });
+
+  it("응답 모양이 다르면 ResponseFormatError를 던진다 (api-response-validation R2)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ entries: [], me: { score: 5 } }),
+    );
+
+    await expect(getRankings()).rejects.toBeInstanceOf(ResponseFormatError);
   });
 
   it("500 응답이면 상태 코드를 담은 ApiError를 던진다", async () => {

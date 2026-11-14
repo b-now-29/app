@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   ApiError,
   getJson,
   NotFoundError,
+  ResponseFormatError,
   sendJson,
   sendJsonForNoContent,
   sendWithoutBody,
@@ -10,6 +12,9 @@ import {
 } from "./http";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
+
+const CategoriesSchema = z.array(z.object({ slug: z.string() }));
+const CreatedSchema = z.object({ id: z.number() });
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -114,19 +119,49 @@ describe("toApiError", () => {
 });
 
 describe("getJson", () => {
-  it("주소를 GET으로 조회해 JSON 본문을 돌려준다", async () => {
+  it("주소를 GET으로 조회해 스키마를 통과한 JSON 본문을 돌려준다 (R1)", async () => {
     fetchMock.mockResolvedValue(jsonResponse([{ slug: "java" }]));
 
-    await expect(getJson("/api/v1/categories")).resolves.toEqual([
-      { slug: "java" },
-    ]);
+    await expect(
+      getJson("/api/v1/categories", CategoriesSchema),
+    ).resolves.toEqual([{ slug: "java" }]);
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/categories");
   });
 
-  it("실패 응답은 상태와 서버 메시지를 담은 ApiError다", async () => {
+  it.each([
+    ["필드 타입이 다르면", [{ slug: 1 }]],
+    ["필드가 없으면", [{}]],
+    ["배열 자리에 객체가 오면", { slug: "java" }],
+    ["본문이 null이면", null],
+  ])("%s URL을 담은 ResponseFormatError를 던진다 (R2)", async (_case, body) => {
+    fetchMock.mockResolvedValue(jsonResponse(body));
+
+    const error = await caught(getJson("/api/v1/categories", CategoriesSchema));
+
+    expect(error).toBeInstanceOf(ResponseFormatError);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      message: expect.stringContaining("/api/v1/categories"),
+    });
+  });
+
+  it("스키마에 없는 필드는 실패하지 않고 결과에서 빠진다 (R3)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([{ slug: "java", addedLater: "새 필드" }]),
+    );
+
+    await expect(
+      getJson("/api/v1/categories", CategoriesSchema),
+    ).resolves.toStrictEqual([{ slug: "java" }]);
+  });
+
+  it("실패 응답은 스키마 검증 전에 상태와 서버 메시지를 담은 ApiError다", async () => {
     fetchMock.mockResolvedValue(problemResponse(401, "로그인이 필요합니다."));
 
-    const error = await caught(getJson("/api/v1/users/me/attempts"));
+    const error = await caught(
+      getJson("/api/v1/users/me/attempts", CategoriesSchema),
+    );
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({
@@ -138,7 +173,9 @@ describe("getJson", () => {
   it("404 응답은 NotFoundError다", async () => {
     fetchMock.mockResolvedValue(problemResponse(404, "없습니다."));
 
-    const error = await caught(getJson("/api/v1/admin/questions/1"));
+    const error = await caught(
+      getJson("/api/v1/admin/questions/1", CreatedSchema),
+    );
 
     expect(error).toBeInstanceOf(NotFoundError);
     expect(error).toMatchObject({ status: 404 });
@@ -148,19 +185,21 @@ describe("getJson", () => {
     const failure = new TypeError("Failed to fetch");
     fetchMock.mockRejectedValue(failure);
 
-    await expect(getJson("/api/v1/categories")).rejects.toBe(failure);
+    await expect(getJson("/api/v1/categories", CategoriesSchema)).rejects.toBe(
+      failure,
+    );
   });
 });
 
 describe("sendJson", () => {
   it.each(["POST", "PUT"] as const)(
-    "%s로 JSON 헤더와 직렬화한 본문을 보내고 JSON 응답 본문을 돌려준다",
+    "%s로 JSON 헤더와 직렬화한 본문을 보내고 스키마를 통과한 JSON 응답 본문을 돌려준다 (R1)",
     async (method) => {
       const body = { name: "Java", description: null, sortOrder: 10 };
       fetchMock.mockResolvedValue(jsonResponse({ id: 1 }, 201));
 
       await expect(
-        sendJson(method, "/api/v1/admin/categories", body),
+        sendJson(method, "/api/v1/admin/categories", body, CreatedSchema),
       ).resolves.toEqual({ id: 1 });
       expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/categories", {
         method,
@@ -170,12 +209,42 @@ describe("sendJson", () => {
     },
   );
 
+  it.each(["POST", "PUT"] as const)(
+    "%s 응답 모양이 스키마와 다르면 URL을 담은 ResponseFormatError를 던진다 (R2)",
+    async (method) => {
+      fetchMock.mockResolvedValue(jsonResponse({ id: "1" }));
+
+      const error = await caught(
+        sendJson(method, "/api/v1/admin/categories", {}, CreatedSchema),
+      );
+
+      expect(error).toBeInstanceOf(ResponseFormatError);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        message: expect.stringContaining("/api/v1/admin/categories"),
+      });
+    },
+  );
+
+  it("스키마에 없는 필드는 실패하지 않고 결과에서 빠진다 (R3)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ id: 1, addedLater: "새 필드" }, 201),
+    );
+
+    await expect(
+      sendJson("POST", "/api/v1/admin/categories", {}, CreatedSchema),
+    ).resolves.toStrictEqual({ id: 1 });
+  });
+
   it("실패 응답은 상태와 서버 메시지를 담은 ApiError다", async () => {
     fetchMock.mockResolvedValue(
       problemResponse(400, "입력이 올바르지 않습니다."),
     );
 
-    const error = await caught(sendJson("POST", "/api/v1/users", {}));
+    const error = await caught(
+      sendJson("POST", "/api/v1/users", {}, CreatedSchema),
+    );
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({
@@ -188,7 +257,7 @@ describe("sendJson", () => {
     fetchMock.mockResolvedValue(problemResponse(404, "없습니다."));
 
     const error = await caught(
-      sendJson("PUT", "/api/v1/admin/questions/1", {}),
+      sendJson("PUT", "/api/v1/admin/questions/1", {}, CreatedSchema),
     );
 
     expect(error).toBeInstanceOf(NotFoundError);

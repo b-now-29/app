@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategories } from "./categories";
 import type { CategoryResponse } from "./categories";
-import { ApiError } from "./http";
+import { ApiError, ResponseFormatError } from "./http";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 
@@ -27,6 +27,12 @@ describe("getCategories", () => {
 
     await expect(getCategories()).resolves.toEqual(categories);
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/categories");
+  });
+
+  it("응답 모양이 다르면 ResponseFormatError를 던진다 (api-response-validation R2)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([{ slug: "java" }]));
+
+    await expect(getCategories()).rejects.toBeInstanceOf(ResponseFormatError);
   });
 
   it("실패 응답은 상태와 서버 메시지를 담은 ApiError다", async () => {

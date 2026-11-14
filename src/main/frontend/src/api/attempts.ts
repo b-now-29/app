@@ -1,32 +1,45 @@
-import type { QuestionType } from "./questions";
+import { z } from "zod";
+import { QuestionTypeSchema } from "./questions";
 import { getJson } from "./http";
 
-export type TypeStatResponse = {
-  readonly type: QuestionType;
-  readonly solvedQuestions: number;
-  readonly correctQuestions: number;
-};
+const TypeStatSchema = z
+  .object({
+    type: QuestionTypeSchema,
+    solvedQuestions: z.number(),
+    correctQuestions: z.number(),
+  })
+  .readonly();
+export type TypeStatResponse = z.infer<typeof TypeStatSchema>;
 
-export type CategoryStatResponse = {
-  readonly slug: string;
-  readonly name: string;
-  readonly types: readonly TypeStatResponse[];
-};
+const CategoryStatSchema = z
+  .object({
+    slug: z.string(),
+    name: z.string(),
+    types: z.array(TypeStatSchema).readonly(),
+  })
+  .readonly();
+export type CategoryStatResponse = z.infer<typeof CategoryStatSchema>;
 
-export type AttemptResponse = {
-  readonly id: number;
-  readonly questionId: number;
-  readonly questionContent: string;
-  readonly questionType: QuestionType;
-  readonly categoryName: string;
-  readonly correct: boolean;
-  readonly attemptedAt: string;
-};
+const AttemptSchema = z
+  .object({
+    id: z.number(),
+    questionId: z.number(),
+    questionContent: z.string(),
+    questionType: QuestionTypeSchema,
+    categoryName: z.string(),
+    correct: z.boolean(),
+    attemptedAt: z.string(),
+  })
+  .readonly();
+export type AttemptResponse = z.infer<typeof AttemptSchema>;
+
+const CategoryStatListSchema = z.array(CategoryStatSchema).readonly();
+const AttemptListSchema = z.array(AttemptSchema).readonly();
 
 export function getCategoryStats(): Promise<readonly CategoryStatResponse[]> {
-  return getJson("/api/v1/users/me/category-stats");
+  return getJson("/api/v1/users/me/category-stats", CategoryStatListSchema);
 }
 
 export function getRecentAttempts(): Promise<readonly AttemptResponse[]> {
-  return getJson("/api/v1/users/me/attempts");
+  return getJson("/api/v1/users/me/attempts", AttemptListSchema);
 }
