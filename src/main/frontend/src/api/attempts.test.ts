@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategoryStats, getRecentAttempts } from "./attempts";
 import type { AttemptResponse, CategoryStatResponse } from "./attempts";
-import { ApiError } from "./users";
+import { ApiError } from "./http";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 

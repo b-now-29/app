@@ -14,7 +14,7 @@ import type {
   AdminQuestionResponse,
 } from "../api/admin";
 import type { QuestionType } from "../api/questions";
-import { errorMessage } from "../api/users";
+import { errorMessage } from "./actionError";
 import { ActionButton } from "seed-design/ui/action-button";
 import {
   TextField,

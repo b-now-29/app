@@ -1,5 +1,4 @@
-import { NotFoundError } from "./questions";
-import { toApiError } from "./users";
+import { getJson } from "./http";
 
 export type RankingEntryResponse = {
   readonly rank: number;
@@ -20,26 +19,11 @@ export type RankingResponse = {
   readonly me: MyRankingResponse | null;
 };
 
-export async function getRankings(): Promise<RankingResponse> {
-  const response = await fetch("/api/v1/rankings");
-  if (!response.ok) {
-    throw await toApiError(response);
-  }
-  return (await response.json()) as RankingResponse;
+export function getRankings(): Promise<RankingResponse> {
+  return getJson("/api/v1/rankings");
 }
 
-export async function getCategoryRankings(
-  slug: string,
-): Promise<RankingResponse> {
+export function getCategoryRankings(slug: string): Promise<RankingResponse> {
   // slug는 주소창에서 온 값이므로, 인코딩하지 않으면 "../"가 호출 경로를 바꿀 수 있다
-  const response = await fetch(
-    `/api/v1/categories/${encodeURIComponent(slug)}/rankings`,
-  );
-  if (response.status === 404) {
-    throw new NotFoundError(`없는 카테고리: ${slug}`);
-  }
-  if (!response.ok) {
-    throw await toApiError(response);
-  }
-  return (await response.json()) as RankingResponse;
+  return getJson(`/api/v1/categories/${encodeURIComponent(slug)}/rankings`);
 }

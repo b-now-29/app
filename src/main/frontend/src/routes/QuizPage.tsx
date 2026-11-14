@@ -13,7 +13,7 @@ import {
   submitSelfGrade,
   submitTextAnswer,
 } from "../api/questions";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import type { UserResponse } from "../api/users";
 import type {
   AnswerResponse,

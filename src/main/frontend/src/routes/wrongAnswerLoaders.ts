@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import type { QuestionResponse } from "../api/questions";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import { getWrongAnswerQuestions, getWrongAnswers } from "../api/wrongAnswers";
 import type { WrongAnswerCategoryResponse } from "../api/wrongAnswers";
 

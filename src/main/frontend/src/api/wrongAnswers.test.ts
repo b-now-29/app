@@ -7,9 +7,8 @@
 // 401 등 실패는 상태 코드를 담은 ApiError로 던진다 (loader가 401이면 /login으로 보낸다).
 // 다시 풀기용 문제의 404는 QuizErrorPage가 404 화면을 그리도록 기존 문제 API처럼 NotFoundError로 던진다.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFoundError } from "./questions";
+import { ApiError, NotFoundError } from "./http";
 import type { QuestionResponse } from "./questions";
-import { ApiError } from "./users";
 import { getWrongAnswerQuestions, getWrongAnswers } from "./wrongAnswers";
 import type { WrongAnswerCategoryResponse } from "./wrongAnswers";
 
