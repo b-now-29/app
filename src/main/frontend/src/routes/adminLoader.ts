@@ -1,6 +1,6 @@
 import { redirect } from "react-router";
 import { getAdminCategories } from "../api/admin";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 
 // 비회원(401)은 로그인 화면, USER(403)는 홈으로 보낸다. 그 밖의 실패는 에러 화면이 그리도록 다시 던진다.
 export function rethrowAsRedirect(error: unknown): never {

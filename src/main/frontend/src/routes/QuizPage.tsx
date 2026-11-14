@@ -13,7 +13,6 @@ import {
   submitSelfGrade,
   submitTextAnswer,
 } from "../api/questions";
-import { ApiError } from "../api/users";
 import type { UserResponse } from "../api/users";
 import type {
   AnswerResponse,
@@ -24,9 +23,12 @@ import ChoiceList from "../components/ChoiceList";
 import SelfGradeButtons from "../components/SelfGradeButtons";
 import TextAnswerInput from "../components/TextAnswerInput";
 import {
+  canSubmit,
   createInitialState,
   isLastQuestion,
   quizReducer,
+  selfGradeSaveFailureAction,
+  shouldSaveSelfGrade,
 } from "../quiz/quizReducer";
 import type { SelfGradedQuestionType } from "../quiz/quizReducer";
 import { countQuestionsByType, scoreLines } from "../quiz/quizScore";
@@ -77,6 +79,7 @@ function QuizSession({
   const questionTitleId = useId();
   // 회원 여부는 앱 맨 위 route(root)의 loader 데이터로 안다. 비회원이면 null이다.
   const user = useRouteLoaderData("root") as UserResponse | null;
+  const isMember = user !== null;
 
   // 저장 중인지 즉시 기록한다. 빠른 연속 클릭은 같은 렌더의 state를 보므로 state만으로는 중복 호출을 못 막는다.
   const savingSelfGrade = useRef(false);
@@ -112,11 +115,7 @@ function QuizSession({
     dispatch({ type: "submitStart" });
     try {
       const result = await submitAnswer(question.id, selectedChoiceId);
-      dispatch({ type: "submitSuccess", result });
-      // 회원인데 저장되지 않았으면 로그인 만료로 본다. 이미 감지했으면 번호를 바꾸지 않는다
-      if (user !== null && state.loginExpiredAt === null && !result.recorded) {
-        dispatch({ type: "loginExpired" });
-      }
+      dispatch({ type: "submitSuccess", result, isMember });
     } catch {
       dispatch({ type: "submitFailure" });
     }
@@ -127,7 +126,7 @@ function QuizSession({
     questionType: SelfGradedQuestionType,
     correct: boolean,
   ) {
-    if (user === null || state.loginExpiredAt !== null) {
+    if (!shouldSaveSelfGrade(state, isMember)) {
       dispatch({ type: "selfGrade", questionType, correct });
       return;
     }
@@ -138,18 +137,14 @@ function QuizSession({
       await submitSelfGrade(question.id, correct);
       dispatch({ type: "selfGrade", questionType, correct });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        dispatch({ type: "selfGradeSaveUnauthorized", questionType, correct });
-      } else {
-        dispatch({ type: "selfGradeSaveFailure" });
-      }
+      dispatch(selfGradeSaveFailureAction(error, questionType, correct));
     } finally {
       savingSelfGrade.current = false;
     }
   }
 
   async function submitText() {
-    if (textAnswer.trim() === "") return;
+    if (!canSubmit(state, question.type)) return;
     dispatch({ type: "submitStart" });
     try {
       const reveal = await submitTextAnswer(question.id, textAnswer);
@@ -164,7 +159,6 @@ function QuizSession({
   const questionType = question.type;
   let answerArea: React.ReactNode;
   let selfGradeArea: React.ReactNode;
-  let canSubmit: boolean;
   let handleSubmit: () => Promise<void>;
   switch (questionType) {
     case "MULTIPLE_CHOICE":
@@ -179,7 +173,6 @@ function QuizSession({
         />
       );
       selfGradeArea = null; // 객관식은 서버가 채점하므로 자기 채점이 없다
-      canSubmit = selectedChoiceId !== null;
       handleSubmit = submitChoice;
       break;
     case "SHORT_ANSWER":
@@ -197,7 +190,6 @@ function QuizSession({
           onSelect={(correct) => void selfGrade(questionType, correct)}
         />
       );
-      canSubmit = textAnswer.trim() !== "";
       handleSubmit = submitText;
       break;
     default:
@@ -253,7 +245,9 @@ function QuizSession({
           variant="neutralSolid"
           loading={state.phase === "submitting"}
           // SEED 버튼의 loading은 모양만 바꾸고 클릭을 막지 않으므로 disabled도 같이 준다
-          disabled={!canSubmit || state.phase === "submitting"}
+          disabled={
+            !canSubmit(state, questionType) || state.phase === "submitting"
+          }
           onClick={handleSubmit}
         >
           제출

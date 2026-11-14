@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategoryStats, getRecentAttempts } from "../api/attempts";
 import type { AttemptResponse, CategoryStatResponse } from "../api/attempts";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import { historyLoader } from "./historyLoader";
 
 vi.mock("../api/attempts", async (importOriginal) => ({

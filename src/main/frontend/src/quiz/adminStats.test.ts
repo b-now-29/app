@@ -1,7 +1,7 @@
 // 관리자 통계 문구 (docs/features/admin-stats.md R2, R3, 화면 흐름).
 // 구현할 파일: src/quiz/adminStats.ts (React를 import하지 않는 순수 함수)
 //   export function categoryTypeStatLine(stat: AdminTypeStatResponse): string
-//     → "객관식 풀이 12건 중 정답 9건 (75%)". 유형 이름은 quizScore.ts의 QUESTION_TYPE_NAMES,
+//     → "객관식 풀이 12건 중 정답 9건 (75%)". 유형 이름은 questionType.ts의 QUESTION_TYPE_NAMES,
 //       퍼센트는 accuracy.ts의 accuracyPercent (반올림)
 //   export function questionStatLine(stat: Pick<AdminQuestionStatResponse, "solvedUsers" | "correctUsers">): string
 //     → "5명 중 4명 정답 (80%)". 푼 회원이 0명이면 "풀이 기록 없음" (0으로 나누지 않는다)

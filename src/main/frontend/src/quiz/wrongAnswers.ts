@@ -3,7 +3,7 @@ import type {
   WrongAnswerQuestionResponse,
 } from "../api/wrongAnswers";
 import { formatDate } from "./date";
-import { QUESTION_TYPE_NAMES } from "./quizScore";
+import { QUESTION_TYPE_NAMES } from "./questionType";
 
 // 카테고리 제목: "이름 N문제"
 export function wrongAnswerCategoryTitle(

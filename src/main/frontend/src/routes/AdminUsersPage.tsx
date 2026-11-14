@@ -7,7 +7,7 @@ import {
 } from "react-router";
 import { changeUserRole } from "../api/admin";
 import type { AdminUserResponse } from "../api/admin";
-import { errorMessage } from "../api/users";
+import { errorMessage } from "./actionError";
 import type { UserResponse } from "../api/users";
 import { formatDate } from "../quiz/date";
 import { roleAction } from "../quiz/adminUsers";

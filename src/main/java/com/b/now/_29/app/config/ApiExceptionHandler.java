@@ -13,8 +13,11 @@ import com.b.now._29.app.user.InvalidCredentialsException;
 import com.b.now._29.app.user.InvalidNicknameException;
 import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.SelfDemotionNotAllowedException;
+import com.b.now._29.app.user.TooManyAttemptsException;
 import com.b.now._29.app.user.UserNotFoundException;
+import com.b.now._29.app.user.WrongCurrentPasswordException;
 import com.b.now._29.app.user.admin.AdminUserNotFoundException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,7 +71,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         InvalidChoiceException.class,
         UnsupportedAnswerTypeException.class,
         InvalidQuestionException.class,
-        InvalidNicknameException.class
+        InvalidNicknameException.class,
+        WrongCurrentPasswordException.class
     })
     public ProblemDetail handleBadRequest(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
@@ -88,6 +92,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     })
     public ProblemDetail handleConflict(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(TooManyAttemptsException.class)
+    public ResponseEntity<ProblemDetail> handleTooManyRequests(TooManyAttemptsException exception) {
+        Duration retryAfter = exception.retryAfter();
+        long seconds = retryAfter.getSeconds() + (retryAfter.getNano() > 0 ? 1 : 0);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(Math.max(1, seconds)))
+                .body(problem);
     }
 
     /**

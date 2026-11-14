@@ -3,6 +3,7 @@
 ## 기능 개발 순서
 
 1. 메인 세션이 `docs/feature-template.md`를 바탕으로 `docs/features/<slug>.md` 초안을 쓰고 사용자 확인을 받는다. 열린 질문이 남아 있으면 구현을 시작하지 않는다.
+   - 결정에 "어느 클래스에 무엇을 둔다"를 적을 때 그 클래스의 지금 역할(이름·클래스 주석)과 맞는지 한 줄 근거를 같이 적는다. 맞지 않으면 새 클래스를 결정으로 둔다.
 2. test-writer가 이 기능의 테스트를 모두 작성하고 한 번 실행해 백엔드·프론트 모두 red인지 확인한다. 컴파일 실패도 red다.
 3. backend-dev, frontend-dev가 프로덕션 코드를 작성한다. 컴파일만 확인하고 테스트는 실행하지 않는다.
 4. 사용자가 `./gradlew check`와 `./gradlew integrationTest`로 green을 확인한다. 메인 세션은 Gradle을 대신 실행하지 않는다.

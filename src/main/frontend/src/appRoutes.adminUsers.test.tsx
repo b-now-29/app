@@ -23,18 +23,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeUserRole, getAdminCategories, getAdminUsers } from "./api/admin";
 import type { AdminUserResponse } from "./api/admin";
 import { getCategories } from "./api/categories";
-import { ApiError, getCurrentUser } from "./api/users";
+import { ApiError } from "./api/http";
+import { getCurrentUser } from "./api/users";
 import type { UserResponse } from "./api/users";
 import { appRoutes } from "./appRoutes";
 
 vi.mock("./api/admin");
 vi.mock("./api/categories");
-
-// 모듈 전체를 자동으로 대체하면 ApiError도 가짜가 되어 status와 message가 비게 된다
-vi.mock("./api/users", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./api/users")>()),
-  getCurrentUser: vi.fn(),
-}));
+vi.mock("./api/users");
 
 const ME: UserResponse = {
   id: 1,

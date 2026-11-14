@@ -60,7 +60,7 @@ import type {
   AdminUserResponse,
   QuestionRequest,
 } from "./admin";
-import { ApiError } from "./users";
+import { ApiError, NotFoundError } from "./http";
 
 const fetchMock = vi.spyOn(globalThis, "fetch");
 
@@ -343,6 +343,31 @@ describe("통계 (admin-stats)", () => {
 
       expect(error).toBeInstanceOf(ApiError);
       expect(error).toMatchObject({ status, message: "실패 이유" });
+    },
+  );
+});
+
+describe("404 응답", () => {
+  it.each([
+    ["getAdminQuestion", () => getAdminQuestion(999)],
+    ["getAdminQuestionStats", () => getAdminQuestionStats("nope")],
+    ["updateQuestion", () => updateQuestion(999, QUESTION_REQUEST)],
+    ["changeUserRole", () => changeUserRole(999, "ADMIN")],
+    ["deleteCategory", () => deleteCategory("nope")],
+    ["deleteQuestion", () => deleteQuestion(999)],
+  ])(
+    "%s가 404로 실패하면 서버 메시지를 담은 NotFoundError를 던진다",
+    async (_name, call) => {
+      fetchMock.mockResolvedValue(problemResponse(404, "찾을 수 없습니다."));
+
+      const error = await caught(call());
+
+      expect(error).toBeInstanceOf(NotFoundError);
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        status: 404,
+        message: "찾을 수 없습니다.",
+      });
     },
   );
 });

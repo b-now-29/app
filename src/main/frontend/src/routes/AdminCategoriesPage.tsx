@@ -4,31 +4,25 @@ import { useRevalidator, useRouteLoaderData } from "react-router";
 import type { FormEvent } from "react";
 import { createCategory, deleteCategory, updateCategory } from "../api/admin";
 import type { AdminCategoryResponse } from "../api/admin";
-import { errorMessage } from "../api/users";
-import { validateCategoryForm } from "../quiz/categoryForm";
+import { errorMessage } from "./actionError";
+import {
+  EMPTY_CATEGORY_FORM,
+  formFromCategory,
+  prepareCategorySubmit,
+} from "../quiz/categoryForm";
 import type {
   CategoryFormErrors,
   CategoryFormValues,
 } from "../quiz/categoryForm";
-import { parseSortOrder } from "../quiz/questionDraft";
 import { ActionButton } from "seed-design/ui/action-button";
 import { TextField, TextFieldInput } from "seed-design/ui/text-field";
-
-type FormValues = CategoryFormValues;
-
-const EMPTY_FORM: FormValues = {
-  slug: "",
-  name: "",
-  description: "",
-  sortOrder: "0",
-};
 
 export default function AdminCategoriesPage() {
   const categories = useRouteLoaderData(
     "admin",
   ) as readonly AdminCategoryResponse[];
   const { revalidate } = useRevalidator();
-  const [form, setForm] = useState<FormValues>(EMPTY_FORM);
+  const [form, setForm] = useState<CategoryFormValues>(EMPTY_CATEGORY_FORM);
   // null이면 추가, 값이 있으면 그 slug의 카테고리를 수정 중
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +30,7 @@ export default function AdminCategoriesPage() {
   const [fieldErrors, setFieldErrors] = useState<CategoryFormErrors>({});
   const [submitting, setSubmitting] = useState(false);
 
-  function change(field: keyof FormValues, value: string) {
+  function change(field: keyof CategoryFormValues, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -44,44 +38,37 @@ export default function AdminCategoriesPage() {
     setEditingSlug(category.slug);
     setError(null);
     setFieldErrors({});
-    setForm({
-      slug: category.slug,
-      name: category.name,
-      description: category.description ?? "",
-      sortOrder: String(category.sortOrder),
-    });
+    setForm(formFromCategory(category));
   }
 
   function reset() {
     setEditingSlug(null);
     setFieldErrors({});
-    setForm(EMPTY_FORM);
+    setForm(EMPTY_CATEGORY_FORM);
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    const errors = validateCategoryForm(
-      form,
-      editingSlug === null ? "create" : "edit",
-    );
-    setFieldErrors(errors);
-    const sortOrder = parseSortOrder(form.sortOrder);
-    if (Object.keys(errors).length > 0 || sortOrder === null) {
+    // 추가·수정 모두 검사 결과를 보여 주고, 통과하면 저장 함수를 만든다
+    let save: (() => Promise<unknown>) | null;
+    if (editingSlug === null) {
+      const prepared = prepareCategorySubmit(form, "create");
+      setFieldErrors(prepared.ok ? {} : prepared.errors);
+      save = prepared.ok ? () => createCategory(prepared.request) : null;
+    } else {
+      const prepared = prepareCategorySubmit(form, "edit");
+      setFieldErrors(prepared.ok ? {} : prepared.errors);
+      save = prepared.ok
+        ? () => updateCategory(editingSlug, prepared.request)
+        : null;
+    }
+    if (save === null) {
       return;
     }
     setSubmitting(true);
-    const body = {
-      name: form.name,
-      description: form.description === "" ? null : form.description,
-      sortOrder,
-    };
     try {
-      if (editingSlug === null) {
-        await createCategory({ slug: form.slug, ...body });
-      } else {
-        await updateCategory(editingSlug, body);
-      }
+      await save();
       reset();
       await revalidate();
     } catch (thrown) {

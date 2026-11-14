@@ -22,19 +22,13 @@ import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCategories } from "./api/categories";
-import { ApiError, changeNickname, getCurrentUser, logout } from "./api/users";
+import { ApiError } from "./api/http";
+import { changeNickname, getCurrentUser, logout } from "./api/users";
 import type { UserResponse } from "./api/users";
 import { appRoutes } from "./appRoutes";
 
 vi.mock("./api/categories");
-
-// 모듈 전체를 자동으로 대체하면 ApiError도 가짜가 되어 status와 message가 비게 된다
-vi.mock("./api/users", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./api/users")>()),
-  getCurrentUser: vi.fn(),
-  changeNickname: vi.fn(),
-  logout: vi.fn(),
-}));
+vi.mock("./api/users");
 
 const EMAIL = "user@example.com";
 const ME: UserResponse = {

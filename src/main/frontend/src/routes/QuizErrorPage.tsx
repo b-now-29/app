@@ -1,5 +1,5 @@
 import { useRouteError } from "react-router";
-import { NotFoundError } from "../api/questions";
+import { NotFoundError } from "../api/http";
 import ErrorPage from "./ErrorPage";
 import NotFoundPage from "./NotFoundPage";
 

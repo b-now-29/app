@@ -7,7 +7,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "../api/users";
+import { ApiError } from "../api/http";
 import { getWrongAnswers } from "../api/wrongAnswers";
 import type {
   WrongAnswerCategoryResponse,

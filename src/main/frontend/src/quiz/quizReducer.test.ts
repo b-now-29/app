@@ -4,7 +4,15 @@ import type {
   QuestionType,
   TextAnswerResponse,
 } from "../api/questions";
-import { createInitialState, isLastQuestion, quizReducer } from "./quizReducer";
+import { ApiError, NotFoundError } from "../api/http";
+import {
+  canSubmit,
+  createInitialState,
+  isLastQuestion,
+  quizReducer,
+  selfGradeSaveFailureAction,
+  shouldSaveSelfGrade,
+} from "./quizReducer";
 import type { QuizAction, QuizPhase, QuizState } from "./quizReducer";
 
 const CHOICE_ID = 10;
@@ -26,14 +34,19 @@ const WRONG_RESULT: AnswerResponse = {
 const SELECT: QuizAction = { type: "select", choiceId: CHOICE_ID };
 const SELECT_OTHER: QuizAction = { type: "select", choiceId: OTHER_CHOICE_ID };
 const SUBMIT_START: QuizAction = { type: "submitStart" };
-const SUBMIT_CORRECT: QuizAction = {
-  type: "submitSuccess",
-  result: CORRECT_RESULT,
+// 저장되지 않은 채점 응답. 회원이 받으면 로그인 만료로 본다 (D13)
+const CORRECT_UNRECORDED: AnswerResponse = {
+  ...CORRECT_RESULT,
+  recorded: false,
 };
-const SUBMIT_WRONG: QuizAction = {
-  type: "submitSuccess",
-  result: WRONG_RESULT,
-};
+const WRONG_UNRECORDED: AnswerResponse = { ...WRONG_RESULT, recorded: false };
+
+const submitSuccess = (
+  result: AnswerResponse,
+  isMember: boolean,
+): QuizAction => ({ type: "submitSuccess", result, isMember });
+const SUBMIT_CORRECT = submitSuccess(CORRECT_RESULT, true);
+const SUBMIT_WRONG = submitSuccess(WRONG_RESULT, true);
 const SUBMIT_FAILURE: QuizAction = { type: "submitFailure" };
 const NEXT: QuizAction = { type: "next" };
 
@@ -105,10 +118,14 @@ const loginExpired = () => run(savingSelfGrade(), SAVE_UNAUTHORIZED);
 const revealedAfterLoginExpired = () =>
   run(loginExpired(), INPUT, SUBMIT_START, REVEAL_SUCCESS);
 
-// 회원인데 객관식 제출 응답이 recorded: false라서 화면이 로그인 만료로 본 경우 (D13)
-const LOGIN_EXPIRED: QuizAction = { type: "loginExpired" };
-// 첫 문제(객관식) 채점 뒤 만료를 감지한 상태
-const gradedLoginExpired = () => run(graded(), LOGIN_EXPIRED);
+// 회원인데 객관식 제출 응답이 recorded: false라서 로그인 만료로 보는 경우 (D13)
+const MEMBER_CORRECT_UNRECORDED = submitSuccess(CORRECT_UNRECORDED, true);
+const MEMBER_WRONG_UNRECORDED = submitSuccess(WRONG_UNRECORDED, true);
+// 비회원은 늘 recorded: false를 받으며 로그인 만료가 아니다
+const GUEST_CORRECT = submitSuccess(CORRECT_UNRECORDED, false);
+const GUEST_WRONG = submitSuccess(WRONG_UNRECORDED, false);
+// 첫 문제(객관식) 채점 응답에서 만료를 감지한 상태
+const gradedLoginExpired = () => run(submitting(), MEMBER_CORRECT_UNRECORDED);
 
 describe("quizReducer", () => {
   describe("초기 상태", () => {
@@ -605,46 +622,127 @@ describe("quizReducer", () => {
       });
 
       it("이미 로그인 만료를 감지했으면 뒤 문제의 객관식 만료 감지로 번호가 바뀌지 않는다 (D13)", () => {
-        const gradedAfterLoginExpired = run(
+        const submittingAfterLoginExpired = run(
           loginExpired(),
           SELECT,
           SUBMIT_START,
-          SUBMIT_CORRECT,
         );
 
-        expect(gradedAfterLoginExpired).toMatchObject({
-          phase: "graded",
+        expect(submittingAfterLoginExpired).toMatchObject({
+          phase: "submitting",
           currentIndex: 1,
           loginExpiredAt: 0,
         });
-        expect(run(gradedAfterLoginExpired, LOGIN_EXPIRED)).toEqual(
-          gradedAfterLoginExpired,
-        );
+        expect(
+          run(submittingAfterLoginExpired, MEMBER_CORRECT_UNRECORDED),
+        ).toEqual({
+          ...submittingAfterLoginExpired,
+          phase: "graded",
+          result: CORRECT_UNRECORDED,
+          correctCounts: correctCountsOf({
+            SHORT_ANSWER: 1,
+            MULTIPLE_CHOICE: 1,
+          }),
+          loginExpiredAt: 0,
+        });
       });
     });
   });
 
-  describe("loginExpired (객관식 recorded: false, D13)", () => {
-    it("객관식 채점 단계에서 받으면 채점 결과와 점수를 그대로 두고 그 문제의 위치를 기억한다", () => {
-      expect(run(graded(), LOGIN_EXPIRED)).toEqual({
-        ...graded(),
+  describe("submitSuccess의 로그인 만료 감지 (객관식 recorded: false, D13)", () => {
+    it("회원이 recorded: false를 받으면 채점 결과와 점수를 기록하고 그 문제의 위치를 기억한다", () => {
+      expect(run(submitting(), MEMBER_CORRECT_UNRECORDED)).toEqual({
+        ...submitting(),
+        phase: "graded",
+        result: CORRECT_UNRECORDED,
+        correctCounts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
         loginExpiredAt: 0,
       });
     });
 
+    it("회원이 오답을 recorded: false로 받아도 점수 없이 위치를 기억한다", () => {
+      expect(run(submitting(), MEMBER_WRONG_UNRECORDED)).toEqual({
+        ...submitting(),
+        phase: "graded",
+        result: WRONG_UNRECORDED,
+        loginExpiredAt: 0,
+      });
+    });
+
+    it("회원이 recorded: true를 받으면 만료로 보지 않는다", () => {
+      expect(run(submitting(), SUBMIT_CORRECT).loginExpiredAt).toBeNull();
+    });
+
+    it.each([
+      {
+        name: "정답",
+        action: GUEST_CORRECT,
+        result: CORRECT_UNRECORDED,
+        counts: correctCountsOf({ MULTIPLE_CHOICE: 1 }),
+      },
+      {
+        name: "오답",
+        action: GUEST_WRONG,
+        result: WRONG_UNRECORDED,
+        counts: correctCountsOf(),
+      },
+    ])(
+      "비회원은 recorded: false여도 만료로 보지 않고 채점 결과만 기록한다: $name",
+      ({ action, result, counts }) => {
+        expect(run(submitting(), action)).toEqual({
+          ...submitting(),
+          phase: "graded",
+          result,
+          correctCounts: counts,
+          loginExpiredAt: null,
+        });
+      },
+    );
+
+    it("비회원이 recorded: true를 받아도 만료로 보지 않는다", () => {
+      expect(
+        run(submitting(), submitSuccess(CORRECT_RESULT, false)).loginExpiredAt,
+      ).toBeNull();
+    });
+
     it("둘째 문제에서 받으면 둘째 문제의 위치를 기억한다", () => {
-      const secondGraded = run(
-        graded(),
+      const secondSubmitting = run(graded(), NEXT, SELECT, SUBMIT_START);
+
+      expect(run(secondSubmitting, MEMBER_WRONG_UNRECORDED)).toEqual({
+        ...secondSubmitting,
+        phase: "graded",
+        result: WRONG_UNRECORDED,
+        loginExpiredAt: 1,
+      });
+    });
+
+    it("이전 문제에서 만료를 감지했으면 다시 recorded: false가 와도 처음 번호를 유지한다", () => {
+      const state = run(
+        gradedLoginExpired(),
         NEXT,
         SELECT,
         SUBMIT_START,
-        SUBMIT_WRONG,
+        MEMBER_WRONG_UNRECORDED,
       );
 
-      expect(run(secondGraded, LOGIN_EXPIRED)).toEqual({
-        ...secondGraded,
-        loginExpiredAt: 1,
+      expect(state).toMatchObject({
+        phase: "graded",
+        currentIndex: 1,
+        result: WRONG_UNRECORDED,
+        loginExpiredAt: 0,
       });
+    });
+
+    it("만료를 감지한 뒤 recorded: true가 와도 만료 표시를 지우지 않는다", () => {
+      const state = run(
+        gradedLoginExpired(),
+        NEXT,
+        SELECT,
+        SUBMIT_START,
+        SUBMIT_CORRECT,
+      );
+
+      expect(state).toMatchObject({ currentIndex: 1, loginExpiredAt: 0 });
     });
 
     it("다음 문제로 넘어가도 위치가 유지된다", () => {
@@ -673,8 +771,7 @@ describe("quizReducer", () => {
         createInitialState(1),
         SELECT,
         SUBMIT_START,
-        SUBMIT_CORRECT,
-        LOGIN_EXPIRED,
+        MEMBER_CORRECT_UNRECORDED,
         NEXT,
       );
 
@@ -686,7 +783,7 @@ describe("quizReducer", () => {
     });
 
     it("같은 문제에서 또 받아도 그대로다", () => {
-      expect(run(gradedLoginExpired(), LOGIN_EXPIRED)).toEqual(
+      expect(run(gradedLoginExpired(), MEMBER_CORRECT_UNRECORDED)).toEqual(
         gradedLoginExpired(),
       );
     });
@@ -1254,36 +1351,36 @@ describe("quizReducer", () => {
         from: () => run(savingSelfGrade(), SHORT_ANSWER_RIGHT),
         action: SAVE_FAILURE,
       },
-      // 객관식 로그인 만료 감지는 채점 직후에만 받는다 (D13)
+      // 만료를 알리는 객관식 채점 응답도 제출 중이 아니면 무시한다 (D13)
       {
-        name: "채점 전에는 객관식 로그인 만료를 받지 않는다",
+        name: "제출하지 않았을 때 회원의 recorded: false 응답은 무시한다",
         phase: "answering",
         from: chosen,
-        action: LOGIN_EXPIRED,
+        action: MEMBER_CORRECT_UNRECORDED,
       },
       {
-        name: "제출 중에는 객관식 로그인 만료를 받지 않는다",
-        phase: "submitting",
-        from: submitting,
-        action: LOGIN_EXPIRED,
+        name: "채점 뒤 늦게 온 회원의 recorded: false 응답은 무시한다",
+        phase: "graded",
+        from: graded,
+        action: MEMBER_CORRECT_UNRECORDED,
       },
       {
-        name: "모범 답안 단계에서는 객관식 로그인 만료를 받지 않는다",
+        name: "모범 답안 단계에서는 회원의 recorded: false 응답을 무시한다",
         phase: "revealed",
         from: revealed,
-        action: LOGIN_EXPIRED,
+        action: MEMBER_CORRECT_UNRECORDED,
       },
       {
-        name: "자기 채점 저장 중에는 객관식 로그인 만료를 받지 않는다",
+        name: "자기 채점 저장 중에는 회원의 recorded: false 응답을 무시한다",
         phase: "savingSelfGrade",
         from: savingSelfGrade,
-        action: LOGIN_EXPIRED,
+        action: MEMBER_CORRECT_UNRECORDED,
       },
       {
-        name: "끝난 뒤에는 객관식 로그인 만료를 받지 않는다",
+        name: "끝난 뒤에는 회원의 recorded: false 응답을 무시한다",
         phase: "finished",
         from: finished,
-        action: LOGIN_EXPIRED,
+        action: MEMBER_CORRECT_UNRECORDED,
       },
     ];
 
@@ -1428,5 +1525,137 @@ describe("quizReducer", () => {
         expect(state).toMatchObject({ phase: "finished", ...scored });
       },
     );
+  });
+});
+
+describe("shouldSaveSelfGrade (D9, D12, D13)", () => {
+  // 첫 문제에서 401을 받은 뒤 둘째 문제에서 모범 답안까지 본 상태
+  const expiredRevealed = revealedAfterLoginExpired;
+
+  it("회원이고 로그인 만료 전이면 저장한다", () => {
+    expect(shouldSaveSelfGrade(revealed(), true)).toBe(true);
+  });
+
+  it("비회원이면 저장하지 않는다", () => {
+    expect(shouldSaveSelfGrade(revealed(), false)).toBe(false);
+  });
+
+  it("회원이어도 자기 채점 저장에서 로그인 만료를 감지한 뒤에는 저장하지 않는다", () => {
+    expect(expiredRevealed().loginExpiredAt).toBe(0);
+    expect(shouldSaveSelfGrade(expiredRevealed(), true)).toBe(false);
+  });
+
+  it("회원이어도 객관식 응답에서 로그인 만료를 감지한 뒤에는 저장하지 않는다", () => {
+    const state = run(
+      gradedLoginExpired(),
+      NEXT,
+      INPUT,
+      SUBMIT_START,
+      REVEAL_SUCCESS,
+    );
+
+    expect(state.loginExpiredAt).toBe(0);
+    expect(shouldSaveSelfGrade(state, true)).toBe(false);
+  });
+
+  it("만료 표시가 있는 상태의 비회원도 저장하지 않는다", () => {
+    expect(shouldSaveSelfGrade(expiredRevealed(), false)).toBe(false);
+  });
+});
+
+describe("selfGradeSaveFailureAction (D9, D12)", () => {
+  it.each([
+    { questionType: "SHORT_ANSWER" as const, correct: true },
+    { questionType: "ESSAY" as const, correct: false },
+  ])(
+    "401이면 고른 결과를 실은 로그인 만료 액션을 만든다: $questionType $correct",
+    ({ questionType, correct }) => {
+      const error = new ApiError(401, "로그인이 필요합니다.");
+
+      expect(selfGradeSaveFailureAction(error, questionType, correct)).toEqual({
+        type: "selfGradeSaveUnauthorized",
+        questionType,
+        correct,
+      });
+    },
+  );
+
+  it.each([
+    { name: "400", error: new ApiError(400, "잘못된 요청") },
+    { name: "403", error: new ApiError(403, "권한 없음") },
+    { name: "500", error: new ApiError(500, "서버 오류") },
+    { name: "404 NotFoundError", error: new NotFoundError("없는 문제") },
+    { name: "통신 오류", error: new TypeError("Failed to fetch") },
+    { name: "일반 Error", error: new Error("오류") },
+    { name: "문자열", error: "오류" },
+    { name: "undefined", error: undefined },
+    { name: "status 401만 가진 객체", error: { status: 401 } },
+  ])(
+    "401 ApiError가 아니면 다시 시도할 수 있는 실패 액션을 만든다: $name",
+    ({ error }) => {
+      expect(selfGradeSaveFailureAction(error, "SHORT_ANSWER", true)).toEqual({
+        type: "selfGradeSaveFailure",
+      });
+    },
+  );
+});
+
+describe("canSubmit (D7, R3, R4)", () => {
+  const SELF_GRADED = [
+    { name: "주관식", questionType: "SHORT_ANSWER" as const },
+    { name: "서술형", questionType: "ESSAY" as const },
+  ];
+
+  it.each([
+    { name: "객관식", questionType: "MULTIPLE_CHOICE" as const },
+    ...SELF_GRADED,
+  ])("아무것도 입력하지 않았으면 제출할 수 없다: $name", ({ questionType }) => {
+    expect(canSubmit(noChoice(), questionType)).toBe(false);
+  });
+
+  it("객관식은 보기를 고르면 제출할 수 있다", () => {
+    expect(canSubmit(chosen(), "MULTIPLE_CHOICE")).toBe(true);
+  });
+
+  it("객관식은 보기 없이 답만 있으면 제출할 수 없다", () => {
+    expect(canSubmit(typed(), "MULTIPLE_CHOICE")).toBe(false);
+  });
+
+  it.each(SELF_GRADED)(
+    "공백이 아닌 답이 있으면 제출할 수 있다: $name",
+    ({ questionType }) => {
+      expect(canSubmit(typed(), questionType)).toBe(true);
+    },
+  );
+
+  it.each(SELF_GRADED)(
+    "보기를 골랐어도 답이 없으면 제출할 수 없다: $name",
+    ({ questionType }) => {
+      expect(canSubmit(chosen(), questionType)).toBe(false);
+    },
+  );
+
+  it.each([
+    { name: "스페이스", blank: "   " },
+    { name: "줄바꿈과 탭", blank: "\n\t \n" },
+  ])("공백뿐인 답은 주관식·서술형 모두 제출할 수 없다: $name", ({ blank }) => {
+    const state = run(noChoice(), inputText(blank));
+
+    expect(state.textAnswer).toBe(blank);
+    expect(canSubmit(state, "SHORT_ANSWER")).toBe(false);
+    expect(canSubmit(state, "ESSAY")).toBe(false);
+  });
+
+  it("앞뒤 공백이 있어도 내용이 있으면 제출할 수 있다", () => {
+    expect(canSubmit(run(noChoice(), inputText("  답  ")), "ESSAY")).toBe(true);
+  });
+
+  it("단계는 보지 않고 입력만으로 판단한다", () => {
+    expect(submitting().phase).toBe("submitting");
+    expect(canSubmit(submitting(), "MULTIPLE_CHOICE")).toBe(true);
+    expect(graded().phase).toBe("graded");
+    expect(canSubmit(graded(), "MULTIPLE_CHOICE")).toBe(true);
+    expect(revealed().phase).toBe("revealed");
+    expect(canSubmit(revealed(), "ESSAY")).toBe(true);
   });
 });

@@ -18,6 +18,8 @@ import org.hibernate.annotations.DynamicUpdate;
 @Table(name = "users")
 public class User {
 
+    public static final int INITIAL_TOKEN_VERSION = 0;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -37,6 +39,10 @@ public class User {
     @Embedded
     private NicknameTag nicknameTag;
 
+    /** 로그아웃할 때 올라가고, 토큰에 담긴 값과 다르면 그 토큰은 무효다. */
+    @Column(name = "token_version")
+    private int tokenVersion;
+
     protected User() {
         // JPA 전용
     }
@@ -51,6 +57,29 @@ public class User {
         this.passwordHash = passwordHash;
         this.role = role;
         this.createdAt = Instant.now();
+        this.tokenVersion = INITIAL_TOKEN_VERSION;
+    }
+
+    /** 이미 발급한 모든 토큰을 무효로 한다. {@code @DynamicUpdate}로 이 컬럼만 UPDATE된다. */
+    public void revokeTokens() {
+        tokenVersion++;
+    }
+
+    /**
+     * 지금 해시가 비교에 쓴 해시와 같을 때만 바꾸고 (D5), 바뀌면 이미 발급한 토큰은 모두 무효다 (D4). {@code @DynamicUpdate}로 두 컬럼만
+     * UPDATE된다.
+     */
+    public void changePassword(String expectedHash, String newHash) {
+        if (!passwordHash.equals(expectedHash)) {
+            throw new WrongCurrentPasswordException();
+        }
+        this.passwordHash = newHash;
+        revokeTokens();
+    }
+
+    /** 지금 토큰 버전으로 토큰을 발급할 때 쓰는 주체. */
+    public TokenSubject tokenSubject() {
+        return new TokenSubject(id, tokenVersion);
     }
 
     /** 지금 닉네임과 같은지 본다. 같으면 번호를 포함해 아무것도 바꾸지 않는다 (R5, D11). */
@@ -106,6 +135,10 @@ public class User {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public int getTokenVersion() {
+        return tokenVersion;
     }
 
     public boolean isAdmin() {

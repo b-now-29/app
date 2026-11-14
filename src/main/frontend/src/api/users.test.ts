@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //   UserResponse에 nickname: string, tag: number 추가
 //   signUp(email, password, nickname): 요청 본문 { email, password, nickname }
 //   changeNickname(nickname: string): Promise<UserResponse> — PUT /api/v1/users/me/nickname { nickname }
+import { ApiError } from "./http";
 import {
-  ApiError,
   changeNickname,
+  changePassword,
   getCurrentUser,
   login,
   logout,
@@ -95,18 +96,6 @@ describe("login", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 401, message: detail });
   });
-
-  it("본문이 JSON이 아니어도 상태를 담은 ApiError이고 메시지가 비어 있지 않다", async () => {
-    fetchMock.mockResolvedValue(
-      new Response("<html>Bad Gateway</html>", { status: 502 }),
-    );
-
-    const error = await caught(login(EMAIL, PASSWORD));
-
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({ status: 502 });
-    expect((error as ApiError).message).not.toBe("");
-  });
 });
 
 describe("logout", () => {
@@ -148,6 +137,41 @@ describe("changeNickname (nickname R5)", () => {
       fetchMock.mockResolvedValue(problemResponse(status, detail));
 
       const error = await caught(changeNickname("영희#1"));
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status, message: detail });
+    },
+  );
+});
+
+describe("changePassword (password-change R1, API 계약)", () => {
+  it("현재 비밀번호와 새 비밀번호를 PUT하고 204 응답이면 값 없이 끝난다", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(
+      changePassword("old-password", "new-password-123"),
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/users/me/password", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentPassword: "old-password",
+        newPassword: "new-password-123",
+      }),
+    });
+  });
+
+  it.each([
+    [400, "현재 비밀번호가 맞지 않습니다."],
+    [400, "입력값이 올바르지 않습니다. (항목: newPassword)"],
+    [401, "로그인이 필요합니다."],
+    [429, "시도가 너무 많습니다."],
+  ])(
+    "%i 응답은 상태와 서버 메시지를 담은 ApiError다",
+    async (status, detail) => {
+      fetchMock.mockResolvedValue(problemResponse(status, detail));
+
+      const error = await caught(changePassword("old-password", "short"));
 
       expect(error).toBeInstanceOf(ApiError);
       expect(error).toMatchObject({ status, message: detail });

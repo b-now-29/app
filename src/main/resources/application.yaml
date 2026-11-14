@@ -12,6 +12,9 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+server:
+  # Caddy가 보낸 X-Forwarded-For를 Tomcat이 처리해 getRemoteAddr()가 클라이언트 IP가 된다
+  forward-headers-strategy: native
 app:
   jwt:
     secret: ${JWT_SECRET}

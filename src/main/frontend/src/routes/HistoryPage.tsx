@@ -3,7 +3,7 @@ import { useLoaderData } from "react-router";
 import type { AttemptResponse, CategoryStatResponse } from "../api/attempts";
 import { accuracyLine } from "../quiz/accuracy";
 import { formatDate } from "../quiz/date";
-import { QUESTION_TYPE_NAMES } from "../quiz/quizScore";
+import { QUESTION_TYPE_NAMES } from "../quiz/questionType";
 import type { historyLoader } from "./historyLoader";
 
 export default function HistoryPage() {

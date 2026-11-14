@@ -7,14 +7,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.TestcontainersConfiguration;
+import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -28,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -167,7 +173,98 @@ class AuthApiIntegrationTest {
                 arguments("다른 키로 서명", TestJwts.signedWithOtherKey(1L)),
                 arguments("본문 변조", TestJwts.tampered(1L, 2L)),
                 arguments("서명 없음 (alg: none)", TestJwts.unsigned(1L)),
+                arguments("auth_time 없음 (배포 전 7일 토큰)", TestJwts.withoutAuthTime(1L)),
                 arguments("JWT 형식이 아님", "not-a-jwt"));
+    }
+
+    // 토큰 기한 1시간과 자동 연장 (token-sliding-expiry R1, R2, R5, R7, R8)
+
+    @Test
+    @DisplayName("가입·로그인 쿠키의 Max-Age는 3600이다 (R1)")
+    void signUpAndLoginCookieLastsOneHour() throws Exception {
+        String email = uniqueEmail();
+
+        MvcResult signUp = postJson("/api/v1/users", signUpBody(email, PASSWORD))
+                .andExpect(status().isCreated())
+                .andReturn();
+        MvcResult login = postJson("/api/v1/auth/login", credentials(email, PASSWORD))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(SetCookieHeader.from(signUp).attributes()).contains("Max-Age=3600");
+        assertThat(SetCookieHeader.from(login).attributes()).contains("Max-Age=3600");
+    }
+
+    @Test
+    @DisplayName("남은 시간이 30분 미만인 토큰으로 /users/me를 부르면 200과 새 쿠키를 받고, 새 쿠키로도 조회된다 (R2)")
+    void nearExpiryTokenIsRenewed() throws Exception {
+        long userId = signUpUserId();
+        Instant now = Instant.now();
+        Cookie old = new Cookie(
+                COOKIE_NAME, TestJwts.of(userId, now.minus(Duration.ofMinutes(50)), now.plus(Duration.ofMinutes(10))));
+
+        MvcResult me = mvc.perform(get(ME).cookie(old))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(userId))
+                .andReturn();
+
+        assertThat(me.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).hasSize(1);
+        Cookie renewed = cookieFrom(me);
+        assertThat(renewed.getValue()).isNotEqualTo(old.getValue());
+        mvc.perform(get(ME).cookie(renewed))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(userId));
+    }
+
+    @Test
+    @DisplayName("남은 시간이 30분 이상인 토큰으로 /users/me를 부르면 Set-Cookie가 없다 (R2, D2)")
+    void freshTokenIsNotRenewed() throws Exception {
+        long userId = signUpUserId();
+        Instant now = Instant.now();
+        Cookie cookie = new Cookie(
+                COOKIE_NAME, TestJwts.of(userId, now.minus(Duration.ofMinutes(20)), now.plus(Duration.ofMinutes(40))));
+
+        mvc.perform(get(ME).cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+    }
+
+    @Test
+    @DisplayName("auth_time 없는 토큰은 /users/me가 401이고, 공개 API는 200이며 새 쿠키를 주지 않는다 (R5, R7)")
+    void tokenWithoutAuthTimeIsGuest() throws Exception {
+        Cookie cookie = new Cookie(COOKIE_NAME, TestJwts.withoutAuthTime(signUpUserId()));
+
+        mvc.perform(get(ME).cookie(cookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        mvc.perform(get("/api/v1/categories").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+    }
+
+    @Test
+    @DisplayName("남은 시간이 30분 미만인 토큰으로 로그아웃해도 Set-Cookie는 만료 쿠키 하나뿐이다 (R8)")
+    void logoutWithNearExpiryTokenOnlyExpiresCookie() throws Exception {
+        long userId = signUpUserId();
+        Instant now = Instant.now();
+        Cookie cookie = new Cookie(
+                COOKIE_NAME, TestJwts.of(userId, now.minus(Duration.ofMinutes(50)), now.plus(Duration.ofMinutes(10))));
+
+        MvcResult logout = mvc.perform(post("/api/v1/auth/logout").cookie(cookie))
+                .andExpect(status().isNoContent())
+                .andReturn();
+
+        assertThat(logout.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).hasSize(1);
+        SetCookieHeader removal = SetCookieHeader.from(logout);
+        assertThat(removal.value()).isEmpty();
+        assertThat(removal.attributes()).contains("Max-Age=0", "Path=/api");
+    }
+
+    private long signUpUserId() throws Exception {
+        MvcResult signUp = postJson("/api/v1/users", signUpBody(uniqueEmail(), PASSWORD))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(body(signUp), "$.id")).longValue();
     }
 
     @ParameterizedTest(name = "{0}")
@@ -331,8 +428,12 @@ class AuthApiIntegrationTest {
                 .content("{\"nickname\": \"%s\"}".formatted(nickname)));
     }
 
+    /** 가입·로그인 제한 횟수가 다른 테스트와 섞이지 않도록 요청마다 다른 IP로 보낸다 (login-hardening D2). */
     private ResultActions postJson(String path, String body) throws Exception {
-        return mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
+        return mvc.perform(post(path)
+                .with(ClientIps.uniqueIp())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
     }
 
     private ResultActions postJsonWithCookie(String path, String body, Cookie cookie) throws Exception {

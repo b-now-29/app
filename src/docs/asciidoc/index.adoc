@@ -79,7 +79,11 @@ operation::self-grades-submit-question-not-found[snippets='http-response']
 
 == 회원
 
-인증은 `access_token` 쿠키로 한다. 가입과 로그인이 `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=604800` 속성으로 쿠키를 설정한다. 토큰 수명은 7일이다. `GET /api/v1/users/me`, `PUT /api/v1/users/me/nickname`, `GET /api/v1/users/me/category-stats`, `GET /api/v1/users/me/attempts`, `POST /api/v1/questions/{questionId}/self-grades`만 인증이 필요하고, 나머지 API는 쿠키가 없거나 만료·위조되어도 비회원으로 정상 이용할 수 있다.
+인증은 `access_token` 쿠키로 한다. 가입과 로그인이 `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=3600` 속성으로 쿠키를 설정한다. 토큰 수명은 1시간이다. 유효한 토큰의 남은 시간이 30분 미만이면 그 요청의 응답에 같은 속성의 새 쿠키가 `Set-Cookie`로 붙어 기한이 연장된다 (로그아웃 제외). 연장해도 처음 로그인한 때부터 1일이 지나면 토큰이 만료되므로 다시 로그인해야 하며, 이 절대 기한에 가까워지면 새 쿠키의 `Max-Age`는 3600보다 짧아진다. 1시간 동안 요청이 없으면 토큰이 만료된다. `GET /api/v1/users/me`, `PUT /api/v1/users/me/nickname`, `PUT /api/v1/users/me/password`, `GET /api/v1/users/me/category-stats`, `GET /api/v1/users/me/attempts`, `POST /api/v1/questions/{questionId}/self-grades`만 인증이 필요하고, 나머지 API는 쿠키가 없거나 만료·위조되어도 비회원으로 정상 이용할 수 있다.
+
+토큰의 회원이 없으면 비회원으로 처리한다. 유효한 토큰이라도 그 회원이 없어졌으면 쿠키가 없을 때와 같이 응답하며, 새 쿠키로 연장하지 않는다.
+
+로그아웃하면 모든 기기에서 로그아웃된다. 그 회원이 로그아웃 전에 받은 토큰은 다른 기기의 것까지 모두 서버에서 무효가 되어, 다음 요청부터 회원이 없는 토큰과 같이 비회원으로 처리되고 연장되지 않는다. 다시 로그인하면 새 토큰으로 정상 이용할 수 있다.
 
 회원은 닉네임과 번호(`tag`)를 가지며 다른 회원에게는 `닉네임#번호`로 보인다. 닉네임은 다른 회원과 같아도 되고, 같은 닉네임 안에서 번호로 구분한다. 번호는 그 닉네임의 현재 가장 큰 번호 + 1이며 (없으면 1), 중간의 빈 번호는 채우지 않는다. 가장 큰 번호를 쓰던 회원이 닉네임을 바꾸면 그 번호는 다음 사람이 다시 받을 수 있다. 닉네임은 대소문자를 구분한다 (`Kim`과 `kim`은 다른 닉네임).
 
@@ -88,7 +92,7 @@ operation::self-grades-submit-question-not-found[snippets='http-response']
 
 operation::users-signup[snippets='request-fields,http-request,http-response,response-headers,response-fields']
 
-이메일 형식이 틀리거나, 비밀번호가 8자보다 짧거나 UTF-8 72바이트를 넘으면 400으로 응답한다.
+이메일 형식이 틀리거나, 비밀번호가 8자보다 짧거나 UTF-8 72바이트를 넘거나 NUL 문자(`\u0000`)를 포함하면 400으로 응답한다.
 
 operation::users-signup-invalid[snippets='http-response']
 
@@ -99,6 +103,10 @@ operation::users-signup-invalid-nickname[snippets='http-response']
 대소문자만 다른 경우를 포함해 이미 가입한 이메일은 409로 응답한다.
 
 operation::users-signup-duplicate-email[snippets='http-response']
+
+같은 IP에서 가입을 너무 자주 시도하면 (성공과 409 포함) 일정 시간 동안 그 IP의 가입을 429로 응답한다. `Retry-After` 헤더에 다시 시도할 수 있을 때까지 남은 초가 담긴다.
+
+operation::users-signup-too-many-attempts[snippets='http-response,response-headers']
 
 === 현재 사용자 조회
 로그인한 사용자의 정보를 반환한다. `role`은 `USER` 또는 `ADMIN`이며, `ADMIN`이면 관리자 API를 쓸 수 있다. 가입·로그인 응답에도 같은 `role`, `nickname`, `tag` 필드가 있다.
@@ -121,6 +129,27 @@ operation::users-me-nickname-change-invalid[snippets='http-response']
 로그인하지 않았거나 쿠키가 만료·위조되었으면 401로 응답한다.
 
 operation::users-me-nickname-change-unauthorized[snippets='http-response']
+
+=== 비밀번호 변경
+로그인한 회원 자신의 현재 비밀번호를 확인하고 새 비밀번호로 바꾼다. 새 비밀번호의 규칙은 가입과 같고 (8자 이상, UTF-8 72바이트 이하, 공백만은 안 됨, NUL 문자 없음), 지금과 같은 비밀번호로 바꿀 수도 있다. 바꾸면 로그아웃과 같이 그 회원이 지금까지 받은 토큰이 다른 기기의 것까지 모두 무효가 된다. 요청한 기기는 응답의 `Set-Cookie`로 새 쿠키를 받아 로그인이 유지된다. 성공 응답의 `Set-Cookie`는 새 쿠키 하나뿐이며, 남은 시간이 30분 미만인 쿠키로 요청해도 옛 쿠키의 연장 쿠키는 함께 붙지 않는다. 실패 응답(400, 429)은 다른 API와 같이, 남은 시간이 30분 미만인 쿠키면 연장 쿠키가 붙는다. 성공하면 본문 없이 204로 응답한다.
+
+operation::users-me-password-change[snippets='request-cookies,request-fields,http-request,http-response,response-headers']
+
+현재 비밀번호가 틀리면 400으로 응답한다. `detail`은 `현재 비밀번호가 맞지 않습니다.`이다. 로그인 만료(401)와 구분하려고 401을 쓰지 않는다.
+
+operation::users-me-password-change-wrong-current[snippets='http-response']
+
+새 비밀번호가 규칙에 맞지 않거나 필드가 없으면 400으로 응답한다.
+
+operation::users-me-password-change-invalid[snippets='http-response']
+
+로그인하지 않았거나 쿠키가 만료·위조되었으면 401로 응답한다.
+
+operation::users-me-password-change-unauthorized[snippets='http-response']
+
+한 회원이 15분 안에 현재 비밀번호 확인을 5번 넘게 시도하면 그 창이 끝날 때까지 맞는 비밀번호여도 비교하지 않고 429로 응답한다. 비밀번호가 바뀌면 그 회원의 횟수는 지워진다. `Retry-After` 헤더에 다시 시도할 수 있을 때까지 남은 초가 담긴다.
+
+operation::users-me-password-change-too-many-attempts[snippets='http-response,response-headers']
 
 === 카테고리별 정답률 조회
 로그인한 회원 자신의 풀이 기록으로 카테고리 안의 유형별 정답률 재료를 반환한다. 같은 문제를 여러 번 풀었으면 가장 최근 기록만 센다 (시각이 같으면 나중에 저장한 기록). 기록이 있는 카테고리만 카테고리 표시 순서대로 넣고, `types`에는 기록이 있는 유형만 `MULTIPLE_CHOICE`, `SHORT_ANSWER`, `ESSAY` 순서로 넣는다. 유형을 합친 카테고리 합계는 없고 퍼센트는 계산하지 않는다. 기록이 없으면 빈 배열을 반환한다.
@@ -200,16 +229,16 @@ operation::categories-rankings-not-found[snippets='http-response']
 
 operation::auth-login[snippets='request-fields,http-request,http-response,response-headers,response-fields']
 
-이메일이나 비밀번호가 없으면 400으로 응답한다.
+이메일이나 비밀번호가 없거나, 이메일이 255자를 넘으면 400으로 응답한다.
 
 operation::auth-login-invalid[snippets='http-response']
 
-없는 이메일과 틀린 비밀번호는 같은 메시지의 401로 응답한다.
+없는 이메일과 틀린 비밀번호는 같은 메시지의 401로 응답한다. 같은 이메일·IP 또는 같은 IP에서 반복해서 실패하면, 일정 시간 동안은 맞는 비밀번호로 로그인해도 같은 401로 응답한다.
 
 operation::auth-login-unauthorized[snippets='http-response']
 
 === 로그아웃
-인증 쿠키를 지운다. 로그인하지 않았어도 204로 응답한다. 쿠키만 지우므로, 이미 유출된 토큰은 만료될 때까지 유효하다.
+인증 쿠키를 지우고, 모든 기기에서 로그아웃한다. 유효한 토큰으로 요청하면 그 회원이 지금까지 받은 토큰이 다른 기기의 것과 이미 유출된 것까지 모두 서버에서 즉시 무효가 된다. 로그인하지 않았거나 토큰이 이미 무효여도 204로 응답하고 쿠키를 지운다.
 
 operation::auth-logout[snippets='http-request,http-response,response-headers']
 
