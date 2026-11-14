@@ -4,8 +4,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
-/** 서명·만료·{@code auth_time}을 통과한 토큰의 내용. */
-record ValidToken(long userId, Instant authTime, Instant expiresAt) {
+/** 서명·만료·{@code auth_time}·{@code ver}를 통과한 토큰의 내용. */
+record ValidToken(TokenSubject subject, Instant authTime, Instant expiresAt) {
 
     static final Duration LIFETIME = Duration.ofHours(1);
     static final Duration ABSOLUTE_LIFETIME = Duration.ofDays(1);

@@ -28,11 +28,11 @@ public class UserController {
     @PostMapping
     public ResponseEntity<UserResponse> signUp(
             @Valid @RequestBody SignUpRequest request, HttpServletRequest httpRequest) {
-        UserResponse response = userService.signUp(
+        SignInResult result = userService.signUp(
                 request.email(), request.password(), request.nickname(), httpRequest.getRemoteAddr());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .header(HttpHeaders.SET_COOKIE, authCookies.issueFor(response.id()))
-                .body(response);
+                .header(HttpHeaders.SET_COOKIE, authCookies.issueFor(result.tokenSubject()))
+                .body(result.user());
     }
 
     @GetMapping("/me")

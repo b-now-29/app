@@ -1,6 +1,7 @@
 package com.b.now._29.app.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
@@ -48,45 +49,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * 닉네임 (docs/features/nickname.md R1~R5, D3, D4, D12, 제약 사항)에서 추가로 구현할 것:
+ * 가입·로그인·로그아웃·닉네임 변경과 로그인·가입 시도 제한을 확인한다.
  *
- * <ul>
- *   <li>{@code UserService.signUp(String email, String password, String nickname): UserResponse} — 닉네임 검증, 이메일 정규화·사전
- *       중복 검사, 비밀번호 해시 뒤 {@code NicknameTagAssigner.createUser}를 부른다. {@code uk_users_nickname_tag} 위반이면 다시
- *       부르고 (재시도, D4), 이메일 제약 ({@code users_email_key}) 위반은 재시도하지 않고 {@code DuplicateEmailException}, 그 밖은
- *       그대로 던진다
- *   <li>{@code UserService.changeNickname(long userId, String nickname): UserResponse} — 닉네임 검증 뒤 {@code
- *       NicknameTagAssigner.changeNickname}을 부르고 같은 방식으로 재시도한다. 없는 회원은 {@code UserNotFoundException}
- *   <li>(D12) 생성자 {@code UserService(UserRepository, PasswordEncoder, NicknameTagAssigner)}. 번호 계산과 저장은 {@code
- *       NicknameTagAssigner} (한 번 시도, 자기 트랜잭션)가 하고, 가입·변경의 재시도 반복은 private 헬퍼 하나로 모은다. 재시도는 트랜잭션
- *       밖에서 해야 하므로 실제 트랜잭션 동작은 {@code NicknameTagRetryIntegrationTest}가 확인한다. 번호 계산 자체는 {@code
- *       NicknameTagAssignerTest}, {@code NicknameTagTest}가 확인한다
- *   <li>{@code UserResponse(long id, String email, Role role, String nickname, int tag)}
- * </ul>
- *
- * <p>로그인 보안 강화 (docs/features/login-hardening.md R1~R10, D1, D3~D11)에서 추가로 구현할 것:
- *
- * <ul>
- *   <li>생성자 {@code UserService(UserRepository, PasswordEncoder, NicknameTagAssigner, AuthLimiters)}
- *   <li>{@code record AuthLimiters(AttemptLimiter loginPair, AttemptLimiter loginIp, AttemptLimiter signUpIp)}
- *   <li>{@code login(String email, String password, String clientIp)} — 쌍 키 {@code normalizeEmail(email) + "|" + ip}, IP
- *       키 {@code ip} (D11). 둘 중 하나라도 막혔으면 BCrypt 없이 {@code InvalidCredentialsException}이고 기록하지 않는다 (R3, R5).
- *       실패 (72바이트 초과·NUL 포함)는 두 limiter에 기록하고 (R6), 성공하면 쌍만 reset (R4). 없는 이메일도 강도 10 더미 해시와
- *       {@code matches}를 한 번 부른다 (R7)
- *   <li>{@code signUp(String email, String password, String nickname, String clientIp)} — 막혔으면 {@code
- *       TooManySignUpAttemptsException}, 아니면 성공·실패와 상관없이 기록한다 (R9). {@code signUp(..., Role)}은 제한 없음 (R10)
- *   <li>{@code TooManySignUpAttemptsException()} — 메시지 "가입 시도가 너무 많습니다. 잠시 뒤에 다시 시도해 주세요."
- * </ul>
- *
- * <p>코드 리뷰 반영 (R12, R13, R17, D13~D15). 위 설명 중 바뀌는 것:
- *
- * <ul>
- *   <li>로그인은 비교 전에 IP·쌍 순서로 {@code tryAcquire}로 한 번을 예약한다. 쌍이 막히면 IP 예약을 {@code release}한다. 실패는
- *       예약을 그대로 두고, 성공하면 쌍은 {@code reset}, IP는 {@code release}한다 (R13). 그래서 비교 중인 요청이 한도를 이미
- *       차지하고, 동시에 들어온 다음 요청은 비교 전에 401이다 (R12)
- *   <li>{@code TooManySignUpAttemptsException(Duration retryAfter)}, 접근자 {@code Duration retryAfter()}
- *   <li>제한 없는 가입은 {@code createAccount(String email, String password, String nickname, Role role)} (R17)
- * </ul>
+ * <p>번호 계산과 저장은 {@code NicknameTagAssigner}의 한 번 시도가 하므로 mock으로 두고, 재시도의 실제 트랜잭션 동작은 {@code
+ * NicknameTagRetryIntegrationTest}가 확인한다.
  */
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -101,7 +67,14 @@ class UserServiceTest {
     private static final String TAG_CONSTRAINT = "uk_users_nickname_tag";
     // 번호도 이메일도 아닌 제약 (예: role CHECK)
     private static final String OTHER_CONSTRAINT = "users_role_check";
-    private static final UserResponse CREATED = new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, TAG);
+    private static final UserResponse CREATED_USER = new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, TAG);
+    // 가입 결과: 방금 만든 회원이라 토큰 버전은 새 회원의 버전이다
+    private static final SignInResult CREATED =
+            new SignInResult(CREATED_USER, new TokenSubject(USER_ID, User.INITIAL_TOKEN_VERSION));
+    // 로그인 결과: savedUser()는 로그아웃한 적이 없어 지금 토큰 버전이 새 회원의 버전과 같다
+    private static final SignInResult LOGGED_IN = new SignInResult(
+            new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, TAG),
+            new TokenSubject(USER_ID, User.INITIAL_TOKEN_VERSION));
     private static final UserResponse RENAMED = new UserResponse(USER_ID, EMAIL, Role.USER, "영희", 2);
 
     // 제한 횟수는 운영값 (5·50·10)과 달라도 된다. 운영값은 통합 테스트가 확인한다. IP 한도는 쌍 한도보다 커야 둘을 구분할 수 있다
@@ -110,11 +83,11 @@ class UserServiceTest {
     private static final int SIGN_UP_MAX = 3;
     private static final Duration LOGIN_WINDOW = Duration.ofMinutes(15);
     private static final Duration SIGN_UP_WINDOW = Duration.ofHours(1);
-    // 강도 10의 BCrypt 해시 (D9): $2a$, $2b$, $2y$ 중 하나 + 강도 10 + salt·해시 53자
+    // 가입에 쓰는 것과 같은 강도 10의 BCrypt 해시: $2a$, $2b$, $2y$ 중 하나 + 강도 10 + salt·해시 53자
     private static final String COST_10_BCRYPT = "^\\$2[aby]?\\$10\\$[./A-Za-z0-9]{53}$";
 
     // 해시 결과를 실제로 확인하려고 진짜 인코더를 쓴다. 강도는 테스트 속도를 위해 최소로 둔다.
-    // UserService에 넣는 쪽은 matches 호출 여부 (R3, R7)를 확인하려고 spy로 감싼다
+    // UserService에 넣는 쪽은 BCrypt 비교를 했는지, 몇 번 했는지 확인하려고 spy로 감싼다
     private final PasswordEncoder passwordEncoder = spy(new BCryptPasswordEncoder(4));
 
     // fixture 해시와 검증용. spy를 given(...).willReturn(...) 인자 계산 중에 부르면 stubbing이 덜 끝난 상태가 되므로 따로 둔다
@@ -146,13 +119,13 @@ class UserServiceTest {
     // 가입 (번호 계산·저장은 NicknameTagAssigner의 한 번 시도)
 
     @Test
-    @DisplayName("가입하면 정규화한 이메일과 BCrypt 해시로 한 번 시도를 부르고 그 응답을 돌려준다 (R2, R4)")
+    @DisplayName("가입하면 정규화한 이메일과 BCrypt 해시로 한 번 시도를 부르고, 그 응답과 새 회원 버전의 토큰 주체를 돌려준다")
     void signUpPassesNormalizedEmailAndHash() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         given(assigner.createUser(eq(EMAIL), anyString(), eq(Role.USER), eq(new Nickname(NICKNAME))))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
 
-        UserResponse response = userService.signUp(RAW_EMAIL, PASSWORD, NICKNAME, clientIp);
+        SignInResult response = userService.signUp(RAW_EMAIL, PASSWORD, NICKNAME, clientIp);
 
         ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
         then(assigner).should().createUser(eq(EMAIL), hash.capture(), eq(Role.USER), eq(new Nickname(NICKNAME)));
@@ -162,7 +135,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("createAccount는 같은 한 번 시도로 그 role의 회원을 만든다 (dev 테스트 계정, nickname 제약 사항, login-hardening R17)")
+    @DisplayName("관리자·테스트 계정을 만드는 createAccount도 가입과 같은 한 번 시도로 그 role의 회원을 만든다")
     void createAccountWithRole() {
         UserResponse admin = new UserResponse(USER_ID, EMAIL, Role.ADMIN, NICKNAME, 5);
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
@@ -178,7 +151,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("대소문자와 공백만 다른 이메일도 중복이면 저장하지 않고 DuplicateEmailException을 던진다 (R2)")
+    @DisplayName("대소문자와 공백만 다른 이메일도 중복이면 저장하지 않고 DuplicateEmailException을 던진다")
     void signUpRejectsDuplicateEmail() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(true);
 
@@ -189,7 +162,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("동시 가입으로 이메일 유니크 제약을 어겨도 500이 아니라 DuplicateEmailException이고 재시도하지 않는다 (R2, nickname 제약 사항)")
+    @DisplayName("동시 가입으로 이메일 유니크 제약을 어겨도 500이 아니라 DuplicateEmailException이고, 번호를 바꿔도 풀리지 않으므로 재시도하지 않는다")
     void signUpConvertsEmailUniqueViolation() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
@@ -202,7 +175,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("번호 제약도 이메일 제약도 아닌 제약 위반은 409로 바꾸거나 재시도하지 않고 그대로 던진다 (nickname 제약 사항)")
+    @DisplayName("번호 제약도 이메일 제약도 아닌 제약 위반은 409로 바꾸거나 재시도하지 않고 그대로 던진다")
     void signUpRethrowsOtherConstraintViolation() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         DataIntegrityViolationException other = violation(OTHER_CONSTRAINT);
@@ -215,14 +188,14 @@ class UserServiceTest {
         then(assigner).should(times(1)).createUser(anyString(), anyString(), any(Role.class), any(Nickname.class));
     }
 
-    // 닉네임 (nickname R1, R7)
+    // 닉네임
 
     @Test
-    @DisplayName("닉네임의 앞뒤 공백을 지운 닉네임으로 한 번 시도를 부른다 (nickname R1)")
+    @DisplayName("닉네임의 앞뒤 공백을 지운 닉네임으로 한 번 시도를 부른다")
     void signUpStripsNickname() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
 
         userService.signUp(EMAIL, PASSWORD, "  " + NICKNAME + " ", clientIp);
 
@@ -232,11 +205,11 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("닉네임은 대소문자를 그대로 둔다 (nickname R7)")
+    @DisplayName("닉네임은 대소문자를 그대로 둔다")
     void signUpKeepsNicknameCase() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
 
         userService.signUp(EMAIL, PASSWORD, "Kim", clientIp);
 
@@ -245,7 +218,7 @@ class UserServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"a", "철수#1", "철\0수", "   "})
-    @DisplayName("규칙에 맞지 않는 닉네임은 저장하지 않고 InvalidNicknameException이다 (nickname R1)")
+    @DisplayName("규칙에 맞지 않는 닉네임은 저장하지 않고 InvalidNicknameException이다")
     void signUpRejectsInvalidNickname(String nickname) {
         lenient().when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
 
@@ -255,24 +228,27 @@ class UserServiceTest {
         then(assigner).shouldHaveNoInteractions();
     }
 
-    // 번호 경합 재시도 (nickname R4, D4)
+    // 번호 경합 재시도: 동시에 같은 닉네임으로 가입하면 같은 번호를 계산할 수 있다
 
     @Test
-    @DisplayName("번호 제약을 어기면 한 번 시도를 다시 불러 두 번째 시도의 결과로 가입된다 (nickname R4, D4)")
+    @DisplayName("번호 제약을 어기면 한 번 시도를 다시 불러 두 번째 시도의 결과로 가입된다")
     void signUpRetriesOnTagConflict() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         given(assigner.createUser(eq(EMAIL), anyString(), eq(Role.USER), eq(new Nickname(NICKNAME))))
                 .willThrow(violation(TAG_CONSTRAINT))
                 .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, 2));
 
-        UserResponse response = userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp);
+        SignInResult response = userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp);
 
-        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, 2));
+        assertThat(response)
+                .isEqualTo(new SignInResult(
+                        new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, 2),
+                        new TokenSubject(USER_ID, User.INITIAL_TOKEN_VERSION)));
         then(assigner).should(times(2)).createUser(anyString(), anyString(), any(Role.class), any(Nickname.class));
     }
 
     @Test
-    @DisplayName("번호 경합이 계속되면 몇 번 재시도한 뒤 멈추고, 이메일 중복이 아닌 예외 (500)로 끝난다 (nickname D4)")
+    @DisplayName("번호 경합이 계속되면 몇 번 재시도한 뒤 멈추고, 이메일 중복이 아닌 예외 (500)로 끝난다")
     void signUpGivesUpAfterRepeatedTagConflicts() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
@@ -284,7 +260,7 @@ class UserServiceTest {
                 .isNotNull()
                 .isNotInstanceOf(DuplicateEmailException.class)
                 .isNotInstanceOf(InvalidNicknameException.class);
-        // D4 "최대 3번": 첫 시도 포함 3번인지 재시도만 3번인지 문서가 정하지 않아 둘 다 허용한다
+        // "최대 3번"이 첫 시도를 포함한 3번인지 재시도만 3번인지 정해지지 않아 둘 다 허용한다
         then(assigner).should(atLeast(3)).createUser(anyString(), anyString(), any(Role.class), any(Nickname.class));
         then(assigner).should(atMost(4)).createUser(anyString(), anyString(), any(Role.class), any(Nickname.class));
     }
@@ -292,16 +268,26 @@ class UserServiceTest {
     // 로그인·조회
 
     @Test
-    @DisplayName("정규화한 이메일로 찾아 비밀번호가 맞으면 닉네임과 번호를 포함한 사용자를 돌려준다 (R2, nickname R8)")
+    @DisplayName("정규화한 이메일로 찾아 비밀번호가 맞으면 닉네임과 번호를 포함한 사용자를 돌려준다")
     void loginWithNormalizedEmail() {
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(savedUser()));
 
-        assertThat(userService.login(RAW_EMAIL, PASSWORD, clientIp))
-                .isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, TAG));
+        assertThat(userService.login(RAW_EMAIL, PASSWORD, clientIp).user()).isEqualTo(LOGGED_IN.user());
     }
 
     @Test
-    @DisplayName("없는 이메일과 틀린 비밀번호는 같은 예외와 같은 메시지다 (R5)")
+    @DisplayName("로그인하면 토큰을 발급할 회원 ID와 그 회원의 지금 토큰 버전을 함께 돌려준다")
+    void loginReturnsCurrentTokenVersion() {
+        User user = savedUser();
+        user.revokeTokens();
+        user.revokeTokens();
+        given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(user));
+
+        assertThat(userService.login(EMAIL, PASSWORD, clientIp).tokenSubject()).isEqualTo(new TokenSubject(USER_ID, 2));
+    }
+
+    @Test
+    @DisplayName("없는 이메일과 틀린 비밀번호는 같은 예외와 같은 메시지라 이메일이 가입됐는지 알 수 없다")
     void loginFailuresAreIndistinguishable() {
         given(userRepository.findByEmail("nobody@example.com")).willReturn(Optional.empty());
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(savedUser()));
@@ -322,7 +308,7 @@ class UserServiceTest {
 
     @ParameterizedTest
     @MethodSource("passwordsOverLimit")
-    @DisplayName("72바이트를 넘는 비밀번호는 앞 72바이트가 저장된 비밀번호와 같아도 InvalidCredentialsException이다 (D13)")
+    @DisplayName("BCrypt는 72바이트까지만 보므로, 72바이트를 넘는 비밀번호는 앞 72바이트가 저장된 비밀번호와 같아도 InvalidCredentialsException이다")
     void loginRejectsPasswordOverLimit(String storedPassword, String attempt) {
         // 구현이 조회 전에 길이로 거르든 조회 후에 거르든 같은 결과여야 하므로 조회 여부는 강제하지 않는다
         lenient().when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(savedUser(storedPassword)));
@@ -332,17 +318,16 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("정확히 72바이트인 비밀번호는 한도 안이므로 맞으면 로그인된다 (D13, R3)")
+    @DisplayName("정확히 72바이트인 비밀번호는 한도 안이므로 맞으면 로그인된다")
     void loginAcceptsPasswordAtLimit() {
         String password = "가".repeat(24);
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(savedUser(password)));
 
-        assertThat(userService.login(EMAIL, password, clientIp))
-                .isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, TAG));
+        assertThat(userService.login(EMAIL, password, clientIp)).isEqualTo(LOGGED_IN);
     }
 
     @Test
-    @DisplayName("8자보다 짧은 비밀번호도 저장된 비밀번호와 다르면 InvalidCredentialsException이다 (D13)")
+    @DisplayName("가입 규칙보다 짧은 8자 미만 비밀번호도 로그인에서는 거르지 않고, 저장된 비밀번호와 다르면 InvalidCredentialsException이다")
     void loginWithShortPassword() {
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(savedUser()));
 
@@ -351,7 +336,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("이메일 형식이 아닌 값은 없는 이메일과 같이 InvalidCredentialsException이다 (D13)")
+    @DisplayName("이메일 형식이 아닌 값은 없는 이메일과 같이 InvalidCredentialsException이다")
     void loginWithNonEmailValue() {
         given(userRepository.findByEmail("not-an-email")).willReturn(Optional.empty());
 
@@ -362,7 +347,7 @@ class UserServiceTest {
     // 표시 이름에 NUL 문자가 들어가지 않도록 name을 번호로 둔다
     @ParameterizedTest(name = "[{index}]")
     @ValueSource(strings = {"user\0@example.com", "\0user@example.com", "user@example.com\0"})
-    @DisplayName("NUL 문자가 든 이메일은 Repository를 호출하지 않고 InvalidCredentialsException이다 (D21)")
+    @DisplayName("PostgreSQL은 NUL 문자를 거부하므로, NUL 문자가 든 이메일은 Repository를 호출하지 않고 InvalidCredentialsException이다")
     void loginWithNulInEmail(String email) {
         assertThatThrownBy(() -> userService.login(email, PASSWORD, clientIp))
                 .isInstanceOf(InvalidCredentialsException.class);
@@ -371,7 +356,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("id로 사용자를 찾아 닉네임과 번호를 포함한 응답으로 돌려준다 (nickname R8)")
+    @DisplayName("id로 사용자를 찾아 닉네임과 번호를 포함한 응답으로 돌려준다")
     void getUser() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(savedUser()));
 
@@ -379,7 +364,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("관리자를 조회하면 응답의 role이 ADMIN이다 (R3)")
+    @DisplayName("관리자를 조회하면 응답의 role이 ADMIN이다")
     void getAdminUser() {
         given(userRepository.findById(USER_ID))
                 .willReturn(Optional.of(
@@ -396,10 +381,43 @@ class UserServiceTest {
         assertThatThrownBy(() -> userService.getUser(USER_ID)).isInstanceOf(UserNotFoundException.class);
     }
 
-    // 닉네임 변경 (nickname R5). 번호 계산과 엔티티 변경은 NicknameTagAssigner의 한 번 시도 (D12)
+    // 로그아웃
 
     @Test
-    @DisplayName("공백을 지운 닉네임으로 한 번 시도를 부르고 그 응답을 돌려준다 (nickname R1, R5)")
+    @DisplayName("로그아웃하면 그 회원의 토큰 버전이 1 오른다")
+    void logoutRevokesTokensOfUser() {
+        User user = savedUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+
+        userService.logout(USER_ID);
+
+        assertThat(user.getTokenVersion()).isEqualTo(User.INITIAL_TOKEN_VERSION + 1);
+    }
+
+    @Test
+    @DisplayName("보안 필터가 확인한 뒤 회원이 사라졌을 수 있으므로, 없는 회원 ID로 로그아웃하면 예외 없이 아무것도 하지 않는다")
+    void logoutOfUnknownUserDoesNothing() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatCode(() -> userService.logout(USER_ID)).doesNotThrowAnyException();
+
+        then(userRepository).should(never()).save(any(User.class));
+        then(userRepository).should(never()).saveAndFlush(any(User.class));
+        then(userRepository).should(never()).flush();
+    }
+
+    @Test
+    @DisplayName("비회원의 로그아웃처럼 회원 ID가 null이면 회원을 조회하지 않고 아무것도 하지 않는다")
+    void logoutWithoutUserDoesNothing() {
+        assertThatCode(() -> userService.logout(null)).doesNotThrowAnyException();
+
+        then(userRepository).shouldHaveNoInteractions();
+    }
+
+    // 닉네임 변경 (번호 계산과 엔티티 변경은 NicknameTagAssigner의 한 번 시도)
+
+    @Test
+    @DisplayName("공백을 지운 닉네임으로 한 번 시도를 부르고 그 응답을 돌려준다")
     void changeNicknameDelegatesToAttempt() {
         given(assigner.changeNickname(USER_ID, new Nickname("영희"))).willReturn(RENAMED);
 
@@ -412,7 +430,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("닉네임 변경 중 번호 제약을 어기면 한 번 시도를 다시 부른다 (nickname R4, D4)")
+    @DisplayName("닉네임 변경 중 번호 제약을 어기면 한 번 시도를 다시 부른다")
     void changeNicknameRetriesOnTagConflict() {
         given(assigner.changeNickname(USER_ID, new Nickname("영희")))
                 .willThrow(violation(TAG_CONSTRAINT))
@@ -425,7 +443,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("닉네임 변경도 번호 경합이 계속되면 몇 번 재시도한 뒤 멈춘다 (nickname D4)")
+    @DisplayName("닉네임 변경도 번호 경합이 계속되면 몇 번 재시도한 뒤 멈춘다")
     void changeNicknameGivesUpAfterRepeatedTagConflicts() {
         given(assigner.changeNickname(anyLong(), any(Nickname.class))).willThrow(violation(TAG_CONSTRAINT));
 
@@ -437,7 +455,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("닉네임 변경 중 번호 제약이 아닌 제약 위반은 재시도하지 않고 그대로 던진다 (nickname 제약 사항)")
+    @DisplayName("닉네임 변경 중 번호 제약이 아닌 제약 위반은 재시도하지 않고 그대로 던진다")
     void changeNicknameRethrowsOtherConstraintViolation() {
         DataIntegrityViolationException other = violation(OTHER_CONSTRAINT);
         given(assigner.changeNickname(USER_ID, new Nickname("영희"))).willThrow(other);
@@ -449,7 +467,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("규칙에 맞지 않는 닉네임은 바꾸지 않고 InvalidNicknameException이다 (nickname R1)")
+    @DisplayName("규칙에 맞지 않는 닉네임은 바꾸지 않고 InvalidNicknameException이다")
     void changeNicknameRejectsInvalid() {
         assertThatThrownBy(() -> userService.changeNickname(USER_ID, "영희#2"))
                 .isInstanceOf(InvalidNicknameException.class);
@@ -467,10 +485,10 @@ class UserServiceTest {
         then(assigner).should(times(1)).changeNickname(anyLong(), any(Nickname.class));
     }
 
-    // 로그인 시도 제한 (login-hardening R1~R8, D1, D3, D11)
+    // 로그인 시도 제한: 같은 이메일·IP 쌍과 IP를 따로 세어, 한 계정을 노리는 시도와 여러 계정을 훑는 시도를 모두 막는다
 
     @Test
-    @DisplayName("없는 이메일도 강도 10의 더미 해시와 BCrypt 비교를 한 번 한다 (R7, D9)")
+    @DisplayName("응답 시간으로 가입 여부를 알 수 없도록, 없는 이메일도 강도 10의 더미 해시와 BCrypt 비교를 한 번 한다")
     void loginWithUnknownEmailComparesDummyHash() {
         given(userRepository.findByEmail("nobody@example.com")).willReturn(Optional.empty());
 
@@ -483,7 +501,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("있는 이메일은 저장된 해시와 한 번만 비교하고 더미 해시와는 비교하지 않는다 (R7)")
+    @DisplayName("있는 이메일은 저장된 해시와 한 번만 비교하고 더미 해시와는 비교하지 않는다")
     void loginWithKnownEmailComparesStoredHashOnce() {
         User user = savedUser();
         given(userRepository.findByEmail(EMAIL)).willReturn(Optional.of(user));
@@ -496,7 +514,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("같은 이메일·IP로 한도만큼 틀리면 맞는 비밀번호도 같은 401이고 BCrypt 비교를 하지 않는다 (R1, R3, D3)")
+    @DisplayName("같은 이메일·IP로 한도만큼 틀리면 맞는 비밀번호도 같은 401이고 BCrypt 비교를 하지 않는다")
     void blockedPairRejectsCorrectPasswordWithoutBcrypt() {
         givenSavedUserLeniently();
         failLoginTimes(EMAIL, clientIp, PAIR_MAX);
@@ -511,7 +529,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("대소문자와 앞뒤 공백만 다른 이메일의 실패도 같은 쌍으로 센다 (D11)")
+    @DisplayName("대소문자와 앞뒤 공백만 다른 이메일의 실패도 같은 쌍으로 센다")
     void pairKeyUsesNormalizedEmail() {
         givenSavedUserLeniently();
         failLoginTimes(RAW_EMAIL, clientIp, PAIR_MAX - 1);
@@ -522,16 +540,16 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("쌍이 막혀도 다른 IP에서는 맞는 비밀번호로 로그인된다 (D1, D3)")
+    @DisplayName("쌍이 막혀도 다른 IP에서는 맞는 비밀번호로 로그인된다")
     void pairBlockDoesNotAffectOtherIp() {
         givenSavedUserLeniently();
         failLoginTimes(EMAIL, clientIp, PAIR_MAX);
 
-        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(LOGGED_IN);
     }
 
     @Test
-    @DisplayName("쌍이 막혀도 같은 IP의 다른 이메일은 로그인된다 (D1)")
+    @DisplayName("쌍이 막혀도 같은 IP의 다른 이메일은 로그인된다")
     void pairBlockDoesNotAffectOtherEmail() {
         givenSavedUserLeniently();
         String otherEmail = "other@example.com";
@@ -539,11 +557,12 @@ class UserServiceTest {
         given(userRepository.findByEmail(otherEmail)).willReturn(Optional.of(other));
         failLoginTimes(EMAIL, clientIp, PAIR_MAX);
 
-        assertThat(userService.login(otherEmail, PASSWORD, clientIp).email()).isEqualTo(otherEmail);
+        assertThat(userService.login(otherEmail, PASSWORD, clientIp).user().email())
+                .isEqualTo(otherEmail);
     }
 
     @Test
-    @DisplayName("같은 IP에서 여러 이메일로 한도만큼 틀리면 그 IP의 모든 로그인을 BCrypt 없이 거부하고, 다른 IP는 된다 (R2, R3)")
+    @DisplayName("같은 IP에서 여러 이메일로 한도만큼 틀리면 그 IP의 모든 로그인을 BCrypt 없이 거부하고, 다른 IP는 된다")
     void ipBlockRejectsAllEmailsFromThatIp() {
         givenSavedUserLeniently();
         for (int i = 0; i < IP_MAX; i++) {
@@ -555,11 +574,11 @@ class UserServiceTest {
                 .isInstanceOf(InvalidCredentialsException.class);
         then(passwordEncoder).should(never()).matches(any(), any());
 
-        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(LOGGED_IN);
     }
 
     @Test
-    @DisplayName("첫 실패부터 15분이 지나면 다시 로그인할 수 있다 (R1, D6)")
+    @DisplayName("첫 실패부터 15분이 지나면 다시 로그인할 수 있다")
     void pairBlockEndsAfterWindow() {
         givenSavedUserLeniently();
         failLoginTimes(EMAIL, clientIp, PAIR_MAX);
@@ -569,11 +588,11 @@ class UserServiceTest {
 
         clock.advance(Duration.ofSeconds(2));
 
-        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(LOGGED_IN);
     }
 
     @Test
-    @DisplayName("로그인에 성공하면 그 쌍의 실패 횟수는 지우고, IP의 실패 횟수는 남긴다 (R4, R13)")
+    @DisplayName("로그인에 성공하면 그 쌍의 실패 횟수는 지우고, IP의 실패 횟수는 남긴다")
     void successResetsPairButNotIp() {
         givenSavedUserLeniently();
         // 쌍 2, IP 2
@@ -581,7 +600,7 @@ class UserServiceTest {
         userService.login(EMAIL, PASSWORD, clientIp);
         // 쌍이 지워지지 않았다면 여기서 쌍 4가 되어 막힌다. IP는 4
         failLoginTimes(EMAIL, clientIp, PAIR_MAX - 1);
-        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(LOGGED_IN);
 
         // IP가 지워지지 않았으므로 다른 이메일로 한 번 더 틀리면 IP 5번째 실패로 막힌다
         failLogin("nobody@example.com", clientIp);
@@ -591,7 +610,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("차단된 동안의 시도는 실패 횟수에 넣지 않는다: IP는 통과했지만 쌍이 막히면 IP 예약을 되돌린다 (R5, D14)")
+    @DisplayName("차단된 동안의 시도는 실패 횟수에 넣지 않는다: IP는 통과했지만 쌍이 막히면 IP 예약을 되돌린다")
     void blockedAttemptsAreNotCounted() {
         givenSavedUserLeniently();
         String otherEmail = "other@example.com";
@@ -602,11 +621,12 @@ class UserServiceTest {
         // 쌍이 막힌 상태의 시도. 세었다면 IP가 한도를 넘는다
         failLoginTimes(EMAIL, clientIp, IP_MAX);
 
-        assertThat(userService.login(otherEmail, PASSWORD, clientIp).email()).isEqualTo(otherEmail);
+        assertThat(userService.login(otherEmail, PASSWORD, clientIp).user().email())
+                .isEqualTo(otherEmail);
     }
 
     @Test
-    @DisplayName("로그인 성공은 IP 횟수에서도 빠진다: 같은 IP에서 IP 한도보다 많이 성공해도 막히지 않는다 (R13, D14)")
+    @DisplayName("로그인 성공은 IP 횟수에서도 빠진다: 같은 IP에서 IP 한도보다 많이 성공해도 막히지 않는다")
     void successReleasesIpReservation() {
         givenSavedUserLeniently();
         // IP 실패 4번. 성공이 IP 몫을 되돌리지 않으면 다음 성공이 IP 5번째가 되어 그다음부터 막힌다
@@ -617,7 +637,7 @@ class UserServiceTest {
         for (int i = 0; i < IP_MAX * 2; i++) {
             assertThat(userService.login(EMAIL, PASSWORD, clientIp))
                     .as("%d번째 성공", i + 1)
-                    .isEqualTo(CREATED);
+                    .isEqualTo(LOGGED_IN);
         }
 
         // 성공은 실패 횟수를 지우지는 않으므로, 한 번 더 틀리면 IP 한도에 닿는다
@@ -627,21 +647,21 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("비교 중인 요청이 쌍의 남은 한 번을 차지해서, 동시에 들어온 같은 이메일·IP 요청은 비교 없이 401이다 (R12, D14)")
+    @DisplayName("비교 중인 요청이 쌍의 남은 한 번을 차지해서, 동시에 들어온 같은 이메일·IP 요청은 비교 없이 401이다")
     void inFlightLoginReservesPairSlot() {
         givenSavedUserLeniently();
         failLoginTimes(EMAIL, clientIp, PAIR_MAX - 1);
         AtomicReference<Throwable> concurrent = whileMatching(() -> userService.login(EMAIL, PASSWORD, clientIp));
         clearInvocations(passwordEncoder);
 
-        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(LOGGED_IN);
 
         assertThat(concurrent.get()).isInstanceOf(InvalidCredentialsException.class);
         then(passwordEncoder).should(times(1)).matches(any(), any());
     }
 
     @Test
-    @DisplayName("비교 중인 요청이 IP의 남은 한 번을 차지해서, 동시에 들어온 같은 IP의 다른 이메일 요청은 비교 없이 401이다 (R12, D14)")
+    @DisplayName("비교 중인 요청이 IP의 남은 한 번을 차지해서, 동시에 들어온 같은 IP의 다른 이메일 요청은 비교 없이 401이다")
     void inFlightLoginReservesIpSlot() {
         givenSavedUserLeniently();
         String otherEmail = "other@example.com";
@@ -653,14 +673,14 @@ class UserServiceTest {
         AtomicReference<Throwable> concurrent = whileMatching(() -> userService.login(otherEmail, PASSWORD, clientIp));
         clearInvocations(passwordEncoder);
 
-        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(LOGGED_IN);
 
         assertThat(concurrent.get()).isInstanceOf(InvalidCredentialsException.class);
         then(passwordEncoder).should(times(1)).matches(any(), any());
     }
 
     @Test
-    @DisplayName("72바이트를 넘는 비밀번호로 거부된 로그인도 실패로 센다 (R6)")
+    @DisplayName("72바이트를 넘는 비밀번호로 거부된 로그인도 실패로 센다")
     void passwordOverLimitCountsAsFailure() {
         givenSavedUserLeniently();
         for (int i = 0; i < PAIR_MAX; i++) {
@@ -670,11 +690,11 @@ class UserServiceTest {
 
         assertThatThrownBy(() -> userService.login(EMAIL, PASSWORD, clientIp))
                 .isInstanceOf(InvalidCredentialsException.class);
-        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(LOGGED_IN);
     }
 
     @Test
-    @DisplayName("NUL 문자가 든 이메일로 거부된 로그인도 실패로 센다 (R6)")
+    @DisplayName("NUL 문자가 든 이메일로 거부된 로그인도 실패로 센다")
     void nulEmailCountsAsFailure() {
         givenSavedUserLeniently();
         for (int i = 0; i < IP_MAX; i++) {
@@ -683,17 +703,17 @@ class UserServiceTest {
 
         assertThatThrownBy(() -> userService.login(EMAIL, PASSWORD, clientIp))
                 .isInstanceOf(InvalidCredentialsException.class);
-        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(CREATED);
+        assertThat(userService.login(EMAIL, PASSWORD, otherIp)).isEqualTo(LOGGED_IN);
     }
 
-    // 가입 시도 제한 (login-hardening R9, R10, D4, D5)
+    // 가입 시도 제한: 이메일 존재 확인과 가짜 계정 대량 생성을 함께 막으려고 IP별로 모든 시도를 센다
 
     @Test
-    @DisplayName("같은 IP에서 성공한 가입도 시도로 세어, 한도를 넘는 시도는 아무것도 하지 않고 TooManySignUpAttemptsException이다 (R9)")
+    @DisplayName("같은 IP에서 성공한 가입도 시도로 세어, 한도를 넘는 시도는 아무것도 하지 않고 TooManySignUpAttemptsException이다")
     void signUpBlockedAfterLimit() {
         given(userRepository.existsByEmail(anyString())).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
         for (int i = 0; i < SIGN_UP_MAX; i++) {
             userService.signUp("new-" + i + "@example.com", PASSWORD, NICKNAME, clientIp);
         }
@@ -708,7 +728,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("이미 가입한 이메일 (409)로 거부된 가입도 시도로 센다 (R9, D4)")
+    @DisplayName("가입 여부를 찾아보는 시도도 막도록, 이미 가입한 이메일 (409)로 거부된 가입도 시도로 센다")
     void duplicateEmailSignUpCounts() {
         given(userRepository.existsByEmail(EMAIL)).willReturn(true);
         for (int i = 0; i < SIGN_UP_MAX; i++) {
@@ -721,11 +741,11 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("가입이 막혀도 다른 IP는 가입할 수 있고, 첫 시도부터 1시간이 지나면 풀린다 (R9, D6)")
+    @DisplayName("가입이 막혀도 다른 IP는 가입할 수 있고, 첫 시도부터 1시간이 지나면 풀린다")
     void signUpBlockIsPerIpAndEndsAfterWindow() {
         given(userRepository.existsByEmail(anyString())).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
         for (int i = 0; i < SIGN_UP_MAX; i++) {
             userService.signUp("new-" + i + "@example.com", PASSWORD, NICKNAME, clientIp);
         }
@@ -743,11 +763,11 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("가입 차단 예외는 그 IP 창이 끝날 때까지 남은 시간을 담는다 (R15, D15)")
+    @DisplayName("Retry-After 헤더에 쓰도록, 가입 차단 예외는 그 IP 창이 끝날 때까지 남은 시간을 담는다")
     void signUpBlockCarriesRetryAfter() {
         given(userRepository.existsByEmail(anyString())).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
         for (int i = 0; i < SIGN_UP_MAX; i++) {
             userService.signUp("new-" + i + "@example.com", PASSWORD, NICKNAME, clientIp);
         }
@@ -761,15 +781,15 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("createAccount는 가입 제한을 받지 않는다 (R10, R17)")
+    @DisplayName("관리자·테스트 계정을 만드는 createAccount는 가입 제한을 받지 않는다")
     void createAccountIsNotLimited() {
         given(userRepository.existsByEmail(anyString())).willReturn(false);
         given(assigner.createUser(anyString(), anyString(), any(Role.class), any(Nickname.class)))
-                .willReturn(CREATED);
+                .willReturn(CREATED_USER);
 
         for (int i = 0; i < SIGN_UP_MAX * 2; i++) {
             assertThat(userService.createAccount("seed-" + i + "@example.com", PASSWORD, NICKNAME, Role.USER))
-                    .isEqualTo(CREATED);
+                    .isEqualTo(CREATED_USER);
         }
 
         then(assigner)
@@ -778,7 +798,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("TooManySignUpAttemptsException의 메시지는 API 계약의 429 detail 문구다 (D5)")
+    @DisplayName("TooManySignUpAttemptsException의 메시지는 API 계약의 429 detail 문구다")
     void tooManySignUpAttemptsMessage() {
         TooManySignUpAttemptsException exception = new TooManySignUpAttemptsException(Duration.ofMinutes(5));
 

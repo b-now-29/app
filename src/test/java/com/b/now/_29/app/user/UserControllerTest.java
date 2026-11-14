@@ -52,19 +52,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.ResultMatcher;
 
-/**
- * 닉네임 (docs/features/nickname.md R1, R8, API 계약)에서 추가로 구현할 것:
- *
- * <ul>
- *   <li>{@code SignUpRequest(String email, String password, String nickname)} — nickname 필수, 검증 전 strip, 2~20 code point,
- *       {@code #}·제어 문자 금지 ({@code Nickname} 규칙과 같게. 커스텀 제약 등). 컨트롤러는 {@code userService.signUp(email, password,
- *       nickname)}
- *   <li>{@code NicknameChangeRequest(String nickname)} — 같은 검증
- *   <li>{@code PUT /api/v1/users/me/nickname} → {@code userService.changeNickname(userId, nickname)}, 200 {@code
- *       UserResponse}. 인증은 기존 {@code /api/v1/users/me/**} 규칙
- *   <li>{@code ApiExceptionHandler}: {@code InvalidNicknameException(String message)} → 400
- * </ul>
- */
+/** 가입, 내 정보 조회, 닉네임 변경 API의 요청 검증과 응답, REST Docs를 확인한다. */
 @WebMvcTest(UserController.class)
 @AutoConfigureRestDocs
 @WithAppSecurity
@@ -75,6 +63,7 @@ class UserControllerTest {
     private static final String PASSWORD = "password1234";
     private static final String NICKNAME = "철수";
     private static final int TAG = 3;
+    private static final int TOKEN_VERSION = 0;
     private static final String HANGUL_SYLLABLE = "가"; // UTF-8 3바이트
     private static final String MATH_A = "𝒜"; // code point 1개, UTF-16 2글자
     private static final int MAX_EMAIL_LENGTH = 255;
@@ -92,9 +81,9 @@ class UserControllerTest {
     private final String clientIp = ClientIps.unique();
 
     @Test
-    @DisplayName("가입하면 201, 닉네임과 번호를 포함한 UserResponse, 바로 로그인되는 쿠키를 응답한다 (R1, nickname R1, R8)")
+    @DisplayName("가입하면 201, 닉네임과 번호를 포함한 UserResponse, 바로 로그인되는 쿠키를 응답한다")
     void signUp() throws Exception {
-        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp)).willReturn(response(Role.USER));
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp)).willReturn(signedUp(EMAIL));
 
         MvcResult result = postUser(body(EMAIL, PASSWORD))
                 .andExpect(status().isCreated())
@@ -120,14 +109,14 @@ class UserControllerTest {
         SetCookieHeader cookie = SetCookieHeader.from(result);
         assertThat(cookie.name()).isEqualTo("access_token");
         assertThat(cookie.attributes()).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/api", "Max-Age=3600");
-        assertThat(tokenService.parseUserId(cookie.value())).contains(USER_ID);
+        assertThat(tokenService.parse(cookie.value())).contains(new TokenSubject(USER_ID, TOKEN_VERSION));
     }
 
     @Test
-    @DisplayName("앞뒤 공백과 대문자가 있는 이메일은 형식 오류가 아니다 (R2)")
+    @DisplayName("앞뒤 공백과 대문자가 있는 이메일은 형식 오류가 아니다. 정규화는 Service가 한다")
     void signUpAcceptsUnnormalizedEmail() throws Exception {
         given(userService.signUp(anyString(), eq(PASSWORD), anyString(), eq(clientIp)))
-                .willReturn(response(Role.USER));
+                .willReturn(signedUp(EMAIL));
 
         postUser(body("  User@Example.COM ", PASSWORD))
                 .andExpect(status().isCreated())
@@ -135,7 +124,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("중복 이메일은 409 ProblemDetail이고 쿠키를 주지 않는다 (R2)")
+    @DisplayName("중복 이메일은 409 ProblemDetail이고 쿠키를 주지 않는다")
     void signUpWithDuplicateEmail() throws Exception {
         DuplicateEmailException exception = new DuplicateEmailException(EMAIL);
         given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp)).willThrow(exception);
@@ -159,9 +148,9 @@ class UserControllerTest {
 
     @ParameterizedTest
     @MethodSource("validPasswords")
-    @DisplayName("8자 이상, UTF-8 72바이트 이하의 비밀번호는 가입할 수 있다 (R3)")
+    @DisplayName("8자 이상, BCrypt 입력 한도인 UTF-8 72바이트 이하의 비밀번호는 가입할 수 있다")
     void signUpWithValidPassword(String password) throws Exception {
-        given(userService.signUp(EMAIL, password, NICKNAME, clientIp)).willReturn(response(Role.USER));
+        given(userService.signUp(EMAIL, password, NICKNAME, clientIp)).willReturn(signedUp(EMAIL));
 
         postUser(body(EMAIL, password)).andExpect(status().isCreated());
     }
@@ -176,7 +165,7 @@ class UserControllerTest {
 
     @ParameterizedTest
     @MethodSource("invalidPasswords")
-    @DisplayName("7자 이하이거나 UTF-8 72바이트를 넘는 비밀번호는 400이고 비밀번호를 응답에 담지 않는다 (R3, R4)")
+    @DisplayName("7자 이하이거나 UTF-8 72바이트를 넘는 비밀번호는 400이고 비밀번호를 응답에 담지 않는다")
     void signUpWithInvalidPassword(String password) throws Exception {
         postUser(body(EMAIL, password))
                 .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
@@ -216,7 +205,7 @@ class UserControllerTest {
 
     @ParameterizedTest
     @MethodSource("singleFieldViolations")
-    @DisplayName("가입 검증 실패의 detail은 실패한 필드를 알려 주는 한국어 문구다 (D16)")
+    @DisplayName("폼이 detail을 그대로 보여 주므로, 가입 검증 실패의 detail은 실패한 필드를 알려 주는 한국어 문구다")
     void signUpValidationDetailNamesField(String email, String password, String failedField, String validField)
             throws Exception {
         postUser(body(email, password))
@@ -227,7 +216,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("255자를 넘는 이메일은 400이고 Service를 호출하지 않는다 (D19)")
+    @DisplayName("DB 길이 오류가 중복 이메일 409로 잘못 보이지 않도록, 255자를 넘는 이메일은 400이고 Service를 호출하지 않는다")
     void signUpWithTooLongEmail() throws Exception {
         postUser(body(emailOfLength(MAX_EMAIL_LENGTH + 1), PASSWORD)).andExpect(problemDetail(HttpStatus.BAD_REQUEST));
 
@@ -235,11 +224,10 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("정확히 255자인 형식상 유효한 이메일은 가입할 수 있다 (D19)")
+    @DisplayName("정확히 255자인 형식상 유효한 이메일은 가입할 수 있다")
     void signUpWithEmailAtMaxLength() throws Exception {
         String email = emailOfLength(MAX_EMAIL_LENGTH);
-        given(userService.signUp(email, PASSWORD, NICKNAME, clientIp))
-                .willReturn(new UserResponse(USER_ID, email, Role.USER, NICKNAME, TAG));
+        given(userService.signUp(email, PASSWORD, NICKNAME, clientIp)).willReturn(signedUp(email));
 
         postUser(body(email, PASSWORD)).andExpect(status().isCreated());
     }
@@ -252,7 +240,7 @@ class UserControllerTest {
                 .andDo(document("users-signup-invalid"));
     }
 
-    // 가입 닉네임 검증 (nickname R1, D7)
+    // 가입 닉네임 검증
 
     static Stream<Arguments> validNicknames() {
         return Stream.of(
@@ -261,15 +249,15 @@ class UserControllerTest {
                 arguments("앞뒤 공백을 지우면 2자", "  ab  "),
                 arguments("보조 평면 문자 11개: UTF-16 22글자지만 11자", MATH_A.repeat(11)),
                 arguments("보조 평면 문자 20개", MATH_A.repeat(20)),
-                arguments("한글·영문·숫자·공백·_ - . (D10)", "Kim 철수_99-a.b"));
+                arguments("허용 목록의 한글·영문·숫자·공백·_ - .", "Kim 철수_99-a.b"));
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("validNicknames")
-    @DisplayName("규칙에 맞는 닉네임은 가입할 수 있다 (nickname R1, D7)")
+    @DisplayName("규칙에 맞는 닉네임은 가입할 수 있다")
     void signUpWithValidNickname(String description, String nickname) throws Exception {
         given(userService.signUp(eq(EMAIL), eq(PASSWORD), anyString(), eq(clientIp)))
-                .willReturn(response(Role.USER));
+                .willReturn(signedUp(EMAIL));
 
         postUser(body(EMAIL, PASSWORD, json(nickname))).andExpect(status().isCreated());
     }
@@ -291,7 +279,7 @@ class UserControllerTest {
                 arguments("가운데 탭", "\"철\\t수\""),
                 arguments("가운데 줄바꿈", "\"철\\n수\""),
                 arguments("DEL", "\"철\\u007F수\""),
-                // 보이지 않는 문자·짝 안 맞는 surrogate (제약 사항, 코드 리뷰)
+                // 보이지 않는 문자·짝 안 맞는 surrogate
                 arguments("U+200B 폭 없는 공백", "\"철\\u200B수\""),
                 arguments("U+FEFF BOM", "\"\\uFEFF철수\""),
                 arguments("짝 없는 surrogate", "\"\\uD800\\uD800\""),
@@ -299,7 +287,7 @@ class UserControllerTest {
                 arguments("한글 채움 문자 U+3164", "\"철\\u3164수\""),
                 arguments("한글 채움 문자 U+115F·U+1160", "\"\\u115F\\u1160\""),
                 arguments("반각 한글 채움 U+FFA0", "\"철\\uFFA0수\""),
-                // 허용 목록 밖의 기호·공백·이모지 (D10)
+                // 허용 목록 밖의 기호·공백·이모지
                 arguments("느낌표", json("kim_99!")),
                 arguments("@", json("kim@home")),
                 arguments("전각 공백 U+3000", "\"철\\u3000수\""),
@@ -312,7 +300,7 @@ class UserControllerTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidNicknames")
-    @DisplayName("닉네임이 없거나 규칙을 어기면 400 ProblemDetail이고 Service를 호출하지 않는다 (nickname R1, D7)")
+    @DisplayName("닉네임이 없거나 규칙을 어기면 400 ProblemDetail이고 Service를 호출하지 않는다")
     void signUpWithInvalidNickname(String description, String nicknameJson) throws Exception {
         postUser(body(EMAIL, PASSWORD, nicknameJson))
                 .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
@@ -324,7 +312,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("닉네임 규칙 위반의 detail에 입력한 닉네임을 담지 않는다 (nickname R1, D14)")
+    @DisplayName("닉네임 규칙 위반의 detail에 입력한 닉네임을 담지 않는다")
     void signUpInvalidNicknameDoesNotEchoInput() throws Exception {
         postUser(body(EMAIL, PASSWORD, json("철수#1234")))
                 .andExpect(problemDetail(HttpStatus.BAD_REQUEST))
@@ -335,7 +323,7 @@ class UserControllerTest {
     // 내 정보
 
     @Test
-    @DisplayName("로그인 상태면 /users/me는 200과 id, email, role, nickname, tag를 응답한다 (R4, R6, 관리자 R3, nickname R8)")
+    @DisplayName("로그인 상태면 /users/me는 200과 id, email, role, nickname, tag를 응답한다")
     void getMe() throws Exception {
         given(userService.getUser(USER_ID)).willReturn(response(Role.ADMIN));
 
@@ -354,7 +342,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("일반 회원의 /users/me는 role USER를 응답한다 (R1, R3)")
+    @DisplayName("일반 회원의 /users/me는 role USER를 응답한다")
     void getMeOfUser() throws Exception {
         given(userService.getUser(USER_ID)).willReturn(response(Role.USER));
 
@@ -364,7 +352,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("비로그인이면 /users/me는 401 ProblemDetail이다 (R6)")
+    @DisplayName("비로그인이면 /users/me는 401 ProblemDetail이다")
     void getMeWithoutLogin() throws Exception {
         mvc.perform(get("/api/v1/users/me"))
                 .andExpect(problemDetail(HttpStatus.UNAUTHORIZED))
@@ -373,10 +361,10 @@ class UserControllerTest {
         then(userService).shouldHaveNoInteractions();
     }
 
-    // 닉네임 변경 (nickname R5, API 계약)
+    // 닉네임 변경
 
     @Test
-    @DisplayName("닉네임을 바꾸면 200과 바뀐 내 정보를 가입 응답과 같은 모양으로 응답한다 (nickname R5)")
+    @DisplayName("닉네임을 바꾸면 200과 바뀐 내 정보를 가입 응답과 같은 모양으로 응답한다")
     void changeNickname() throws Exception {
         given(userService.changeNickname(USER_ID, "영희"))
                 .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "영희", 2));
@@ -400,7 +388,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("앞뒤 공백이 있는 닉네임은 형식 오류가 아니다 (nickname R1)")
+    @DisplayName("앞뒤 공백은 지운 뒤 검사하므로, 앞뒤 공백이 있는 닉네임은 형식 오류가 아니다")
     void changeNicknameAcceptsSurroundingSpaces() throws Exception {
         given(userService.changeNickname(eq(USER_ID), anyString()))
                 .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "영희", 2));
@@ -410,7 +398,7 @@ class UserControllerTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("invalidNicknames")
-    @DisplayName("닉네임이 없거나 규칙을 어기면 변경도 400이고 Service를 호출하지 않는다 (nickname R1, API 계약)")
+    @DisplayName("닉네임이 없거나 규칙을 어기면 변경도 400이고 Service를 호출하지 않는다")
     void changeNicknameWithInvalidNickname(String description, String nicknameJson) throws Exception {
         String requestBody = nicknameJson == null ? "{}" : "{\"nickname\": " + nicknameJson + "}";
 
@@ -438,7 +426,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("Service가 InvalidNicknameException을 던져도 400 ProblemDetail이다 (nickname R1)")
+    @DisplayName("Service가 InvalidNicknameException을 던져도 400 ProblemDetail이다")
     void changeNicknameServiceRejection() throws Exception {
         given(userService.changeNickname(USER_ID, "영희")).willThrow(new InvalidNicknameException("닉네임이 올바르지 않습니다."));
 
@@ -446,7 +434,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("비로그인이면 닉네임 변경은 401 ProblemDetail이고 Service를 호출하지 않는다 (nickname API 계약)")
+    @DisplayName("비로그인이면 닉네임 변경은 401 ProblemDetail이고 Service를 호출하지 않는다")
     void changeNicknameWithoutLogin() throws Exception {
         putNickname("{\"nickname\": \"영희\"}", null)
                 .andExpect(problemDetail(HttpStatus.UNAUTHORIZED))
@@ -456,7 +444,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("만료된 쿠키로 닉네임을 바꾸면 401이다 (nickname API 계약)")
+    @DisplayName("만료된 쿠키로 닉네임을 바꾸면 401이다")
     void changeNicknameWithExpiredCookie() throws Exception {
         putNickname("{\"nickname\": \"영희\"}", new Cookie("access_token", TestJwts.expired(USER_ID)))
                 .andExpect(problemDetail(HttpStatus.UNAUTHORIZED));
@@ -464,13 +452,13 @@ class UserControllerTest {
         then(userService).shouldHaveNoInteractions();
     }
 
-    // 가입 시도 제한 (login-hardening R9, D5, D12, API 계약)
+    // 가입 시도 제한
 
     @Test
-    @DisplayName("요청의 remoteAddr를 클라이언트 IP로 Service에 넘긴다 (D12)")
+    @DisplayName("X-Forwarded-For가 있어도 요청의 remoteAddr를 클라이언트 IP로 Service에 넘긴다")
     void signUpPassesRemoteAddrToService() throws Exception {
         String ip = ClientIps.unique();
-        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, ip)).willReturn(response(Role.USER));
+        given(userService.signUp(EMAIL, PASSWORD, NICKNAME, ip)).willReturn(signedUp(EMAIL));
 
         mvc.perform(post("/api/v1/users")
                         .with(ClientIps.from(ip))
@@ -483,7 +471,7 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("가입 시도가 너무 많으면 429 ProblemDetail과 남은 초를 올림한 Retry-After를 주고 쿠키는 주지 않는다 (R9, R15, D5)")
+    @DisplayName("가입 시도가 너무 많으면 429 ProblemDetail과 남은 초를 올림한 Retry-After를 주고 쿠키는 주지 않는다")
     void signUpWithTooManyAttempts() throws Exception {
         // 42분 0.3초 남음 → 2521초로 올림
         given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp))
@@ -515,7 +503,7 @@ class UserControllerTest {
 
     @ParameterizedTest(name = "{0} → {1}")
     @MethodSource("retryAfterSeconds")
-    @DisplayName("Retry-After는 남은 시간을 초 단위로 올림하고 최소 1이다 (R15)")
+    @DisplayName("Retry-After는 남은 시간을 초 단위로 올림하고 최소 1이다")
     void retryAfterIsCeilingSecondsAtLeastOne(Duration retryAfter, String expected) throws Exception {
         given(userService.signUp(EMAIL, PASSWORD, NICKNAME, clientIp))
                 .willThrow(new TooManySignUpAttemptsException(retryAfter));
@@ -546,6 +534,12 @@ class UserControllerTest {
 
     private static UserResponse response(Role role) {
         return new UserResponse(USER_ID, EMAIL, role, NICKNAME, TAG);
+    }
+
+    /** 가입 응답 본문과, 쿠키로 발급할 토큰의 주체. */
+    private static SignInResult signedUp(String email) {
+        return new SignInResult(
+                new UserResponse(USER_ID, email, Role.USER, NICKNAME, TAG), new TokenSubject(USER_ID, TOKEN_VERSION));
     }
 
     private static FieldDescriptor[] userFields(String emailDescription, String roleDescription) {

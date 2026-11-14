@@ -48,11 +48,12 @@ public class UserService {
 
     /** 성공·실패와 상관없이 시도로 센다 (R9). 막혔으면 아무것도 하지 않는다. */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public UserResponse signUp(String email, String password, String nickname, String clientIp) {
+    public SignInResult signUp(String email, String password, String nickname, String clientIp) {
         if (!limiters.signUpIp().tryAcquire(clientIp)) {
             throw new TooManySignUpAttemptsException(limiters.signUpIp().retryAfter(clientIp));
         }
-        return register(email, password, nickname, Role.USER);
+        UserResponse created = register(email, password, nickname, Role.USER);
+        return new SignInResult(created, TokenSubject.initial(created.id()));
     }
 
     /** 관리자·테스트 계정용이라 가입 제한을 받지 않는다 (R10, R17). */
@@ -109,7 +110,7 @@ public class UserService {
      * 연관이 없어 응답 변환도 안전하다.
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public UserResponse login(String email, String password, String clientIp) {
+    public SignInResult login(String email, String password, String clientIp) {
         // 확인과 증가를 한 번에 해서 동시 요청도 한도를 넘지 못한다 (R12, D14)
         if (!limiters.loginIp().tryAcquire(clientIp)) {
             throw new InvalidCredentialsException();
@@ -135,7 +136,17 @@ public class UserService {
         // 성공하면 쌍 횟수를 지우고 IP에서는 예약한 1회를 돌려준다 (R13)
         limiters.loginPair().reset(pairKey);
         limiters.loginIp().release(clientIp);
-        return UserResponse.from(found.get());
+        User user = found.get();
+        return new SignInResult(UserResponse.from(user), user.tokenSubject());
+    }
+
+    /** 그 회원의 모든 토큰을 무효로 한다. 비회원({@code null})이거나 없는 회원이면 아무것도 하지 않는다. */
+    @Transactional
+    public void logout(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        userRepository.findById(userId).ifPresent(User::revokeTokens);
     }
 
     public UserResponse getUser(long id) {
