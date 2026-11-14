@@ -100,7 +100,7 @@ class QuestionAttemptRepositoryTest {
 
     /** 데이터가 적은 테스트에서는 플래너가 인덱스를 고르지 않아 실행 계획 대신 정의를 확인한다. 이름은 묶지 않는다. */
     @Test
-    @DisplayName("문제별 최근 기록 서브쿼리용 인덱스 (user_id, question_id, attempted_at DESC, id DESC)가 있다 (V10)")
+    @DisplayName("문제별 최근 기록 조회용 인덱스 (user_id, question_id, attempted_at DESC, id DESC)가 있다 (V10)")
     void hasIndexForLatestAttemptPerQuestion() {
         List<?> rows = entityManager.createNativeQuery("""
                         SELECT indexdef FROM pg_indexes
@@ -151,6 +151,60 @@ class QuestionAttemptRepositoryTest {
 
         assertThat(attemptRepository.findCategoryTypeStats(me.getId()))
                 .containsExactly(new CategoryTypeStat("attempt-a", "카테고리 A", 1000, QuestionType.MULTIPLE_CHOICE, 1, 0));
+    }
+
+    @Test
+    @DisplayName("세 번 이상 푼 문제는 중간 기록을 세지 않고 마지막 기록 하나만 센다")
+    void countsOnlyLastOfThreeAttempts() {
+        Category category = saveCategory("attempt-a", "카테고리 A", 1000);
+        Question correctLast = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "맞음 틀림 맞음");
+        Question wrongLast = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "틀림 맞음 틀림");
+        Question scrambled = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "저장 순서가 시각 순서와 다름");
+        attempt(me, correctLast, true, BASE);
+        attempt(me, correctLast, false, BASE.plusSeconds(60));
+        attempt(me, correctLast, true, BASE.plusSeconds(120));
+        attempt(me, wrongLast, false, BASE);
+        attempt(me, wrongLast, true, BASE.plusSeconds(60));
+        attempt(me, wrongLast, false, BASE.plusSeconds(120));
+        // 마지막(시각 기준) 기록이 먼저 저장돼 id가 가장 작다
+        attempt(me, scrambled, true, BASE.plusSeconds(300));
+        attempt(me, scrambled, false, BASE.plusSeconds(100));
+        attempt(me, scrambled, false, BASE.plusSeconds(200));
+        entityManager.clear();
+
+        assertThat(attemptRepository.findCategoryTypeStats(me.getId()))
+                .containsExactly(new CategoryTypeStat("attempt-a", "카테고리 A", 1000, QuestionType.MULTIPLE_CHOICE, 3, 2));
+    }
+
+    @Test
+    @DisplayName("여러 문제를 섞어 여러 번 풀어도 문제마다 마지막 기록 하나씩만 카테고리·유형별로 센다")
+    void countsOneLatestAttemptPerQuestionAcrossMixedAttempts() {
+        Category first = saveCategory("attempt-a", "카테고리 A", 1000);
+        Category second = saveCategory("attempt-b", "카테고리 B", 2000);
+        Question a1 = saveQuestion(first, QuestionType.MULTIPLE_CHOICE, "A1");
+        Question a2 = saveQuestion(first, QuestionType.MULTIPLE_CHOICE, "A2");
+        Question a3 = saveQuestion(first, QuestionType.ESSAY, "A3");
+        Question b1 = saveQuestion(second, QuestionType.SHORT_ANSWER, "B1");
+        Question b2 = saveQuestion(second, QuestionType.SHORT_ANSWER, "B2");
+        attempt(me, a1, false, BASE.plusSeconds(10));
+        attempt(me, a3, false, BASE.plusSeconds(20));
+        attempt(me, b1, true, BASE.plusSeconds(30));
+        attempt(me, a1, true, BASE.plusSeconds(40));
+        attempt(me, a2, false, BASE.plusSeconds(50));
+        attempt(me, b2, true, BASE.plusSeconds(60));
+        attempt(me, a3, true, BASE.plusSeconds(5));
+        attempt(me, b1, false, BASE.plusSeconds(70));
+        attempt(me, a1, false, BASE.plusSeconds(80));
+        attempt(me, a2, true, BASE.plusSeconds(15));
+        attempt(me, b2, false, BASE.plusSeconds(25));
+        entityManager.clear();
+
+        // a1: 마지막 +80 틀림, a2: 마지막 +50 틀림, a3: 마지막 +20 틀림, b1: 마지막 +70 틀림, b2: 마지막 +60 맞힘
+        assertThat(attemptRepository.findCategoryTypeStats(me.getId()))
+                .containsExactlyInAnyOrder(
+                        new CategoryTypeStat("attempt-a", "카테고리 A", 1000, QuestionType.MULTIPLE_CHOICE, 2, 0),
+                        new CategoryTypeStat("attempt-a", "카테고리 A", 1000, QuestionType.ESSAY, 1, 0),
+                        new CategoryTypeStat("attempt-b", "카테고리 B", 2000, QuestionType.SHORT_ANSWER, 2, 1));
     }
 
     @Test

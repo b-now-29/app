@@ -1,6 +1,7 @@
 package com.b.now._29.app.quiz.wronganswer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.quiz.attempt.QuestionAttempt;
@@ -221,7 +222,91 @@ class WrongAnswerRepositoryTest {
                 .containsExactly(a2.getId(), a4.getId(), a3.getId(), a1.getId(), b1.getId(), c1.getId());
     }
 
+    @Test
+    @DisplayName("세 번 이상 푼 문제는 중간 기록이 아니라 마지막 기록으로만 오답을 판정한다")
+    void wrongAnswerIgnoresMiddleAttempts() {
+        MiddleAttemptQuestions questions = saveMiddleAttemptScenario();
+
+        assertThat(wrongAnswerRepository.findWrongAnswers(me.getId()))
+                .extracting(WrongAnswerRow::questionId, WrongAnswerRow::attemptedAt)
+                .containsExactlyInAnyOrder(
+                        tuple(questions.wrongLast().getId(), BASE.plusSeconds(120)),
+                        tuple(questions.scrambled().getId(), BASE.plusSeconds(300)));
+    }
+
+    @Test
+    @DisplayName("여러 문제를 섞어 여러 번 풀어도 오답 목록은 문제마다 정확히 한 행이다")
+    void wrongAnswersHaveExactlyOneRowPerQuestion() {
+        Category first = saveCategory("wrong-a", "카테고리 A", 1000);
+        Category second = saveCategory("wrong-b", "카테고리 B", 2000);
+        Question a1 = saveQuestion(first, QuestionType.MULTIPLE_CHOICE, "A1");
+        Question a2 = saveQuestion(first, QuestionType.SHORT_ANSWER, "A2");
+        Question a3 = saveQuestion(first, QuestionType.MULTIPLE_CHOICE, "A3");
+        Question b1 = saveQuestion(second, QuestionType.ESSAY, "B1");
+        Question b2 = saveQuestion(second, QuestionType.MULTIPLE_CHOICE, "B2");
+        // 문제를 번갈아 풀어 한 문제의 기록 id가 이어지지 않게 한다
+        attempt(me, a1, false, BASE.plusSeconds(10));
+        attempt(me, a2, false, BASE.plusSeconds(20));
+        attempt(me, b1, true, BASE.plusSeconds(30));
+        attempt(me, a1, true, BASE.plusSeconds(40));
+        attempt(me, b2, false, BASE.plusSeconds(50));
+        attempt(me, a3, true, BASE.plusSeconds(60));
+        attempt(me, a2, true, BASE.plusSeconds(5));
+        attempt(me, b1, false, BASE.plusSeconds(70));
+        attempt(me, a1, false, BASE.plusSeconds(80));
+        attempt(me, a3, false, BASE.plusSeconds(15));
+        attempt(me, b2, false, BASE.plusSeconds(90));
+        attempt(me, b1, true, BASE.plusSeconds(25));
+        entityManager.clear();
+
+        // a1: 마지막 +80 틀림, a2: 마지막 +20 틀림, a3: 마지막 +60 맞힘, b1: 마지막 +70 틀림, b2: 마지막 +90 틀림
+        assertThat(wrongAnswerRepository.findWrongAnswers(me.getId()))
+                .extracting(WrongAnswerRow::questionId, WrongAnswerRow::attemptedAt)
+                .containsExactly(
+                        tuple(a1.getId(), BASE.plusSeconds(80)),
+                        tuple(a2.getId(), BASE.plusSeconds(20)),
+                        tuple(b2.getId(), BASE.plusSeconds(90)),
+                        tuple(b1.getId(), BASE.plusSeconds(70)));
+    }
+
     // 다시 풀기용 문제
+
+    @Test
+    @DisplayName("다시 풀기용 문제도 세 번 이상 푼 문제는 마지막 기록으로만 판정한다")
+    void wrongQuestionsIgnoreMiddleAttempts() {
+        MiddleAttemptQuestions questions = saveMiddleAttemptScenario();
+
+        assertThat(wrongAnswerRepository.findWrongQuestions(me.getId(), "wrong-a"))
+                .extracting(Question::getId)
+                .containsExactlyInAnyOrder(
+                        questions.wrongLast().getId(), questions.scrambled().getId());
+    }
+
+    @Test
+    @DisplayName("여러 문제를 섞어 여러 번 풀어도 다시 풀기용 문제는 문제마다 정확히 하나다")
+    void wrongQuestionsHaveExactlyOneEntryPerQuestion() {
+        Category category = saveCategory("wrong-a", "카테고리 A", 1000);
+        Question q1 = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "Q1");
+        Question q2 = saveQuestion(category, QuestionType.SHORT_ANSWER, "Q2");
+        Question q3 = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "Q3");
+        Question q4 = saveQuestion(category, QuestionType.ESSAY, "Q4");
+        attempt(me, q1, false, BASE.plusSeconds(10));
+        attempt(me, q2, false, BASE.plusSeconds(20));
+        attempt(me, q3, true, BASE.plusSeconds(30));
+        attempt(me, q1, false, BASE.plusSeconds(40));
+        attempt(me, q4, false, BASE.plusSeconds(50));
+        attempt(me, q2, true, BASE.plusSeconds(5));
+        attempt(me, q1, false, BASE.plusSeconds(60));
+        attempt(me, q3, false, BASE.plusSeconds(15));
+        attempt(me, q4, false, BASE.plusSeconds(70));
+        attempt(me, q4, true, BASE.plusSeconds(25));
+        entityManager.clear();
+
+        // q1: 세 번 모두 틀림, q2: 마지막 +20 틀림, q3: 마지막 +30 맞힘, q4: 마지막 +70 틀림
+        assertThat(wrongAnswerRepository.findWrongQuestions(me.getId(), "wrong-a"))
+                .extracting(Question::getId)
+                .containsExactly(q1.getId(), q2.getId(), q4.getId());
+    }
 
     @Test
     @DisplayName("다시 풀기용 문제는 그 카테고리에서 가장 최근 기록이 틀림인 문제만 돌려준다 (R1, R2, D4)")
@@ -317,6 +402,28 @@ class WrongAnswerRepositoryTest {
         assertThat(isLoaded(found.getFirst(), "choices")).isTrue();
         assertThat(found.getFirst().getChoices()).hasSize(2);
     }
+
+    /** 세 번씩 푼 문제 3개 (기록 9건)를 저장하고 영속성 컨텍스트를 비운다. */
+    private MiddleAttemptQuestions saveMiddleAttemptScenario() {
+        Category category = saveCategory("wrong-a", "카테고리 A", 1000);
+        Question wrongLast = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "틀림 맞음 틀림");
+        Question correctLast = saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "맞음 틀림 맞음");
+        Question scrambled = saveQuestion(category, QuestionType.ESSAY, "저장 순서가 시각 순서와 다름");
+        attempt(me, wrongLast, false, BASE);
+        attempt(me, wrongLast, true, BASE.plusSeconds(60));
+        attempt(me, wrongLast, false, BASE.plusSeconds(120));
+        attempt(me, correctLast, true, BASE);
+        attempt(me, correctLast, false, BASE.plusSeconds(60));
+        attempt(me, correctLast, true, BASE.plusSeconds(120));
+        // 마지막(시각 기준) 기록이 먼저 저장돼 id가 가장 작다
+        attempt(me, scrambled, false, BASE.plusSeconds(300));
+        attempt(me, scrambled, true, BASE.plusSeconds(100));
+        attempt(me, scrambled, true, BASE.plusSeconds(200));
+        entityManager.clear();
+        return new MiddleAttemptQuestions(wrongLast, correctLast, scrambled);
+    }
+
+    private record MiddleAttemptQuestions(Question wrongLast, Question correctLast, Question scrambled) {}
 
     private Category saveCategory(String slug, String name, int sortOrder) {
         return categoryRepository.saveAndFlush(new Category(slug, name, sortOrder));

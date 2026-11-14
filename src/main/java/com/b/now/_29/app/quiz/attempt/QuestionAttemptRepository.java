@@ -14,15 +14,9 @@ public interface QuestionAttemptRepository extends JpaRepository<QuestionAttempt
     @Query("""
             select new com.b.now._29.app.quiz.attempt.CategoryTypeStat(
                 c.slug, c.name, c.sortOrder, q.type, count(a), sum(case when a.correct then 1L else 0L end))
-            from QuestionAttempt a
+            from QuestionAttempt a""" + LatestAttemptJpql.JOIN_LATEST_PER_QUESTION + """
                 join a.question q
                 join q.category c
-            where a.user.id = :userId
-              and a.id = (
-                select a2.id from QuestionAttempt a2
-                where a2.user.id = :userId and a2.question = a.question
-                order by a2.attemptedAt desc, a2.id desc
-                limit 1)
             group by c.slug, c.name, c.sortOrder, q.type
             order by c.sortOrder, c.slug
             """)
