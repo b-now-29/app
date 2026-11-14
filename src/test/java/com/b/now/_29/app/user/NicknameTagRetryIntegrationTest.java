@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.TestcontainersConfiguration;
+import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.TestJwts;
 import java.util.List;
 import java.util.Optional;
@@ -58,10 +59,10 @@ class NicknameTagRetryIntegrationTest {
     @DisplayName("가입 중 번호가 겹치면 트랜잭션 밖에서 번호를 다시 계산해 다음 번호로 가입된다 (R4, D4)")
     void signUpRetriesAfterRealConflict() {
         String nickname = uniqueNickname();
-        UserResponse first = userService.signUp(uniqueEmail(), PASSWORD, nickname);
+        UserResponse first = signUp(uniqueEmail(), nickname);
         AtomicInteger calls = staleOnFirstCall(nickname);
 
-        UserResponse second = userService.signUp(uniqueEmail(), PASSWORD, nickname);
+        UserResponse second = signUp(uniqueEmail(), nickname);
 
         assertThat(first.tag()).isEqualTo(1);
         assertThat(second.tag()).isEqualTo(2);
@@ -77,8 +78,8 @@ class NicknameTagRetryIntegrationTest {
     @DisplayName("닉네임 변경 중 번호가 겹치면 다시 계산해 다음 번호로 바뀐다 (R4, R5, D4)")
     void changeNicknameRetriesAfterRealConflict() {
         String nickname = uniqueNickname();
-        userService.signUp(uniqueEmail(), PASSWORD, nickname);
-        UserResponse other = userService.signUp(uniqueEmail(), PASSWORD, uniqueNickname());
+        signUp(uniqueEmail(), nickname);
+        UserResponse other = signUp(uniqueEmail(), uniqueNickname());
         AtomicInteger calls = staleOnFirstCall(nickname);
 
         UserResponse changed = userService.changeNickname(other.id(), nickname);
@@ -92,7 +93,7 @@ class NicknameTagRetryIntegrationTest {
     @Test
     @DisplayName("닉네임을 바꾸는 사이 다른 경로로 바뀐 role을 옛 값으로 덮어쓰지 않는다 (제약 사항: lost update)")
     void changeNicknameKeepsRoleChangedMeanwhile() {
-        UserResponse member = userService.signUp(uniqueEmail(), PASSWORD, uniqueNickname());
+        UserResponse member = signUp(uniqueEmail(), uniqueNickname());
         String newNickname = uniqueNickname();
         // 번호를 계산하는 순간 관리자가 이 회원을 ADMIN으로 바꾼 상황. 구현이 회원을 언제 읽든 번호 계산은 반드시 거친다.
         // D12 구조에서는 한 번 시도가 회원을 먼저 읽고 (hasNickname) 번호를 계산하므로, 영속 상태의 role은 옛 값 USER다.
@@ -117,7 +118,7 @@ class NicknameTagRetryIntegrationTest {
     @DisplayName("같은 닉네임으로 바꾸면 번호를 유지하고, 가입 뒤 바뀐 role도 그대로다 (R5, 제약 사항)")
     void changeToSameNicknameKeepsRoleChangedMeanwhile() {
         String nickname = uniqueNickname();
-        UserResponse member = userService.signUp(uniqueEmail(), PASSWORD, nickname);
+        UserResponse member = signUp(uniqueEmail(), nickname);
         jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", member.id());
 
         UserResponse unchanged = userService.changeNickname(member.id(), nickname);
@@ -132,11 +133,12 @@ class NicknameTagRetryIntegrationTest {
     @DisplayName("번호 경합이 계속되면 재시도를 멈추고 가입은 500이며 회원이 생기지 않는다 (D4)")
     void signUpGivesUpWith500() throws Exception {
         String nickname = uniqueNickname();
-        userService.signUp(uniqueEmail(), PASSWORD, nickname);
+        signUp(uniqueEmail(), nickname);
         given(userRepository.findMaxTagByNickname(nickname)).willReturn(Optional.empty());
         String email = uniqueEmail();
 
         mvc.perform(post("/api/v1/users")
+                        .with(ClientIps.uniqueIp())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signUpBody(email, nickname)))
                 .andExpect(status().isInternalServerError())
@@ -150,9 +152,9 @@ class NicknameTagRetryIntegrationTest {
     @DisplayName("닉네임 변경도 번호 경합이 계속되면 멈추고 원래 닉네임과 번호가 그대로다 (D4)")
     void changeNicknameGivesUp() {
         String nickname = uniqueNickname();
-        userService.signUp(uniqueEmail(), PASSWORD, nickname);
+        signUp(uniqueEmail(), nickname);
         String originalNickname = uniqueNickname();
-        UserResponse other = userService.signUp(uniqueEmail(), PASSWORD, originalNickname);
+        UserResponse other = signUp(uniqueEmail(), originalNickname);
         given(userRepository.findMaxTagByNickname(nickname)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.changeNickname(other.id(), nickname))
@@ -169,11 +171,12 @@ class NicknameTagRetryIntegrationTest {
     void emailRaceIsConflictNotRetry() throws Exception {
         String email = uniqueEmail();
         String nickname = uniqueNickname();
-        userService.signUp(email, PASSWORD, nickname);
+        signUp(email, nickname);
         // 사전 중복 검사를 통과한 뒤 다른 요청이 같은 이메일을 저장한 상황
         given(userRepository.existsByEmail(email)).willReturn(false);
 
         mvc.perform(post("/api/v1/users")
+                        .with(ClientIps.uniqueIp())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signUpBody(email, uniqueNickname())))
                 .andExpect(status().isConflict())
@@ -187,10 +190,11 @@ class NicknameTagRetryIntegrationTest {
     @DisplayName("이메일과 번호가 모두 겹치지 않는 같은 닉네임 가입은 409가 아니라 다음 번호로 201이다 (R2, 제약 사항)")
     void sameNicknameDifferentEmailIsCreated() throws Exception {
         String nickname = uniqueNickname();
-        userService.signUp(uniqueEmail(), PASSWORD, nickname);
+        signUp(uniqueEmail(), nickname);
         staleOnFirstCall(nickname);
 
         mvc.perform(post("/api/v1/users")
+                        .with(ClientIps.uniqueIp())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signUpBody(uniqueEmail(), nickname)))
                 .andExpect(status().isCreated());
@@ -209,6 +213,11 @@ class NicknameTagRetryIntegrationTest {
                     jdbc.queryForObject("SELECT max(tag) FROM users WHERE nickname = ?", Integer.class, nickname));
         });
         return calls;
+    }
+
+    /** 가입 제한 (IP당 10회)에 걸리지 않도록 가입마다 다른 IP로 가입한다 (login-hardening R9). */
+    private UserResponse signUp(String email, String nickname) {
+        return userService.signUp(email, PASSWORD, nickname, ClientIps.unique());
     }
 
     private List<Integer> tagsOf(String nickname) {

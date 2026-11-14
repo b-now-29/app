@@ -1,5 +1,6 @@
 package com.b.now._29.app.user;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -23,8 +24,9 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<UserResponse> login(@Valid @RequestBody LoginRequest request) {
-        UserResponse response = userService.login(request.email(), request.password());
+    public ResponseEntity<UserResponse> login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        UserResponse response = userService.login(request.email(), request.password(), httpRequest.getRemoteAddr());
         return ResponseEntity.ok()
                 .header(
                         HttpHeaders.SET_COOKIE,

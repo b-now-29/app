@@ -3,6 +3,8 @@ package com.b.now._29.app.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -88,7 +90,7 @@ class AccessTokenSecurityTest {
     @MethodSource("invalidTokens")
     @DisplayName("잘못된 쿠키가 남아 있어도 다시 로그인할 수 있다 (R9)")
     void loginWorksWithInvalidCookie(String description, String token) throws Exception {
-        given(userService.login(EMAIL, "password1234"))
+        given(userService.login(eq(EMAIL), eq("password1234"), anyString()))
                 .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "철수", 1));
 
         mvc.perform(post("/api/v1/auth/login")

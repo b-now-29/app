@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.TestcontainersConfiguration;
+import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
 import jakarta.servlet.http.Cookie;
@@ -331,8 +332,12 @@ class AuthApiIntegrationTest {
                 .content("{\"nickname\": \"%s\"}".formatted(nickname)));
     }
 
+    /** 가입·로그인 제한 횟수가 다른 테스트와 섞이지 않도록 요청마다 다른 IP로 보낸다 (login-hardening D2). */
     private ResultActions postJson(String path, String body) throws Exception {
-        return mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
+        return mvc.perform(post(path)
+                .with(ClientIps.uniqueIp())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
     }
 
     private ResultActions postJsonWithCookie(String path, String body, Cookie cookie) throws Exception {

@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
@@ -51,6 +52,7 @@ class AuthControllerTest {
     private static final long USER_ID = 1L;
     private static final String EMAIL = "user@example.com";
     private static final String PASSWORD = "password1234";
+    private static final int MAX_EMAIL_LENGTH = 255;
     private static final String CREDENTIALS = "{\"email\": \"%s\", \"password\": \"%s\"}".formatted(EMAIL, PASSWORD);
 
     @Autowired
@@ -62,10 +64,13 @@ class AuthControllerTest {
     @MockitoBean
     UserService userService;
 
+    private final String clientIp = ClientIps.unique();
+
     @Test
     @DisplayName("로그인하면 200, UserResponse, 인증 쿠키를 응답한다")
     void login() throws Exception {
-        given(userService.login(EMAIL, PASSWORD)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "철수", 3));
+        given(userService.login(EMAIL, PASSWORD, clientIp))
+                .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "철수", 3));
 
         MvcResult result = postLogin(CREDENTIALS)
                 .andExpect(status().isOk())
@@ -99,7 +104,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("앞뒤 공백과 대문자가 있는 이메일은 형식 오류가 아니다 (R2)")
     void loginAcceptsUnnormalizedEmail() throws Exception {
-        given(userService.login(anyString(), eq(PASSWORD)))
+        given(userService.login(anyString(), eq(PASSWORD), eq(clientIp)))
                 .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "철수", 3));
 
         postLogin("{\"email\": \"  User@Example.COM \", \"password\": \"password1234\"}")
@@ -110,7 +115,7 @@ class AuthControllerTest {
     @DisplayName("인증 실패는 401 ProblemDetail이고 쿠키를 주지 않는다 (R5)")
     void loginFailure() throws Exception {
         InvalidCredentialsException exception = new InvalidCredentialsException();
-        given(userService.login(EMAIL, PASSWORD)).willThrow(exception);
+        given(userService.login(EMAIL, PASSWORD, clientIp)).willThrow(exception);
 
         MvcResult result = postLogin(CREDENTIALS)
                 .andExpect(problemDetail(HttpStatus.UNAUTHORIZED))
@@ -162,7 +167,7 @@ class AuthControllerTest {
     @DisplayName("가입 규칙에 맞지 않는 값도 400이 아니라 Service까지 전달되고, 인증 실패면 401이다 (D13)")
     void loginDoesNotApplySignUpRules(String description, String email, String password) throws Exception {
         InvalidCredentialsException exception = new InvalidCredentialsException();
-        given(userService.login(email, password)).willThrow(exception);
+        given(userService.login(email, password, clientIp)).willThrow(exception);
 
         MvcResult result = postLogin("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(email, password))
                 .andExpect(problemDetail(HttpStatus.UNAUTHORIZED))
@@ -170,8 +175,36 @@ class AuthControllerTest {
                 .andExpect(content().string(not(containsString(password))))
                 .andReturn();
 
-        then(userService).should().login(email, password);
+        then(userService).should().login(email, password, clientIp);
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE)).isNull();
+    }
+
+    @Test
+    @DisplayName("255자를 넘는 로그인 이메일은 400이고 Service를 호출하지 않는다 (login-hardening R14)")
+    void loginWithTooLongEmail() throws Exception {
+        postLogin("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(emailOfLength(MAX_EMAIL_LENGTH + 1), PASSWORD))
+                .andExpect(problemDetail(HttpStatus.BAD_REQUEST));
+
+        then(userService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("정확히 255자인 로그인 이메일은 Service까지 전달된다 (login-hardening R14)")
+    void loginWithEmailAtMaxLength() throws Exception {
+        String email = emailOfLength(MAX_EMAIL_LENGTH);
+        given(userService.login(email, PASSWORD, clientIp))
+                .willReturn(new UserResponse(USER_ID, email, Role.USER, "철수", 3));
+
+        postLogin("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(email, PASSWORD))
+                .andExpect(status().isOk());
+
+        then(userService).should().login(email, PASSWORD, clientIp);
+    }
+
+    /** 로그인은 가입의 이메일 형식 규칙을 적용하지 않으므로 길이만 맞춘다. */
+    private static String emailOfLength(int length) {
+        String domain = "@example.com";
+        return "a".repeat(length - domain.length()) + domain;
     }
 
     @Test
@@ -211,8 +244,42 @@ class AuthControllerTest {
         assertThat(cookie.attributes()).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/api", "Max-Age=0");
     }
 
+    // 로그인 시도 제한의 클라이언트 IP (login-hardening D12)
+
+    @Test
+    @DisplayName("요청의 remoteAddr를 클라이언트 IP로 Service에 넘긴다 (D12)")
+    void passesRemoteAddrToService() throws Exception {
+        String ip = ClientIps.unique();
+        given(userService.login(EMAIL, PASSWORD, ip)).willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "철수", 3));
+
+        mvc.perform(post("/api/v1/auth/login")
+                        .with(ClientIps.from(ip))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREDENTIALS))
+                .andExpect(status().isOk());
+
+        then(userService).should().login(EMAIL, PASSWORD, ip);
+    }
+
+    @Test
+    @DisplayName("X-Forwarded-For 헤더를 Controller가 직접 읽지 않는다: 프록시 처리는 서버 설정이 맡고 Controller는 remoteAddr만 쓴다 (D12)")
+    void ignoresForwardedHeaderInController() throws Exception {
+        given(userService.login(EMAIL, PASSWORD, clientIp))
+                .willReturn(new UserResponse(USER_ID, EMAIL, Role.USER, "철수", 3));
+
+        mvc.perform(post("/api/v1/auth/login")
+                        .with(ClientIps.from(clientIp))
+                        .header("X-Forwarded-For", ClientIps.unique())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREDENTIALS))
+                .andExpect(status().isOk());
+
+        then(userService).should().login(EMAIL, PASSWORD, clientIp);
+    }
+
     private ResultActions postLogin(String body) throws Exception {
         return mvc.perform(post("/api/v1/auth/login")
+                .with(ClientIps.from(clientIp))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }

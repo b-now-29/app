@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.b.now._29.app.TestcontainersConfiguration;
+import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
 import com.jayway.jsonpath.JsonPath;
@@ -436,7 +437,8 @@ class AdminContentApiIntegrationTest {
 
     private Cookie signUp(String email) throws Exception {
         MvcResult result = postJson(
-                        post("/api/v1/users"),
+                        // 가입 제한 (IP당 10회)에 걸리지 않도록 가입마다 다른 IP로 보낸다 (login-hardening R9)
+                        post("/api/v1/users").with(ClientIps.uniqueIp()),
                         "{\"email\": \"%s\", \"password\": \"%s\", \"nickname\": \"관리테스트\"}".formatted(email, PASSWORD))
                 .andExpect(status().isCreated())
                 .andReturn();

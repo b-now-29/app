@@ -1,5 +1,6 @@
 package com.b.now._29.app.user;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -27,8 +28,10 @@ public class UserController {
     }
 
     @PostMapping
-    public ResponseEntity<UserResponse> signUp(@Valid @RequestBody SignUpRequest request) {
-        UserResponse response = userService.signUp(request.email(), request.password(), request.nickname());
+    public ResponseEntity<UserResponse> signUp(
+            @Valid @RequestBody SignUpRequest request, HttpServletRequest httpRequest) {
+        UserResponse response = userService.signUp(
+                request.email(), request.password(), request.nickname(), httpRequest.getRemoteAddr());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header(
                         HttpHeaders.SET_COOKIE,

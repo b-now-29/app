@@ -1,6 +1,7 @@
 package com.b.now._29.app.user;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.hibernate.exception.ConstraintViolationException;
@@ -22,23 +23,41 @@ public class UserService {
     private static final String TAG_CONSTRAINT = "uk_users_nickname_tag";
     private static final String EMAIL_CONSTRAINT = "users_email_key";
 
+    /**
+     * 없는 이메일 로그인에서 비교할 강도 10의 BCrypt 해시 (D9). 널리 알려진 예제 해시라 맞는 비밀번호가 있을 수 있다. 없는 이메일이 로그인되지 않는 것은
+     * {@code found.isEmpty()} 검사 덕분이지 이 해시가 안 맞아서가 아니다.
+     */
+    private static final String DUMMY_HASH = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final NicknameTagAssigner assigner;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, NicknameTagAssigner assigner) {
+    private final AuthLimiters limiters;
+
+    public UserService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            NicknameTagAssigner assigner,
+            AuthLimiters limiters) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.assigner = assigner;
+        this.limiters = limiters;
     }
 
+    /** 성공·실패와 상관없이 시도로 센다 (R9). 막혔으면 아무것도 하지 않는다. */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public UserResponse signUp(String email, String password, String nickname) {
+    public UserResponse signUp(String email, String password, String nickname, String clientIp) {
+        if (!limiters.signUpIp().tryAcquire(clientIp)) {
+            throw new TooManySignUpAttemptsException(limiters.signUpIp().retryAfter(clientIp));
+        }
         return register(email, password, nickname, Role.USER);
     }
 
+    /** 관리자·테스트 계정용이라 가입 제한을 받지 않는다 (R10, R17). */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public UserResponse signUp(String email, String password, String nickname, Role role) {
+    public UserResponse createAccount(String email, String password, String nickname, Role role) {
         return register(email, password, nickname, role);
     }
 
@@ -85,20 +104,38 @@ public class UserService {
         throw lastConflict;
     }
 
-    public UserResponse login(String email, String password) {
-        // BCrypt 입력 한도를 넘는 비밀번호는 가입할 수 없으므로 맞을 수 없다 (D13)
-        if (password.getBytes(StandardCharsets.UTF_8).length > SignUpRequest.MAX_PASSWORD_BYTES) {
+    /**
+     * BCrypt 비교가 DB 커넥션을 잡지 않도록 트랜잭션 밖에서 실행한다 (R8). 조회는 Repository의 자체 트랜잭션에서 끝나고, User에 LAZY
+     * 연관이 없어 응답 변환도 안전하다.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public UserResponse login(String email, String password, String clientIp) {
+        // 확인과 증가를 한 번에 해서 동시 요청도 한도를 넘지 못한다 (R12, D14)
+        if (!limiters.loginIp().tryAcquire(clientIp)) {
             throw new InvalidCredentialsException();
         }
+        String pairKey = User.normalizeEmail(email) + "|" + clientIp;
+        if (!limiters.loginPair().tryAcquire(pairKey)) {
+            limiters.loginIp().release(clientIp);
+            throw new InvalidCredentialsException();
+        }
+        // BCrypt 입력 한도를 넘는 비밀번호는 가입할 수 없으므로 맞을 수 없다 (D13).
         // PostgreSQL은 NUL 문자를 거부해 500이 되므로 조회 전에 거른다 (D21)
-        if (email.indexOf('\0') >= 0) {
+        if (password.getBytes(StandardCharsets.UTF_8).length > SignUpRequest.MAX_PASSWORD_BYTES
+                || email.indexOf('\0') >= 0) {
             throw new InvalidCredentialsException();
         }
-        User user = userRepository
-                .findByEmail(User.normalizeEmail(email))
-                .filter(found -> passwordEncoder.matches(password, found.getPasswordHash()))
-                .orElseThrow(InvalidCredentialsException::new);
-        return UserResponse.from(user);
+        Optional<User> found = userRepository.findByEmail(User.normalizeEmail(email));
+        // 없는 이메일도 같은 강도의 비교를 해서 응답 시간으로 존재 여부를 알 수 없게 한다 (R7)
+        String hash = found.map(User::getPasswordHash).orElse(DUMMY_HASH);
+        boolean matched = passwordEncoder.matches(password, hash);
+        if (found.isEmpty() || !matched) {
+            throw new InvalidCredentialsException();
+        }
+        // 성공하면 쌍 횟수를 지우고 IP에서는 예약한 1회를 돌려준다 (R13)
+        limiters.loginPair().reset(pairKey);
+        limiters.loginIp().release(clientIp);
+        return UserResponse.from(found.get());
     }
 
     public UserResponse getUser(long id) {
