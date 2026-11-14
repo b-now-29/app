@@ -5,7 +5,7 @@
 //     카테고리 제목. "이름 N문제" (N은 그 카테고리의 오답 문제 수).
 //
 //   wrongAnswerQuestionMeta(question: WrongAnswerQuestionResponse): string
-//     문제 아래 줄. "유형 이름 · 날짜". 유형 이름은 QUESTION_TYPE_NAMES, 날짜는 quiz/date.ts의 formatDate
+//     문제 아래 줄. "유형 이름 · 날짜". 유형 이름은 quiz/questionType.ts의 QUESTION_TYPE_NAMES, 날짜는 quiz/date.ts의 formatDate
 //     ("YYYY.MM.DD", docs/features/ranking.md D13).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {

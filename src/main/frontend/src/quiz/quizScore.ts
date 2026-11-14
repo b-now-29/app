@@ -1,14 +1,5 @@
 import type { QuestionResponse, QuestionType } from "../api/questions";
-
-// 적은 순서가 점수 줄 순서다 (R5)
-export const QUESTION_TYPE_NAMES: Record<QuestionType, string> = {
-  MULTIPLE_CHOICE: "객관식",
-  SHORT_ANSWER: "주관식",
-  ESSAY: "서술형",
-};
-
-// Object.keys의 반환 타입은 string[]이지만, 위 표의 키는 QuestionType뿐이다
-const QUESTION_TYPES = Object.keys(QUESTION_TYPE_NAMES) as QuestionType[];
+import { QUESTION_TYPES, QUESTION_TYPE_NAMES } from "./questionType";
 
 // 점수 화면에 유형별 줄을 보여 주기 위해 문제 목록에서 유형별 문제 수를 센다
 export function countQuestionsByType(

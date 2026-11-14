@@ -1,5 +1,6 @@
 import type { AdminQuestionResponse, QuestionRequest } from "../api/admin";
 import type { QuestionType } from "../api/questions";
+import { SORT_ORDER_ERROR, parseSortOrder } from "./sortOrder";
 
 // 문제 폼에서 편집 중인 값. 숫자 칸도 입력 중에는 문자열이다.
 export type ChoiceDraft = {
@@ -18,29 +19,13 @@ export type QuestionDraft = {
   readonly choices: readonly ChoiceDraft[];
 };
 
-export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  MULTIPLE_CHOICE: "객관식",
-  SHORT_ANSWER: "주관식",
-  ESSAY: "서술형",
-};
-
-export const QUESTION_TYPES = Object.keys(
-  QUESTION_TYPE_LABELS,
-) as readonly QuestionType[];
+export const MIN_CHOICES = 2; // 보기는 2개 미만으로 지울 수 없다
 
 let nextChoiceKey = 0;
 
 export function blankChoice(): ChoiceDraft {
   nextChoiceKey += 1;
   return { key: nextChoiceKey, content: "", correct: false };
-}
-
-export const SORT_ORDER_ERROR = "표시 순서는 정수로 입력해 주세요.";
-
-// 앞뒤 공백은 무시하고, 정수가 아니면 null (D19)
-export function parseSortOrder(value: string): number | null {
-  const trimmed = value.trim();
-  return /^-?\d+$/.test(trimmed) ? Number(trimmed) : null;
 }
 
 // 새 문제: 객관식에 빈 보기 2개로 시작한다 (D10)
@@ -100,6 +85,38 @@ export function withCorrectChoice(
   };
 }
 
+export function withChoiceContent(
+  draft: QuestionDraft,
+  index: number,
+  content: string,
+): QuestionDraft {
+  return {
+    ...draft,
+    choices: draft.choices.map((choice, i) =>
+      i === index ? { ...choice, content } : choice,
+    ),
+  };
+}
+
+export function withNewChoice(draft: QuestionDraft): QuestionDraft {
+  return { ...draft, choices: [...draft.choices, blankChoice()] };
+}
+
+// 보기가 MIN_CHOICES개 이하면 지우지 않고 그대로 돌려준다
+export function withoutChoice(
+  draft: QuestionDraft,
+  index: number,
+): QuestionDraft {
+  if (!canRemoveChoice(draft)) {
+    return draft;
+  }
+  return { ...draft, choices: draft.choices.filter((_, i) => i !== index) };
+}
+
+export function canRemoveChoice(draft: QuestionDraft): boolean {
+  return draft.choices.length > MIN_CHOICES;
+}
+
 // 칸마다 에러 문구. 에러가 없는 칸은 키를 넣지 않는다 (D23)
 export type QuestionDraftErrors = {
   readonly content?: string;
@@ -152,8 +169,27 @@ export function validateQuestionDraft(
   return errors;
 }
 
+export type QuestionSubmitResult =
+  | { readonly ok: false; readonly errors: QuestionDraftErrors }
+  | { readonly ok: true; readonly request: QuestionRequest };
+
+// 검사를 통과하면 저장 요청을 만든다. 표시 순서가 변환되지 않으면 통과로 보지 않는다.
+export function prepareQuestionSubmit(
+  draft: QuestionDraft,
+): QuestionSubmitResult {
+  const errors = validateQuestionDraft(draft);
+  const sortOrder = parseSortOrder(draft.sortOrder);
+  if (Object.keys(errors).length > 0) {
+    return { ok: false, errors };
+  }
+  if (sortOrder === null) {
+    return { ok: false, errors: { sortOrder: SORT_ORDER_ERROR } };
+  }
+  return { ok: true, request: toQuestionRequest(draft, sortOrder) };
+}
+
 // sortOrder는 parseSortOrder로 검증한 값을 받는다. 임시 id(key)는 요청에 넣지 않는다.
-export function toQuestionRequest(
+function toQuestionRequest(
   draft: QuestionDraft,
   sortOrder: number,
 ): QuestionRequest {

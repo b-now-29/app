@@ -3,7 +3,7 @@ import type {
   AdminTypeStatResponse,
 } from "../api/admin";
 import { accuracyPercent } from "./accuracy";
-import { QUESTION_TYPE_NAMES } from "./quizScore";
+import { QUESTION_TYPE_NAMES } from "./questionType";
 
 export function categoryTypeStatLine(stat: AdminTypeStatResponse): string {
   const percent = accuracyPercent(stat.solved, stat.correct);

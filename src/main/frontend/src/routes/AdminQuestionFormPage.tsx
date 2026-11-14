@@ -23,20 +23,18 @@ import {
 } from "seed-design/ui/text-field";
 import SelectField from "../components/SelectField";
 import {
-  blankChoice,
-  parseSortOrder,
-  QUESTION_TYPES,
-  QUESTION_TYPE_LABELS,
+  canRemoveChoice,
   draftFromQuestion,
   emptyDraft,
-  toQuestionRequest,
-  validateQuestionDraft,
+  prepareQuestionSubmit,
+  withChoiceContent,
   withCorrectChoice,
+  withNewChoice,
   withType,
+  withoutChoice,
 } from "../quiz/questionDraft";
 import type { QuestionDraft, QuestionDraftErrors } from "../quiz/questionDraft";
-
-const MIN_CHOICES = 2; // 보기는 2개 미만으로 지울 수 없다
+import { QUESTION_TYPES, QUESTION_TYPE_NAMES } from "../quiz/questionType";
 
 function listPath(categorySlug: string): string {
   return `/admin/questions?category=${encodeURIComponent(categorySlug)}`;
@@ -95,31 +93,20 @@ function QuestionForm({ questionId, initial, categories }: FormProps) {
     setDraft((current) => ({ ...current, ...changes }));
   }
 
-  function changeChoiceContent(index: number, content: string) {
-    setDraft((current) => ({
-      ...current,
-      choices: current.choices.map((choice, i) =>
-        i === index ? { ...choice, content } : choice,
-      ),
-    }));
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    const errors = validateQuestionDraft(draft);
-    setFieldErrors(errors);
-    const sortOrder = parseSortOrder(draft.sortOrder);
-    if (Object.keys(errors).length > 0 || sortOrder === null) {
+    const prepared = prepareQuestionSubmit(draft);
+    setFieldErrors(prepared.ok ? {} : prepared.errors);
+    if (!prepared.ok) {
       return;
     }
     setSubmitting(true);
     try {
-      const request = toQuestionRequest(draft, sortOrder);
       if (questionId === null) {
-        await createQuestion(request);
+        await createQuestion(prepared.request);
       } else {
-        await updateQuestion(questionId, request);
+        await updateQuestion(questionId, prepared.request);
       }
       await navigate(listPath(draft.categorySlug));
     } catch (thrown) {
@@ -168,7 +155,7 @@ function QuestionForm({ questionId, initial, categories }: FormProps) {
           value={draft.type}
           options={QUESTION_TYPES.map((type) => ({
             value: type,
-            label: QUESTION_TYPE_LABELS[type],
+            label: QUESTION_TYPE_NAMES[type],
           }))}
           onChange={(type) =>
             setDraft((current) => withType(current, type as QuestionType))
@@ -224,7 +211,9 @@ function QuestionForm({ questionId, initial, categories }: FormProps) {
                   label={`보기 ${index + 1}`}
                   value={choice.content}
                   onValueChange={({ value }) =>
-                    changeChoiceContent(index, value)
+                    setDraft((current) =>
+                      withChoiceContent(current, index, value),
+                    )
                   }
                   invalid={fieldErrors.choices?.[index] !== undefined}
                   errorMessage={fieldErrors.choices?.[index]}
@@ -236,12 +225,9 @@ function QuestionForm({ questionId, initial, categories }: FormProps) {
                   variant="neutralWeak"
                   size="small"
                   aria-label={`보기 ${index + 1} 삭제`}
-                  disabled={draft.choices.length <= MIN_CHOICES}
+                  disabled={!canRemoveChoice(draft)}
                   onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      choices: current.choices.filter((_, i) => i !== index),
-                    }))
+                    setDraft((current) => withoutChoice(current, index))
                   }
                 >
                   삭제
@@ -261,12 +247,7 @@ function QuestionForm({ questionId, initial, categories }: FormProps) {
               type="button"
               variant="neutralWeak"
               size="small"
-              onClick={() =>
-                setDraft((current) => ({
-                  ...current,
-                  choices: [...current.choices, blankChoice()],
-                }))
-              }
+              onClick={() => setDraft((current) => withNewChoice(current))}
             >
               보기 추가
             </ActionButton>
