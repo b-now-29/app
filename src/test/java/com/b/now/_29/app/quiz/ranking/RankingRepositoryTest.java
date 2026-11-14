@@ -22,6 +22,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -34,11 +35,10 @@ import org.springframework.context.annotation.Import;
  *
  * <ul>
  *   <li>{@code interface RankingRepository extends Repository<..>}
- *   <li>{@code record RankingRow(long rank, String nickname, int tag, long score)}
- *   <li>{@code List<RankingRow> findTopRankings(int limit)}: 전체 랭킹 상위 limit명, 등수 순
- *   <li>{@code Optional<RankingRow> findUserRanking(long userId)}: 전체 랭킹에서 그 회원의 줄. 랭킹에 없으면 (점수 0, 관리자) empty
- *   <li>{@code List<RankingRow> findTopRankingsInCategory(String slug, int limit)}
- *   <li>{@code Optional<RankingRow> findUserRankingInCategory(String slug, long userId)}
+ *   <li>{@code record RankingRow(long rank, String nickname, int tag, long score, boolean inTop, boolean mine)}
+ *   <li>{@code List<RankingRow> findRankings(int limit, Long userId)}: 전체 랭킹 상위 limit명과 그 회원의 줄, 등수 순. userId가
+ *       null이면 상위 목록만이고 mine은 모두 false. 랭킹에 없는 회원 (점수 0, 관리자)은 줄이 더해지지 않는다
+ *   <li>{@code List<RankingRow> findRankingsInCategory(String slug, int limit, Long userId)}
  * </ul>
  */
 @Tag("integration")
@@ -78,8 +78,8 @@ class RankingRepositoryTest {
         saveQuestion(saveCategory("rank-a", 1000), QuestionType.MULTIPLE_CHOICE, "문제");
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT)).isEmpty();
-        assertThat(rankingRepository.findUserRanking(user.getId())).isEmpty();
+        assertThat(rankingRepository.findRankings(LIMIT, null)).isEmpty();
+        assertThat(findMine(user.getId())).isEmpty();
     }
 
     @Test
@@ -91,8 +91,10 @@ class RankingRepositoryTest {
         attempt(user, saveQuestion(category, QuestionType.MULTIPLE_CHOICE, "문제 2"), true, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT)).containsExactly(new RankingRow(1L, "철수", 3, 2L));
-        assertThat(rankingRepository.findUserRanking(user.getId())).contains(new RankingRow(1L, "철수", 3, 2L));
+        assertThat(rankingRepository.findRankings(LIMIT, null))
+                .containsExactly(new RankingRow(1L, "철수", 3, 2L, true, false));
+        assertThat(rankingRepository.findRankings(LIMIT, user.getId()))
+                .containsExactly(new RankingRow(1L, "철수", 3, 2L, true, true));
     }
 
     @Test
@@ -107,7 +109,7 @@ class RankingRepositoryTest {
         correct(middle, questions, 2, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple(1L, "랭커나", 3L), tuple(2L, "랭커다", 2L), tuple(3L, "랭커가", 1L));
     }
@@ -124,7 +126,7 @@ class RankingRepositoryTest {
         attempt(user, saveQuestion(category, QuestionType.ESSAY, "서술형"), true, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::score)
                 .containsExactly(3L);
     }
@@ -146,10 +148,7 @@ class RankingRepositoryTest {
         attempt(user, repeated, true, BASE.plusSeconds(20));
         entityManager.clear();
 
-        assertThat(rankingRepository.findUserRanking(user.getId()))
-                .get()
-                .extracting(RankingRow::score)
-                .isEqualTo(2L);
+        assertThat(findMine(user.getId())).get().extracting(RankingRow::score).isEqualTo(2L);
     }
 
     @Test
@@ -166,10 +165,7 @@ class RankingRepositoryTest {
         attempt(user, wrongLater, true, BASE.plusSeconds(60));
         entityManager.clear();
 
-        assertThat(rankingRepository.findUserRanking(user.getId()))
-                .get()
-                .extracting(RankingRow::score)
-                .isEqualTo(1L);
+        assertThat(findMine(user.getId())).get().extracting(RankingRow::score).isEqualTo(1L);
     }
 
     @Test
@@ -184,10 +180,10 @@ class RankingRepositoryTest {
         attempt(wrongLast, question, false, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("랭커가", 1L));
-        assertThat(rankingRepository.findUserRanking(wrongLast.getId())).isEmpty();
+        assertThat(findMine(wrongLast.getId())).isEmpty();
     }
 
     @Test
@@ -203,7 +199,7 @@ class RankingRepositoryTest {
         attempt(first, question, true, BASE.plusSeconds(30));
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("랭커가", 1L), tuple("랭커나", 1L));
     }
@@ -222,7 +218,7 @@ class RankingRepositoryTest {
         attempt(early, questions.get(1), true, BASE.plusSeconds(200));
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple(1L, "먼저도달", 2L), tuple(2L, "늦게도달", 2L));
     }
@@ -244,7 +240,7 @@ class RankingRepositoryTest {
         entityManager.clear();
 
         // 마지막 기록 시각으로 보면 반복풀이(700)가 아래지만, 점수를 바꾼 마지막 기록은 0초다
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("반복풀이", 1L), tuple("한번풀이", 1L));
     }
@@ -264,7 +260,7 @@ class RankingRepositoryTest {
         entityManager.clear();
 
         // "점수에 들어간 기록 중 가장 늦은 시각"(10초)이면 떨어짐이 1위가 된다 (D2의 버린 대안)
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("중간", 1L), tuple("마지막", 1L), tuple("떨어짐", 1L));
     }
@@ -281,7 +277,7 @@ class RankingRepositoryTest {
         attempt(other, questions.get(1), true, BASE.plusSeconds(200));
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("한번풀이", 1L), tuple("되찾음", 1L));
     }
@@ -297,7 +293,7 @@ class RankingRepositoryTest {
         attempt(smallerId, questions.get(1), true, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname)
                 .containsExactly(tuple(1L, "먼저가입"), tuple(2L, "나중가입"));
     }
@@ -323,10 +319,10 @@ class RankingRepositoryTest {
         deleteCategory(deletedCategory);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("랭커가", 1L));
-        assertThat(rankingRepository.findUserRanking(onlyDeleted.getId())).isEmpty();
+        assertThat(findMine(onlyDeleted.getId())).isEmpty();
     }
 
     @Test
@@ -346,7 +342,7 @@ class RankingRepositoryTest {
         deleteQuestion(deleted);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("삭제포함", 1L), tuple("비교대상", 1L));
     }
@@ -368,7 +364,7 @@ class RankingRepositoryTest {
         deleteCategory(deletedCategory);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("삭제포함", 1L), tuple("비교대상", 1L));
     }
@@ -386,14 +382,11 @@ class RankingRepositoryTest {
         correct(user, questions, 1, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname)
                 .containsExactly(tuple(1L, "회원"));
-        assertThat(rankingRepository.findUserRanking(admin.getId())).isEmpty();
-        assertThat(rankingRepository.findUserRanking(user.getId()))
-                .get()
-                .extracting(RankingRow::rank)
-                .isEqualTo(1L);
+        assertThat(findMine(admin.getId())).isEmpty();
+        assertThat(findMine(user.getId())).get().extracting(RankingRow::rank).isEqualTo(1L);
     }
 
     @Test
@@ -409,7 +402,7 @@ class RankingRepositoryTest {
         userRepository.saveAndFlush(managed);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname)
                 .containsExactly("지정한사람");
     }
@@ -427,11 +420,11 @@ class RankingRepositoryTest {
         attempt(scorer, question, true, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname)
                 .containsExactly(tuple(1L, "득점"));
-        assertThat(rankingRepository.findUserRanking(allWrong.getId())).isEmpty();
-        assertThat(rankingRepository.findUserRanking(droppedToZero.getId())).isEmpty();
+        assertThat(findMine(allWrong.getId())).isEmpty();
+        assertThat(findMine(droppedToZero.getId())).isEmpty();
     }
 
     // 상위 N명과 내 순위 (R6, R7)
@@ -445,7 +438,7 @@ class RankingRepositoryTest {
         correct(saveUser("이등"), questions, 2, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(2))
+        assertThat(rankingRepository.findRankings(2, null))
                 .extracting(RankingRow::rank, RankingRow::nickname)
                 .containsExactly(tuple(1L, "일등"), tuple(2L, "이등"));
     }
@@ -460,8 +453,103 @@ class RankingRepositoryTest {
         correct(third, questions, 1, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(2)).hasSize(2);
-        assertThat(rankingRepository.findUserRanking(third.getId())).contains(new RankingRow(3L, "삼등", 1, 1L));
+        assertThat(rankingRepository.findRankings(2, null)).hasSize(2);
+        assertThat(RankingRow.mineIn(rankingRepository.findRankings(2, third.getId())))
+                .contains(new RankingRow(3L, "삼등", 1, 1L, false, true));
+    }
+
+    @Test
+    @DisplayName("목록 밖 회원의 줄은 상위 목록과 함께 오고 그 줄만 mine이다 (R3)")
+    void outsideMemberRowComesWithTopRows() {
+        List<Question> questions = saveQuestions(saveCategory("rank-a", 1000), 4);
+        correct(saveUser("일등"), questions, 4, BASE);
+        correct(saveUser("이등"), questions, 3, BASE);
+        correct(saveUser("삼등"), questions, 2, BASE);
+        User fourth = saveUser("사등");
+        correct(fourth, questions, 1, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankings(2, fourth.getId()))
+                .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple(1L, "일등", false), tuple(2L, "이등", false), tuple(4L, "사등", true));
+    }
+
+    @Test
+    @DisplayName("목록 안 회원의 줄은 한 번만 오고 mine이다 (R3)")
+    void insideMemberRowComesOnce() {
+        List<Question> questions = saveQuestions(saveCategory("rank-a", 1000), 3);
+        correct(saveUser("일등"), questions, 3, BASE);
+        User second = saveUser("이등");
+        correct(second, questions, 2, BASE);
+        correct(saveUser("삼등"), questions, 1, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankings(2, second.getId()))
+                .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple(1L, "일등", false), tuple(2L, "이등", true));
+    }
+
+    @Test
+    @DisplayName("상위 limit 안의 줄은 inTop이고, 목록 밖에서 함께 오는 내 줄은 inTop이 아니고 mine이다 (R3)")
+    void inTopFlag() {
+        List<Question> questions = saveQuestions(saveCategory("rank-a", 1000), 4);
+        correct(saveUser("일등"), questions, 4, BASE);
+        correct(saveUser("이등"), questions, 3, BASE);
+        correct(saveUser("삼등"), questions, 2, BASE);
+        User fourth = saveUser("사등");
+        correct(fourth, questions, 1, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankings(2, fourth.getId()))
+                .extracting(RankingRow::rank, RankingRow::inTop, RankingRow::mine)
+                .containsExactly(tuple(1L, true, false), tuple(2L, true, false), tuple(4L, false, true));
+        assertThat(rankingRepository.findRankings(2, null))
+                .extracting(RankingRow::inTop)
+                .containsExactly(true, true);
+    }
+
+    @Test
+    @DisplayName("카테고리 랭킹도 inTop은 상위 limit 안의 줄만 true다 (R3, R5)")
+    void categoryInTopFlag() {
+        List<Question> java = saveQuestions(saveCategory("rank-java", 1000), 3);
+        correct(saveUser("일등"), java, 3, BASE);
+        correct(saveUser("이등"), java, 2, BASE);
+        User third = saveUser("삼등");
+        correct(third, java, 1, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", 2, third.getId()))
+                .extracting(RankingRow::rank, RankingRow::inTop, RankingRow::mine)
+                .containsExactly(tuple(1L, true, false), tuple(2L, true, false), tuple(3L, false, true));
+    }
+
+    @Test
+    @DisplayName("userId가 null이면 상위 목록만 오고 mine은 모두 false다 (R1)")
+    void nullUserIdHasNoMine() {
+        List<Question> questions = saveQuestions(saveCategory("rank-a", 1000), 3);
+        correct(saveUser("일등"), questions, 3, BASE);
+        correct(saveUser("이등"), questions, 2, BASE);
+        correct(saveUser("삼등"), questions, 1, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankings(2, null))
+                .extracting(RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple("일등", false), tuple("이등", false));
+    }
+
+    @Test
+    @DisplayName("랭킹에 없는 회원 (점수 0, 관리자)이 userId여도 상위 목록만 오고 mine은 모두 false다")
+    void memberNotRankedAddsNoRow() {
+        User zero = saveUser("영점");
+        User scorer = saveUser("득점");
+        Question question = saveQuestion(saveCategory("rank-a", 1000), QuestionType.MULTIPLE_CHOICE, "문제");
+        attempt(zero, question, false, BASE);
+        attempt(scorer, question, true, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankings(LIMIT, zero.getId()))
+                .extracting(RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple("득점", false));
     }
 
     @Test
@@ -477,13 +565,13 @@ class RankingRepositoryTest {
         attempt(first, questions.get(1), true, BASE.plusSeconds(100));
         entityManager.clear();
 
-        List<RankingRow> top = rankingRepository.findTopRankings(LIMIT);
+        List<RankingRow> top = rankingRepository.findRankings(LIMIT, null);
         assertThat(top)
                 .extracting(RankingRow::rank, RankingRow::nickname)
                 .containsExactly(tuple(1L, "다회원"), tuple(2L, "가회원"), tuple(3L, "나회원"));
-        assertThat(rankingRepository.findUserRanking(third.getId())).contains(top.get(0));
-        assertThat(rankingRepository.findUserRanking(first.getId())).contains(top.get(1));
-        assertThat(rankingRepository.findUserRanking(second.getId())).contains(top.get(2));
+        assertThat(findMine(third.getId())).contains(asMine(top.get(0)));
+        assertThat(findMine(first.getId())).contains(asMine(top.get(1)));
+        assertThat(findMine(second.getId())).contains(asMine(top.get(2)));
     }
 
     // 카테고리별 (R5)
@@ -501,13 +589,13 @@ class RankingRepositoryTest {
         correct(springFan, spring, 3, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankings(LIMIT))
+        assertThat(rankingRepository.findRankings(LIMIT, null))
                 .extracting(RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple("스프링팬", 4L), tuple("자바팬", 3L));
-        assertThat(rankingRepository.findTopRankingsInCategory("rank-java", LIMIT))
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple(1L, "자바팬", 2L), tuple(2L, "스프링팬", 1L));
-        assertThat(rankingRepository.findTopRankingsInCategory("rank-spring", LIMIT))
+        assertThat(rankingRepository.findRankingsInCategory("rank-spring", LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple(1L, "스프링팬", 3L), tuple(2L, "자바팬", 1L));
     }
@@ -527,7 +615,7 @@ class RankingRepositoryTest {
         attempt(single, java2, true, BASE.plusSeconds(100));
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankingsInCategory("rank-java", LIMIT))
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", LIMIT, null))
                 .extracting(RankingRow::nickname)
                 .containsExactly("여러카테고리", "한카테고리");
     }
@@ -550,15 +638,12 @@ class RankingRepositoryTest {
         deleteQuestion(deleted);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankingsInCategory("rank-java", LIMIT))
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", LIMIT, null))
                 .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::score)
                 .containsExactly(tuple(1L, "득점", 1L));
-        assertThat(rankingRepository.findUserRankingInCategory("rank-java", admin.getId()))
-                .isEmpty();
-        assertThat(rankingRepository.findUserRankingInCategory("rank-java", zero.getId()))
-                .isEmpty();
-        assertThat(rankingRepository.findUserRankingInCategory("rank-java", onlyDeleted.getId()))
-                .isEmpty();
+        assertThat(findMineInCategory("rank-java", admin.getId())).isEmpty();
+        assertThat(findMineInCategory("rank-java", zero.getId())).isEmpty();
+        assertThat(findMineInCategory("rank-java", onlyDeleted.getId())).isEmpty();
     }
 
     @Test
@@ -576,20 +661,56 @@ class RankingRepositoryTest {
         correct(none, spring, 1, BASE);
         entityManager.clear();
 
-        assertThat(rankingRepository.findTopRankingsInCategory("rank-java", 2))
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", 2, null))
                 .extracting(RankingRow::nickname)
                 .containsExactly("일등", "이등");
-        assertThat(rankingRepository.findUserRankingInCategory("rank-java", third.getId()))
-                .contains(new RankingRow(3L, "삼등", 1, 1L));
-        assertThat(rankingRepository.findUserRankingInCategory("rank-java", none.getId()))
-                .isEmpty();
-        assertThat(rankingRepository.findUserRanking(third.getId()))
+        assertThat(RankingRow.mineIn(rankingRepository.findRankingsInCategory("rank-java", 2, third.getId())))
+                .contains(new RankingRow(3L, "삼등", 1, 1L, false, true));
+        assertThat(findMineInCategory("rank-java", none.getId())).isEmpty();
+        assertThat(findMine(third.getId()))
                 .get()
                 .extracting(RankingRow::rank, RankingRow::score)
                 .containsExactly(1L, 4L);
     }
 
+    @Test
+    @DisplayName("카테고리 랭킹도 목록 밖 회원의 줄이 상위 목록과 함께 mine으로 오고, 목록 안 회원은 한 줄만 온다 (R3, R5)")
+    void categoryRowsWithMine() {
+        List<Question> java = saveQuestions(saveCategory("rank-java", 1000), 3);
+        List<Question> spring = saveQuestions(saveCategory("rank-spring", 2000), 3);
+        correct(saveUser("일등"), java, 3, BASE);
+        User second = saveUser("이등");
+        correct(second, java, 2, BASE);
+        User third = saveUser("삼등");
+        correct(third, java, 1, BASE);
+        correct(third, spring, 3, BASE);
+        entityManager.clear();
+
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", 2, third.getId()))
+                .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple(1L, "일등", false), tuple(2L, "이등", false), tuple(3L, "삼등", true));
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", 2, second.getId()))
+                .extracting(RankingRow::rank, RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple(1L, "일등", false), tuple(2L, "이등", true));
+        assertThat(rankingRepository.findRankingsInCategory("rank-java", 2, null))
+                .extracting(RankingRow::nickname, RankingRow::mine)
+                .containsExactly(tuple("일등", false), tuple("이등", false));
+    }
+
     // 준비
+
+    /** 전체 랭킹에서 그 회원의 줄 (mine). 랭킹에 없으면 empty. */
+    private Optional<RankingRow> findMine(long userId) {
+        return RankingRow.mineIn(rankingRepository.findRankings(LIMIT, userId));
+    }
+
+    private Optional<RankingRow> findMineInCategory(String slug, long userId) {
+        return RankingRow.mineIn(rankingRepository.findRankingsInCategory(slug, LIMIT, userId));
+    }
+
+    private static RankingRow asMine(RankingRow row) {
+        return new RankingRow(row.rank(), row.nickname(), row.tag(), row.score(), row.inTop(), true);
+    }
 
     private String nextEmail() {
         emailSequence++;
