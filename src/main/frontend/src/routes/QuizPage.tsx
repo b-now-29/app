@@ -1,11 +1,6 @@
 import { Text, VStack } from "@seed-design/react";
 import { useId, useReducer, useRef } from "react";
-import {
-  Link,
-  useLoaderData,
-  useParams,
-  useRouteLoaderData,
-} from "react-router";
+import { Link, useLoaderData, useParams } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import { Callout } from "seed-design/ui/callout";
 import {
@@ -13,7 +8,6 @@ import {
   submitSelfGrade,
   submitTextAnswer,
 } from "../api/questions";
-import type { UserResponse } from "../api/users";
 import type {
   AnswerResponse,
   QuestionResponse,
@@ -33,6 +27,7 @@ import {
 import type { SelfGradedQuestionType } from "../quiz/quizReducer";
 import { countQuestionsByType, scoreLines } from "../quiz/quizScore";
 import type { quizLoader } from "./quizLoader";
+import { useCurrentUser } from "./routeLoaderData";
 
 // 끝난 뒤(와 빈 화면)에 돌아갈 곳. route마다 다르게 넘긴다 (기본은 카테고리 목록)
 export type BackLink = { readonly to: string; readonly label: string };
@@ -78,7 +73,7 @@ function QuizSession({
   );
   const questionTitleId = useId();
   // 회원 여부는 앱 맨 위 route(root)의 loader 데이터로 안다. 비회원이면 null이다.
-  const user = useRouteLoaderData("root") as UserResponse | null;
+  const user = useCurrentUser();
   const isMember = user !== null;
 
   // 저장 중인지 즉시 기록한다. 빠른 연속 클릭은 같은 렌더의 state를 보므로 state만으로는 중복 호출을 못 막는다.

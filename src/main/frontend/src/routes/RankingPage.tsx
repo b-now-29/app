@@ -2,11 +2,11 @@ import { Text, VStack } from "@seed-design/react";
 import { useLoaderData, useSearchParams } from "react-router";
 import NicknameText from "../components/NicknameText";
 import SelectField from "../components/SelectField";
-import type { RankingLoaderData } from "./rankingLoader";
+import type { rankingLoader } from "./rankingLoader";
 
 export default function RankingPage() {
   const { category, categories, ranking } =
-    useLoaderData() as RankingLoaderData;
+    useLoaderData<typeof rankingLoader>();
   const [, setSearchParams] = useSearchParams();
   const { entries, me } = ranking;
 
