@@ -65,6 +65,18 @@ public class User {
         tokenVersion++;
     }
 
+    /**
+     * 지금 해시가 비교에 쓴 해시와 같을 때만 바꾸고 (D5), 바뀌면 이미 발급한 토큰은 모두 무효다 (D4). {@code @DynamicUpdate}로 두 컬럼만
+     * UPDATE된다.
+     */
+    public void changePassword(String expectedHash, String newHash) {
+        if (!passwordHash.equals(expectedHash)) {
+            throw new WrongCurrentPasswordException();
+        }
+        this.passwordHash = newHash;
+        revokeTokens();
+    }
+
     /** 지금 토큰 버전으로 토큰을 발급할 때 쓰는 주체. */
     public TokenSubject tokenSubject() {
         return new TokenSubject(id, tokenVersion);

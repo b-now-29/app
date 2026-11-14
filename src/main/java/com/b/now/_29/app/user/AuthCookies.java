@@ -2,9 +2,11 @@ package com.b.now._29.app.user;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +40,11 @@ public class AuthCookies {
     /** 회원의 새 토큰을 담은 {@code Set-Cookie} 헤더 값. */
     public String issueFor(TokenSubject subject) {
         return issue(tokenService.issue(subject));
+    }
+
+    /** 이미 붙은 {@code Set-Cookie}(연장 필터의 옛 버전 쿠키)를 지우고 새 토큰 쿠키 하나만 남긴다 (D8). */
+    public void overwriteFor(HttpServletResponse response, TokenSubject subject) {
+        response.setHeader(HttpHeaders.SET_COOKIE, issueFor(subject));
     }
 
     public String issue(IssuedToken token) {

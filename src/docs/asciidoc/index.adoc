@@ -79,7 +79,7 @@ operation::self-grades-submit-question-not-found[snippets='http-response']
 
 == 회원
 
-인증은 `access_token` 쿠키로 한다. 가입과 로그인이 `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=3600` 속성으로 쿠키를 설정한다. 토큰 수명은 1시간이다. 유효한 토큰의 남은 시간이 30분 미만이면 그 요청의 응답에 같은 속성의 새 쿠키가 `Set-Cookie`로 붙어 기한이 연장된다 (로그아웃 제외). 연장해도 처음 로그인한 때부터 1일이 지나면 토큰이 만료되므로 다시 로그인해야 하며, 이 절대 기한에 가까워지면 새 쿠키의 `Max-Age`는 3600보다 짧아진다. 1시간 동안 요청이 없으면 토큰이 만료된다. `GET /api/v1/users/me`, `PUT /api/v1/users/me/nickname`, `GET /api/v1/users/me/category-stats`, `GET /api/v1/users/me/attempts`, `POST /api/v1/questions/{questionId}/self-grades`만 인증이 필요하고, 나머지 API는 쿠키가 없거나 만료·위조되어도 비회원으로 정상 이용할 수 있다.
+인증은 `access_token` 쿠키로 한다. 가입과 로그인이 `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=3600` 속성으로 쿠키를 설정한다. 토큰 수명은 1시간이다. 유효한 토큰의 남은 시간이 30분 미만이면 그 요청의 응답에 같은 속성의 새 쿠키가 `Set-Cookie`로 붙어 기한이 연장된다 (로그아웃 제외). 연장해도 처음 로그인한 때부터 1일이 지나면 토큰이 만료되므로 다시 로그인해야 하며, 이 절대 기한에 가까워지면 새 쿠키의 `Max-Age`는 3600보다 짧아진다. 1시간 동안 요청이 없으면 토큰이 만료된다. `GET /api/v1/users/me`, `PUT /api/v1/users/me/nickname`, `PUT /api/v1/users/me/password`, `GET /api/v1/users/me/category-stats`, `GET /api/v1/users/me/attempts`, `POST /api/v1/questions/{questionId}/self-grades`만 인증이 필요하고, 나머지 API는 쿠키가 없거나 만료·위조되어도 비회원으로 정상 이용할 수 있다.
 
 토큰의 회원이 없으면 비회원으로 처리한다. 유효한 토큰이라도 그 회원이 없어졌으면 쿠키가 없을 때와 같이 응답하며, 새 쿠키로 연장하지 않는다.
 
@@ -92,7 +92,7 @@ operation::self-grades-submit-question-not-found[snippets='http-response']
 
 operation::users-signup[snippets='request-fields,http-request,http-response,response-headers,response-fields']
 
-이메일 형식이 틀리거나, 비밀번호가 8자보다 짧거나 UTF-8 72바이트를 넘으면 400으로 응답한다.
+이메일 형식이 틀리거나, 비밀번호가 8자보다 짧거나 UTF-8 72바이트를 넘거나 NUL 문자(`\u0000`)를 포함하면 400으로 응답한다.
 
 operation::users-signup-invalid[snippets='http-response']
 
@@ -129,6 +129,27 @@ operation::users-me-nickname-change-invalid[snippets='http-response']
 로그인하지 않았거나 쿠키가 만료·위조되었으면 401로 응답한다.
 
 operation::users-me-nickname-change-unauthorized[snippets='http-response']
+
+=== 비밀번호 변경
+로그인한 회원 자신의 현재 비밀번호를 확인하고 새 비밀번호로 바꾼다. 새 비밀번호의 규칙은 가입과 같고 (8자 이상, UTF-8 72바이트 이하, 공백만은 안 됨, NUL 문자 없음), 지금과 같은 비밀번호로 바꿀 수도 있다. 바꾸면 로그아웃과 같이 그 회원이 지금까지 받은 토큰이 다른 기기의 것까지 모두 무효가 된다. 요청한 기기는 응답의 `Set-Cookie`로 새 쿠키를 받아 로그인이 유지된다. 성공 응답의 `Set-Cookie`는 새 쿠키 하나뿐이며, 남은 시간이 30분 미만인 쿠키로 요청해도 옛 쿠키의 연장 쿠키는 함께 붙지 않는다. 실패 응답(400, 429)은 다른 API와 같이, 남은 시간이 30분 미만인 쿠키면 연장 쿠키가 붙는다. 성공하면 본문 없이 204로 응답한다.
+
+operation::users-me-password-change[snippets='request-cookies,request-fields,http-request,http-response,response-headers']
+
+현재 비밀번호가 틀리면 400으로 응답한다. `detail`은 `현재 비밀번호가 맞지 않습니다.`이다. 로그인 만료(401)와 구분하려고 401을 쓰지 않는다.
+
+operation::users-me-password-change-wrong-current[snippets='http-response']
+
+새 비밀번호가 규칙에 맞지 않거나 필드가 없으면 400으로 응답한다.
+
+operation::users-me-password-change-invalid[snippets='http-response']
+
+로그인하지 않았거나 쿠키가 만료·위조되었으면 401로 응답한다.
+
+operation::users-me-password-change-unauthorized[snippets='http-response']
+
+한 회원이 15분 안에 현재 비밀번호 확인을 5번 넘게 시도하면 그 창이 끝날 때까지 맞는 비밀번호여도 비교하지 않고 429로 응답한다. 비밀번호가 바뀌면 그 회원의 횟수는 지워진다. `Retry-After` 헤더에 다시 시도할 수 있을 때까지 남은 초가 담긴다.
+
+operation::users-me-password-change-too-many-attempts[snippets='http-response,response-headers']
 
 === 카테고리별 정답률 조회
 로그인한 회원 자신의 풀이 기록으로 카테고리 안의 유형별 정답률 재료를 반환한다. 같은 문제를 여러 번 풀었으면 가장 최근 기록만 센다 (시각이 같으면 나중에 저장한 기록). 기록이 있는 카테고리만 카테고리 표시 순서대로 넣고, `types`에는 기록이 있는 유형만 `MULTIPLE_CHOICE`, `SHORT_ANSWER`, `ESSAY` 순서로 넣는다. 유형을 합친 카테고리 합계는 없고 퍼센트는 계산하지 않는다. 기록이 없으면 빈 배열을 반환한다.

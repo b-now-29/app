@@ -7,13 +7,13 @@ import jakarta.validation.constraints.Size;
 public record SignUpRequest(
         @NotBlank @Email @Size(max = MAX_EMAIL_LENGTH) String email,
 
-        @NotBlank @Size(min = 8) @MaxBytes(MAX_PASSWORD_BYTES)
+        @NotBlank @Size(min = 8) @MaxBytes(MAX_PASSWORD_BYTES) @NoNul
         String password,
 
         @NicknameFormat String nickname) {
 
     /** BCrypt 입력 한도 (R3). 가입 검증과 로그인 사전 거절이 함께 쓴다 (D23). */
-    public static final int MAX_PASSWORD_BYTES = 72;
+    public static final int MAX_PASSWORD_BYTES = PasswordRule.MAX_BYTES;
 
     /** users.email 컬럼 길이 (D19). */
     public static final int MAX_EMAIL_LENGTH = 255;

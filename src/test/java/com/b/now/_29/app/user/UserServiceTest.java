@@ -49,10 +49,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * 가입·로그인·로그아웃·닉네임 변경과 로그인·가입 시도 제한을 확인한다.
+ * 가입·로그인·로그아웃·닉네임 변경·비밀번호 변경과 로그인·가입·비밀번호 변경 시도 제한을 확인한다.
  *
  * <p>번호 계산과 저장은 {@code NicknameTagAssigner}의 한 번 시도가 하므로 mock으로 두고, 재시도의 실제 트랜잭션 동작은 {@code
- * NicknameTagRetryIntegrationTest}가 확인한다.
+ * NicknameTagRetryIntegrationTest}가 확인한다. 비밀번호 저장도 {@code PasswordWriter}를 mock으로 두고, 트랜잭션 경계는 {@code
+ * PasswordChangeIntegrationTest}가 확인한다.
  */
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -83,6 +84,13 @@ class UserServiceTest {
     private static final int SIGN_UP_MAX = 3;
     private static final Duration LOGIN_WINDOW = Duration.ofMinutes(15);
     private static final Duration SIGN_UP_WINDOW = Duration.ofHours(1);
+    // 비밀번호 변경 제한. 운영값 (회원별 15분 5회)은 AuthThrottleConfigTest와 통합 테스트가 확인한다
+    private static final int PASSWORD_CHANGE_MAX = 3;
+    private static final Duration PASSWORD_CHANGE_WINDOW = Duration.ofMinutes(15);
+    private static final long OTHER_USER_ID = 2L;
+    private static final String NEW_PASSWORD = "new-password-123";
+    private static final String WRONG_PASSWORD = "wrong-password";
+    private static final TokenSubject CHANGED = new TokenSubject(USER_ID, User.INITIAL_TOKEN_VERSION + 1);
     // 가입에 쓰는 것과 같은 강도 10의 BCrypt 해시: $2a$, $2b$, $2y$ 중 하나 + 강도 10 + salt·해시 53자
     private static final String COST_10_BCRYPT = "^\\$2[aby]?\\$10\\$[./A-Za-z0-9]{53}$";
 
@@ -105,15 +113,19 @@ class UserServiceTest {
     @Mock
     NicknameTagAssigner assigner;
 
+    @Mock
+    PasswordWriter passwordWriter;
+
     UserService userService;
 
     @BeforeEach
     void setUp() {
         AuthLimiters limiters = new AuthLimiters(
-                new AttemptLimiter(PAIR_MAX, LOGIN_WINDOW, clock),
-                new AttemptLimiter(IP_MAX, LOGIN_WINDOW, clock),
-                new AttemptLimiter(SIGN_UP_MAX, SIGN_UP_WINDOW, clock));
-        userService = new UserService(userRepository, passwordEncoder, assigner, limiters);
+                new AttemptLimiter<>(PAIR_MAX, LOGIN_WINDOW, clock),
+                new AttemptLimiter<>(IP_MAX, LOGIN_WINDOW, clock),
+                new AttemptLimiter<>(SIGN_UP_MAX, SIGN_UP_WINDOW, clock),
+                new AttemptLimiter<>(PASSWORD_CHANGE_MAX, PASSWORD_CHANGE_WINDOW, clock));
+        userService = new UserService(userRepository, passwordEncoder, assigner, passwordWriter, limiters);
     }
 
     // 가입 (번호 계산·저장은 NicknameTagAssigner의 한 번 시도)
@@ -806,6 +818,264 @@ class UserServiceTest {
         assertThat(exception.retryAfter()).isEqualTo(Duration.ofMinutes(5));
     }
 
+    // 비밀번호 변경 (docs/features/password-change.md). 저장은 PasswordWriter의 한 번 쓰기가 하므로 mock으로 둔다
+
+    @Test
+    @DisplayName("현재 비밀번호가 맞으면 새 비밀번호의 BCrypt 해시와 비교에 쓴 해시로 저장을 부르고, 저장이 돌려준 새 토큰 주체를 돌려준다 (R1, R5, D3, D5)")
+    void changePasswordHashesNewPasswordAndDelegatesSave() {
+        User user = savedUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(passwordWriter.changePassword(eq(USER_ID), eq(user.getPasswordHash()), anyString()))
+                .willReturn(CHANGED);
+
+        TokenSubject result = userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD);
+
+        ArgumentCaptor<String> newHash = ArgumentCaptor.forClass(String.class);
+        then(passwordWriter).should().changePassword(eq(USER_ID), eq(user.getPasswordHash()), newHash.capture());
+        assertThat(newHash.getValue()).startsWith("$2").isNotEqualTo(NEW_PASSWORD);
+        assertThat(hasher.matches(NEW_PASSWORD, newHash.getValue())).isTrue();
+        assertThat(result).isEqualTo(CHANGED);
+        then(userRepository).should(never()).save(any(User.class));
+        then(userRepository).should(never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    @DisplayName("현재 비밀번호는 저장된 해시와 한 번만 비교한다")
+    void changePasswordComparesStoredHashOnce() {
+        User user = savedUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willReturn(CHANGED);
+
+        userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD);
+
+        then(passwordEncoder).should(times(1)).matches(any(), anyString());
+        then(passwordEncoder).should().matches(PASSWORD, user.getPasswordHash());
+    }
+
+    @Test
+    @DisplayName("현재 비밀번호가 틀리면 저장하지 않고 \"현재 비밀번호가 맞지 않습니다.\" 예외다 (R2)")
+    void changePasswordRejectsWrongCurrentPassword() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(savedUser()));
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, WRONG_PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(WrongCurrentPasswordException.class)
+                .hasMessage("현재 비밀번호가 맞지 않습니다.");
+
+        then(passwordWriter).shouldHaveNoInteractions();
+    }
+
+    @ParameterizedTest
+    @MethodSource("passwordsOverLimit")
+    @DisplayName("72바이트를 넘는 현재 비밀번호는 앞 72바이트가 맞아도 BCrypt를 부르지 않고 R2와 같은 예외다 (D6)")
+    void changePasswordRejectsCurrentPasswordOverLimitWithoutBcrypt(String storedPassword, String attempt) {
+        lenient().when(userRepository.findById(USER_ID)).thenReturn(Optional.of(savedUser(storedPassword)));
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, attempt, NEW_PASSWORD))
+                .isInstanceOf(WrongCurrentPasswordException.class)
+                .hasMessage("현재 비밀번호가 맞지 않습니다.");
+
+        then(passwordEncoder).should(never()).matches(any(), any());
+        then(passwordWriter).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("정확히 72바이트인 현재 비밀번호는 한도 안이므로 맞으면 바꾼다 (D6)")
+    void changePasswordAcceptsCurrentPasswordAtLimit() {
+        String current = "가".repeat(24);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(savedUser(current)));
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willReturn(CHANGED);
+
+        assertThat(userService.changePassword(USER_ID, current, NEW_PASSWORD)).isEqualTo(CHANGED);
+    }
+
+    @Test
+    @DisplayName("새 비밀번호가 현재와 같아도 바꾼다 (D7)")
+    void changePasswordAllowsSamePassword() {
+        User user = savedUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(passwordWriter.changePassword(eq(USER_ID), eq(user.getPasswordHash()), anyString()))
+                .willReturn(CHANGED);
+
+        assertThat(userService.changePassword(USER_ID, PASSWORD, PASSWORD)).isEqualTo(CHANGED);
+
+        ArgumentCaptor<String> newHash = ArgumentCaptor.forClass(String.class);
+        then(passwordWriter).should().changePassword(eq(USER_ID), anyString(), newHash.capture());
+        assertThat(hasher.matches(PASSWORD, newHash.getValue())).isTrue();
+    }
+
+    @Test
+    @DisplayName("토큰은 유효하지만 회원이 없으면 UserNotFoundException이고 저장하지 않는다")
+    void changePasswordOfUnknownUser() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(UserNotFoundException.class);
+
+        then(passwordWriter).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("비교 뒤 저장 단계에서 다른 요청이 비밀번호를 바꾼 것이 드러나면 그 R2 예외를 그대로 던진다 (D5)")
+    void changePasswordPropagatesConcurrentChange() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(savedUser()));
+        WrongCurrentPasswordException concurrent = new WrongCurrentPasswordException();
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willThrow(concurrent);
+
+        Throwable thrown = catchThrowable(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD));
+
+        assertThat(thrown).isSameAs(concurrent);
+    }
+
+    // 비밀번호 변경 시도 제한 (R7, D2)
+
+    @Test
+    @DisplayName("같은 회원이 한도만큼 틀리면 맞는 현재 비밀번호도 BCrypt 비교 없이 TooManyPasswordChangeAttemptsException이고 저장하지 않는다 (R7)")
+    void changePasswordBlockedAfterLimitWithoutBcrypt() {
+        givenSavedUserByIdLeniently();
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX);
+        clearInvocations(passwordEncoder);
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(TooManyPasswordChangeAttemptsException.class);
+
+        then(passwordEncoder).should(never()).matches(any(), any());
+        then(passwordWriter).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("Retry-After 헤더에 쓰도록, 차단 예외는 그 회원의 창이 끝날 때까지 남은 시간을 담는다 (R7)")
+    void changePasswordBlockCarriesRetryAfter() {
+        givenSavedUserByIdLeniently();
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX);
+        clock.advance(Duration.ofMinutes(10));
+
+        Throwable thrown = catchThrowable(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD));
+
+        assertThat(thrown).isInstanceOf(TooManyPasswordChangeAttemptsException.class);
+        assertThat(((TooManyPasswordChangeAttemptsException) thrown).retryAfter())
+                .isEqualTo(PASSWORD_CHANGE_WINDOW.minus(Duration.ofMinutes(10)));
+    }
+
+    @Test
+    @DisplayName("시도 횟수는 회원별이라, 한 회원이 막혀도 다른 회원은 바꿀 수 있다 (D2)")
+    void changePasswordLimitIsPerUser() {
+        givenSavedUserByIdLeniently();
+        User other = withId(
+                new User("other@example.com", hasher.encode(PASSWORD), new Nickname(NICKNAME), TAG), OTHER_USER_ID);
+        given(userRepository.findById(OTHER_USER_ID)).willReturn(Optional.of(other));
+        TokenSubject otherChanged = new TokenSubject(OTHER_USER_ID, User.INITIAL_TOKEN_VERSION + 1);
+        given(passwordWriter.changePassword(eq(OTHER_USER_ID), anyString(), anyString()))
+                .willReturn(otherChanged);
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX);
+
+        assertThat(userService.changePassword(OTHER_USER_ID, PASSWORD, NEW_PASSWORD))
+                .isEqualTo(otherChanged);
+    }
+
+    @Test
+    @DisplayName("72바이트를 넘어 BCrypt 없이 거부된 시도도 횟수에 센다 (D6)")
+    void currentPasswordOverLimitCountsAsAttempt() {
+        givenSavedUserByIdLeniently();
+        for (int i = 0; i < PASSWORD_CHANGE_MAX; i++) {
+            assertThatThrownBy(() -> userService.changePassword(USER_ID, "a".repeat(73), NEW_PASSWORD))
+                    .isInstanceOf(WrongCurrentPasswordException.class);
+        }
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(TooManyPasswordChangeAttemptsException.class);
+    }
+
+    @Test
+    @DisplayName("저장까지 성공하면 그 회원의 횟수를 지운다 (R7, D12)")
+    void successfulChangeResetsAttempts() {
+        givenSavedUserByIdLeniently();
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willReturn(CHANGED);
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX - 1);
+        userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD);
+        // 지워지지 않았다면 여기서 한도를 넘는다
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX - 1);
+
+        assertThat(userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD)).isEqualTo(CHANGED);
+        then(passwordWriter).should(times(2)).changePassword(eq(USER_ID), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("비교는 맞았지만 저장 단계에서 다른 요청의 변경이 드러나 400이면 실패로 남겨, 횟수를 지우지 않는다 (D5, D12)")
+    void concurrentChangeDoesNotResetAttempts() {
+        givenSavedUserByIdLeniently();
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willThrow(new WrongCurrentPasswordException());
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX - 1);
+
+        // 한도의 마지막 시도: 비교는 맞지만 저장이 R2 예외로 끝난다
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(WrongCurrentPasswordException.class);
+        clearInvocations(passwordEncoder, passwordWriter);
+
+        // 지워졌다면 다시 비교하고 저장을 부른다
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(TooManyPasswordChangeAttemptsException.class);
+        then(passwordEncoder).should(never()).matches(any(), any());
+        then(passwordWriter).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("저장 단계에서 회원이 없어져 실패해도 횟수를 지우지 않는다 (D12)")
+    void failedSaveDoesNotResetAttempts() {
+        givenSavedUserByIdLeniently();
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willThrow(new UserNotFoundException(USER_ID));
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX - 1);
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(UserNotFoundException.class);
+
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(TooManyPasswordChangeAttemptsException.class);
+    }
+
+    @Test
+    @DisplayName("첫 시도부터 15분이 지나면 다시 바꿀 수 있다 (R7)")
+    void changePasswordBlockEndsAfterWindow() {
+        givenSavedUserByIdLeniently();
+        given(passwordWriter.changePassword(eq(USER_ID), anyString(), anyString()))
+                .willReturn(CHANGED);
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX);
+        clock.advance(PASSWORD_CHANGE_WINDOW.minusSeconds(1));
+        assertThatThrownBy(() -> userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD))
+                .isInstanceOf(TooManyPasswordChangeAttemptsException.class);
+
+        clock.advance(Duration.ofSeconds(2));
+
+        assertThat(userService.changePassword(USER_ID, PASSWORD, NEW_PASSWORD)).isEqualTo(CHANGED);
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 제한은 로그인 제한과 따로 센다: 비밀번호 변경이 막혀도 로그인은 된다")
+    void passwordChangeLimitDoesNotAffectLogin() {
+        givenSavedUserByIdLeniently();
+        givenSavedUserLeniently();
+        failPasswordChangeTimes(USER_ID, PASSWORD_CHANGE_MAX);
+
+        assertThat(userService.login(EMAIL, PASSWORD, clientIp)).isEqualTo(LOGGED_IN);
+    }
+
+    /** 제한에 걸린 변경은 Repository 조회를 생략해도 되므로 조회 여부를 강제하지 않는다. */
+    private void givenSavedUserByIdLeniently() {
+        lenient().when(userRepository.findById(USER_ID)).thenReturn(Optional.of(savedUser()));
+    }
+
+    private void failPasswordChangeTimes(long userId, int times) {
+        for (int i = 0; i < times; i++) {
+            assertThatThrownBy(() -> userService.changePassword(userId, WRONG_PASSWORD, NEW_PASSWORD))
+                    .isInstanceOf(WrongCurrentPasswordException.class);
+        }
+    }
+
     /**
      * spy 인코더의 첫 {@code matches}가 실행되는 동안 (다른 요청이 비교 중인 순간) {@code concurrentLogin}을 한 번 부르고, 그 결과
      * 예외를 돌려준다. 예외 없이 끝나면 null이다.
@@ -849,7 +1119,11 @@ class UserServiceTest {
     }
 
     private static User withId(User user) {
-        ReflectionTestUtils.setField(user, "id", USER_ID);
+        return withId(user, USER_ID);
+    }
+
+    private static User withId(User user, long id) {
+        ReflectionTestUtils.setField(user, "id", id);
         return user;
     }
 
