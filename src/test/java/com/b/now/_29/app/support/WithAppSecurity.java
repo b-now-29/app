@@ -1,5 +1,6 @@
 package com.b.now._29.app.support;
 
+import com.b.now._29.app.config.ClockConfig;
 import com.b.now._29.app.config.JwtConfig;
 import com.b.now._29.app.config.SecurityConfig;
 import com.b.now._29.app.user.AuthCookies;
@@ -27,12 +28,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>{@code UserRoleService}: 관리자 경로 인가가 요청마다 DB의 role을 확인하는데 (D3), {@code @WebMvcTest}에는 Repository가 없으므로 mock으로
  * 넣는다. 기본값은 {@code isAdmin = false}(USER)다. 관리자로 요청하려면 테스트에서 {@code @Autowired UserRoleService}로 받아
  * {@code given(...isAdmin(id)).willReturn(true)}로 정한다.
+ *
+ * <p>{@code ClockConfig}: {@code TokenService}가 주입받는 {@code Clock} 빈({@code Clock.systemUTC()})을 둔다 (token-sliding-expiry D5).
  */
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @EnableWebSecurity
-@Import({SecurityConfig.class, JwtConfig.class, TokenService.class, AuthCookies.class})
+@Import({SecurityConfig.class, JwtConfig.class, ClockConfig.class, TokenService.class, AuthCookies.class})
 @MockitoBean(types = UserRoleService.class)
 @TestPropertySource(properties = "JWT_SECRET=" + TestJwts.SECRET)
 public @interface WithAppSecurity {}

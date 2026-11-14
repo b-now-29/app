@@ -97,7 +97,7 @@ class AuthControllerTest {
 
         SetCookieHeader cookie = SetCookieHeader.from(result);
         assertThat(cookie.name()).isEqualTo("access_token");
-        assertThat(cookie.attributes()).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/api", "Max-Age=604800");
+        assertThat(cookie.attributes()).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/api", "Max-Age=3600");
         assertThat(tokenService.parseUserId(cookie.value())).contains(USER_ID);
     }
 
