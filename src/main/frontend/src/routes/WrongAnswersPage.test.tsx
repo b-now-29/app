@@ -1,11 +1,12 @@
 // 오답 노트 화면 (docs/features/wrong-answers.md R6, 화면 흐름).
 // 구현할 파일: src/routes/WrongAnswersPage.tsx (default export), loader는 wrongAnswerLoaders.ts의 wrongAnswersLoader
 // 카테고리마다 이름 (제목), 오답 수 ("N문제"), 문제 목록 (본문, 유형, 마지막으로 푼 날짜), /wrong-answers/:slug로 가는
-// "다시 풀기" 링크를 보여 준다. 날짜는 내 기록 화면과 같은 toLocaleDateString("ko-KR") 형식이다.
+// "다시 풀기" 링크를 보여 준다. 날짜는 모든 화면 공통 formatDate 형식
+// ("YYYY.MM.DD", 브라우저 시간대, docs/features/ranking.md D13)이다.
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/users";
 import { getWrongAnswers } from "../api/wrongAnswers";
 import type {
@@ -50,8 +51,19 @@ const WRONG_ANSWERS: readonly WrongAnswerCategoryResponse[] = [
   { slug: "spring", name: "스프링", questions: [SPRING_SHORT] },
 ];
 
-const dateOf = (question: WrongAnswerQuestionResponse) =>
-  new Date(question.attemptedAt).toLocaleDateString("ko-KR");
+// 서울 시간대 (beforeEach에서 TZ 고정) 기준 마지막으로 푼 날짜
+const DATES = new Map<WrongAnswerQuestionResponse, string>([
+  [JAVA_ESSAY, "2026.11.06"],
+  [JAVA_CHOICE, "2026.11.04"],
+  [SPRING_SHORT, "2026.10.30"],
+]);
+const dateOf = (question: WrongAnswerQuestionResponse) => {
+  const date = DATES.get(question);
+  if (date === undefined) {
+    throw new Error(`날짜 기대값이 없는 문제: ${question.questionId}`);
+  }
+  return date;
+};
 
 function LoginStub() {
   return <h1>{LOGIN_SCREEN}</h1>;
@@ -100,8 +112,13 @@ const isAtOrAfter = (element: Element, reference: Element) =>
   isBefore(reference, element);
 
 beforeEach(() => {
+  vi.stubEnv("TZ", "Asia/Seoul");
   vi.mocked(getWrongAnswers).mockReset();
   vi.mocked(getWrongAnswers).mockResolvedValue(WRONG_ANSWERS);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("오답 노트 화면 (R6)", () => {

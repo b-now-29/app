@@ -162,6 +162,37 @@ operation::users-me-wrong-answers-questions-category-not-found[snippets='http-re
 
 operation::users-me-wrong-answers-questions-unauthorized[snippets='http-response']
 
+== 랭킹
+
+랭킹 API는 공개다. 쿠키가 없거나 만료·위조되었으면 비회원으로 처리해 `me` 없이 목록만 반환한다.
+
+점수는 맞힌 문제 수다. 문제마다 가장 최근 풀이 기록 (시각이 같으면 나중에 저장한 기록)이 맞음인 문제를 세며 객관식·주관식·서술형을 모두 넣는다. 삭제된 문제와 삭제된 카테고리의 문제는 점수와 도달 시각 계산에서 모두 뺀다. 관리자 (조회 시점의 role 기준)와 점수가 0인 회원은 랭킹에 넣지 않는다.
+
+순위는 점수가 높은 순이다. 점수가 같으면 지금 점수에 먼저 도달한 회원이 위다. 도달 시각은 점수를 바꾼 (맞혀서 +1 또는 맞혔던 문제를 틀려서 −1) 마지막 기록의 시각이다. 그래도 같으면 먼저 가입한 회원 (회원 ID가 작은 쪽)이 위이며, 같은 등수는 없다. 목록은 상위 50명이고 이메일과 회원 ID는 포함하지 않는다.
+
+`me`는 로그인한 회원 자신의 등수와 점수이며 50위 밖이어도 내려준다. 비회원과 관리자는 `null`이고, 점수가 0인 회원은 `rank`가 `null`, `score`가 `0`이다.
+
+=== 전체 랭킹 조회
+
+operation::rankings[snippets='request-cookies,http-request,http-response,response-fields']
+
+비회원의 응답은 다음과 같다.
+
+operation::rankings-guest[snippets='http-response']
+
+점수가 0인 회원의 응답은 다음과 같다.
+
+operation::rankings-member-without-score[snippets='http-response']
+
+=== 카테고리 랭킹 조회
+그 카테고리 문제만으로 점수와 도달 시각을 계산한다. 응답 모양은 전체 랭킹과 같다.
+
+operation::categories-rankings[snippets='path-parameters,request-cookies,http-request,http-response,response-fields']
+
+없거나 삭제된 카테고리는 404로 응답한다.
+
+operation::categories-rankings-not-found[snippets='http-response']
+
 == 인증
 
 === 로그인

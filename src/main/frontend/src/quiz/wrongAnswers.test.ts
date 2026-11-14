@@ -5,7 +5,8 @@
 //     카테고리 제목. "이름 N문제" (N은 그 카테고리의 오답 문제 수).
 //
 //   wrongAnswerQuestionMeta(question: WrongAnswerQuestionResponse): string
-//     문제 아래 줄. "유형 이름 · 날짜". 유형 이름은 QUESTION_TYPE_NAMES, 날짜는 formatAttemptDate.
+//     문제 아래 줄. "유형 이름 · 날짜". 유형 이름은 QUESTION_TYPE_NAMES, 날짜는 quiz/date.ts의 formatDate
+//     ("YYYY.MM.DD", docs/features/ranking.md D13).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   WrongAnswerCategoryResponse,
@@ -60,18 +61,20 @@ describe("wrongAnswerQuestionMeta (R6, 화면 흐름)", () => {
     ["SHORT_ANSWER", "주관식"],
     ["ESSAY", "서술형"],
   ] as const)("%s 문제는 %s · 날짜다", (type, typeName) => {
+    vi.stubEnv("TZ", "Asia/Seoul");
+
     expect(wrongAnswerQuestionMeta(question({ type }))).toBe(
-      `${typeName} · ${new Date(ATTEMPTED_AT).toLocaleDateString("ko-KR")}`,
+      `${typeName} · 2026.11.06`,
     );
   });
 
-  it("날짜는 브라우저 시간대의 ko-KR 형식이다", () => {
+  it("날짜는 브라우저 시간대의 'YYYY.MM.DD' 형식이다", () => {
     vi.stubEnv("TZ", "Asia/Seoul");
     // UTC로는 11월 12일이지만 서울(UTC+9)로는 11월 13일이다
     expect(
       wrongAnswerQuestionMeta(
         question({ type: "ESSAY", attemptedAt: "2026-11-12T23:30:00Z" }),
       ),
-    ).toBe("서술형 · 2026. 11. 13.");
+    ).toBe("서술형 · 2026.11.13");
   });
 });

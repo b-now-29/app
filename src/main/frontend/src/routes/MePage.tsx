@@ -9,7 +9,7 @@ import {
 import { ActionButton } from "seed-design/ui/action-button";
 import { TextField, TextFieldInput } from "seed-design/ui/text-field";
 import type { UserResponse } from "../api/users";
-import { displayName } from "../user/displayName";
+import NicknameText from "../components/NicknameText";
 import type { ActionError } from "./actionError";
 import type { NicknameSaved } from "./meRoute";
 import { useResetKeyOnSave } from "./useResetKeyOnSave";
@@ -32,7 +32,9 @@ export default function MePage() {
         내 정보
       </Text>
       <Text textStyle="t4Regular">{user.email}</Text>
-      <Text textStyle="t4Bold">{displayName(user)}</Text>
+      <Text textStyle="t4Bold">
+        <NicknameText member={user} />
+      </Text>
       <Form method="post" key={formKey}>
         <VStack gap="x4">
           {/* 처음부터, 그리고 저장 성공 후 폼이 다시 그려질 때도 빈칸이다 (defaultValue를 주지 않는다) */}

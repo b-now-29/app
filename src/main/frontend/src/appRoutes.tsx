@@ -36,6 +36,8 @@ import {
   wrongAnswerQuizLoader,
   wrongAnswersLoader,
 } from "./routes/wrongAnswerLoaders";
+import RankingPage from "./routes/RankingPage";
+import { rankingLoader } from "./routes/rankingLoader";
 import AboutPage from "./routes/AboutPage";
 import NotFoundPage from "./routes/NotFoundPage";
 import LoginPage from "./routes/LoginPage";
@@ -104,6 +106,13 @@ export const appRoutes: RouteObject[] = [
         Component: WrongAnswersPage,
         loader: wrongAnswersLoader,
         ErrorBoundary: ErrorPage,
+      },
+      {
+        // 공개 화면. 고른 카테고리는 주소 (?category=)에 남고 loader가 읽는다
+        path: "ranking",
+        Component: RankingPage,
+        loader: rankingLoader,
+        ErrorBoundary: QuizErrorPage,
       },
       {
         // 풀이 화면(QuizPage)을 재사용하고 loader와 돌아갈 링크만 다르다. skipAfterLogout 없음
