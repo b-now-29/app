@@ -65,7 +65,7 @@ const WRONG_ANSWERS_BACK_LINK = { to: "/wrong-answers", label: "오답 노트" }
 export const appRoutes: RouteObject[] = [
   {
     path: "/",
-    id: "root", // 자식 화면이 useRouteLoaderData("root")로 현재 사용자를 읽는다
+    id: "root", // 자식 화면이 useCurrentUser (routes/routeLoaderData.ts)로 현재 사용자를 읽는다
     Component: RootLayout, // 공통 틀
     loader: rootLoader, // 현재 로그인 사용자 (비회원이면 null)
     action: logoutAction, // 메뉴의 로그아웃 버튼이 보내는 POST
@@ -129,7 +129,7 @@ export const appRoutes: RouteObject[] = [
       {
         // 관리자 화면. 로그아웃 뒤에는 loader가 다시 실행되어 401로 /login에 간다
         path: "admin",
-        id: "admin", // 자식 화면이 useRouteLoaderData("admin")으로 카테고리 목록을 읽는다
+        id: "admin", // 자식 화면이 useAdminCategories (routes/routeLoaderData.ts)로 카테고리 목록을 읽는다
         Component: AdminLayout,
         loader: adminLoader,
         ErrorBoundary: ErrorPage,

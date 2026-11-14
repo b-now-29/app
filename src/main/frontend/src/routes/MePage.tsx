@@ -1,16 +1,10 @@
 import { Text, VStack } from "@seed-design/react";
-import {
-  Form,
-  Navigate,
-  useActionData,
-  useNavigation,
-  useRouteLoaderData,
-} from "react-router";
+import { Form, Navigate, useActionData, useNavigation } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import { TextField, TextFieldInput } from "seed-design/ui/text-field";
-import type { UserResponse } from "../api/users";
 import NicknameText from "../components/NicknameText";
 import type { MeActionResult } from "./meRoute";
+import { useCurrentUser } from "./routeLoaderData";
 import { useResetKeyOnSave } from "./useResetKeyOnSave";
 
 type PasswordResult = Extract<MeActionResult, { intent: "password" }>;
@@ -48,7 +42,7 @@ function PasswordMessage({ result }: { result: PasswordResult | undefined }) {
 
 export default function MePage() {
   // 현재 사용자는 root loader가 이미 받아 둔 값을 쓴다 (같은 조회를 또 하지 않는다)
-  const user = useRouteLoaderData("root") as UserResponse | null;
+  const user = useCurrentUser();
   const actionData = useActionData<MeActionResult | undefined>();
   const submitting = useNavigation().state === "submitting";
   // 두 폼이 같은 action을 쓰므로, 결과를 intent로 나눠 각 폼은 자기 결과만 본다

@@ -1,10 +1,10 @@
 import { Text, VStack } from "@seed-design/react";
 import { Link, useLoaderData } from "react-router";
-import type { AdminCategoryStatResponse } from "../api/admin";
 import { categoryTypeStatLine } from "../quiz/adminStats";
+import type { adminCategoryStatsLoader } from "./adminStatsLoaders";
 
 export default function AdminCategoryStatsPage() {
-  const categories = useLoaderData() as readonly AdminCategoryStatResponse[];
+  const categories = useLoaderData<typeof adminCategoryStatsLoader>();
 
   return (
     <VStack gap="x4">
