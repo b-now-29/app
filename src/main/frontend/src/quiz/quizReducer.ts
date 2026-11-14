@@ -1,3 +1,4 @@
+import { ApiError } from "../api/http";
 import type {
   AnswerResponse,
   QuestionType,
@@ -36,7 +37,12 @@ export type QuizAction =
   | { readonly type: "select"; readonly choiceId: number }
   | { readonly type: "inputText"; readonly text: string }
   | { readonly type: "submitStart" }
-  | { readonly type: "submitSuccess"; readonly result: AnswerResponse }
+  | {
+      readonly type: "submitSuccess";
+      readonly result: AnswerResponse;
+      // 제출한 사람이 회원인지 여부
+      readonly isMember: boolean;
+    }
   | {
       readonly type: "revealSuccess";
       readonly reveal: TextAnswerResponse;
@@ -53,10 +59,6 @@ export type QuizAction =
       readonly type: "selfGradeSaveUnauthorized";
       readonly questionType: SelfGradedQuestionType;
       readonly correct: boolean;
-    }
-  | {
-      // 회원인데 객관식 제출 응답이 recorded: false라서 로그인 만료로 본다 (D13)
-      readonly type: "loginExpired";
     }
   | { readonly type: "submitFailure" }
   | { readonly type: "next" };
@@ -75,6 +77,48 @@ export function createInitialState(totalQuestions: number): QuizState {
     selfGradeSaveFailed: false,
     loginExpiredAt: null,
   };
+}
+
+// 회원이고 로그인이 만료되지 않았을 때만 자기 채점 결과를 서버에 저장한다
+export function shouldSaveSelfGrade(
+  state: QuizState,
+  isMember: boolean,
+): boolean {
+  return isMember && state.loginExpiredAt === null;
+}
+
+// 자기 채점 저장 실패를 액션으로 바꾼다. 401이면 로그인 만료, 그 밖은 다시 시도할 수 있는 실패다
+export function selfGradeSaveFailureAction(
+  error: unknown,
+  questionType: SelfGradedQuestionType,
+  correct: boolean,
+): QuizAction {
+  if (error instanceof ApiError && error.status === 401) {
+    return { type: "selfGradeSaveUnauthorized", questionType, correct };
+  }
+  return { type: "selfGradeSaveFailure" };
+}
+
+// 유형마다 제출 가능 조건만 다르므로 Record로 둔다
+function hasChoice(state: QuizState): boolean {
+  return state.selectedChoiceId !== null;
+}
+
+function hasText(state: QuizState): boolean {
+  return state.textAnswer.trim() !== "";
+}
+
+const submittable: Record<QuestionType, (state: QuizState) => boolean> = {
+  MULTIPLE_CHOICE: hasChoice,
+  SHORT_ANSWER: hasText,
+  ESSAY: hasText,
+};
+
+export function canSubmit(
+  state: QuizState,
+  questionType: QuestionType,
+): boolean {
+  return submittable[questionType](state);
 }
 
 export function isLastQuestion(state: QuizState): boolean {
@@ -142,6 +186,11 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
           "MULTIPLE_CHOICE",
           action.result.correct,
         ),
+        // 회원인데 저장되지 않았으면 로그인 만료로 본다 (D13). 처음 감지한 번호를 유지한다
+        loginExpiredAt:
+          action.isMember && !action.result.recorded
+            ? (state.loginExpiredAt ?? state.currentIndex)
+            : state.loginExpiredAt,
       };
 
     case "revealSuccess":
@@ -184,14 +233,6 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
           action.correct,
         ),
       });
-
-    case "loginExpired":
-      if (state.phase !== "graded") return state;
-      // 처음 감지한 번호를 유지한다
-      return {
-        ...state,
-        loginExpiredAt: state.loginExpiredAt ?? state.currentIndex,
-      };
 
     case "submitFailure":
       if (state.phase !== "submitting") return state;
