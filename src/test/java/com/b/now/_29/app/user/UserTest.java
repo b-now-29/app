@@ -15,6 +15,10 @@ class UserTest {
 
     private static final long ADMIN_ID = 1L;
     private static final long OTHER_ID = 2L;
+
+    /** 마지막 관리자 규칙에 걸리지 않을 만큼 많은 관리자 수. */
+    private static final long MANY_ADMINS = 10;
+
     private static final Nickname NICKNAME = new Nickname("철수");
 
     @Test
@@ -73,7 +77,7 @@ class UserTest {
     void promotesOtherUser() {
         User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.ADMIN, ADMIN_ID);
+        other.changeRole(Role.ADMIN, ADMIN_ID, MANY_ADMINS);
 
         assertThat(other.getRole()).isEqualTo(Role.ADMIN);
         assertThat(other.isAdmin()).isTrue();
@@ -84,7 +88,7 @@ class UserTest {
     void demotesOtherAdmin() {
         User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.USER, ADMIN_ID);
+        other.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS);
 
         assertThat(other.getRole()).isEqualTo(Role.USER);
         assertThat(other.isAdmin()).isFalse();
@@ -95,7 +99,7 @@ class UserTest {
     void sameRoleIsNoOp() {
         User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.USER, ADMIN_ID);
+        other.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS);
 
         assertThat(other.getRole()).isEqualTo(Role.USER);
     }
@@ -105,7 +109,7 @@ class UserTest {
     void rejectsSelfDemotion() {
         User self = withId(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1), ADMIN_ID);
 
-        assertThatThrownBy(() -> self.changeRole(Role.USER, ADMIN_ID))
+        assertThatThrownBy(() -> self.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS))
                 .isInstanceOf(SelfDemotionNotAllowedException.class);
 
         assertThat(self.getRole()).isEqualTo(Role.ADMIN);
@@ -116,7 +120,7 @@ class UserTest {
     void allowsSelfKeepingAdmin() {
         User self = withId(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1), ADMIN_ID);
 
-        self.changeRole(Role.ADMIN, ADMIN_ID);
+        self.changeRole(Role.ADMIN, ADMIN_ID, MANY_ADMINS);
 
         assertThat(self.getRole()).isEqualTo(Role.ADMIN);
     }
@@ -126,9 +130,78 @@ class UserTest {
     void unsavedUserIsNotSelf() {
         User unsaved = new User("new@example.com", "hash", Role.ADMIN, NICKNAME, 1);
 
-        unsaved.changeRole(Role.USER, ADMIN_ID);
+        unsaved.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS);
 
         assertThat(unsaved.getRole()).isEqualTo(Role.USER);
+    }
+
+    // 마지막 관리자 해제 막기 (#36)
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, 0})
+    @DisplayName("관리자가 1명 이하일 때 다른 ADMIN 회원을 USER로 바꾸면 LastAdminDemotionNotAllowedException이고 role은 그대로 ADMIN이다 (#36)")
+    void rejectsLastAdminDemotion(long adminCount) {
+        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
+
+        assertThatThrownBy(() -> other.changeRole(Role.USER, ADMIN_ID, adminCount))
+                .isInstanceOf(LastAdminDemotionNotAllowedException.class)
+                .hasMessage("마지막 관리자의 권한은 해제할 수 없습니다.");
+
+        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
+    @DisplayName("관리자가 1명뿐이고 그 관리자가 자기 자신을 USER로 바꾸면 마지막 관리자 예외가 아니라 SelfDemotionNotAllowedException이다 (#36)")
+    void selfDemotionTakesPrecedenceOverLastAdmin() {
+        User self = withId(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1), ADMIN_ID);
+
+        assertThatThrownBy(() -> self.changeRole(Role.USER, ADMIN_ID, 1))
+                .isInstanceOf(SelfDemotionNotAllowedException.class);
+
+        assertThat(self.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
+    @DisplayName("관리자가 2명이면 다른 ADMIN 회원을 USER로 바꿀 수 있다 (#36)")
+    void demotesWhenTwoAdmins() {
+        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
+
+        other.changeRole(Role.USER, ADMIN_ID, 2);
+
+        assertThat(other.getRole()).isEqualTo(Role.USER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 1})
+    @DisplayName("USER를 ADMIN으로 지정하는 요청은 관리자 수와 상관없이 받아들인다 (#36)")
+    void promotesRegardlessOfAdminCount(long adminCount) {
+        User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
+
+        other.changeRole(Role.ADMIN, ADMIN_ID, adminCount);
+
+        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 1})
+    @DisplayName("ADMIN을 ADMIN으로 지정하는 요청은 관리자 수와 상관없이 변화 없이 받아들인다 (#36)")
+    void keepsAdminRegardlessOfAdminCount(long adminCount) {
+        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
+
+        other.changeRole(Role.ADMIN, ADMIN_ID, adminCount);
+
+        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 1})
+    @DisplayName("USER를 USER로 바꾸는 요청은 관리자를 줄이지 않으므로 관리자 수와 상관없이 받아들인다 (#36)")
+    void keepsUserRegardlessOfAdminCount(long adminCount) {
+        User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
+
+        other.changeRole(Role.USER, ADMIN_ID, adminCount);
+
+        assertThat(other.getRole()).isEqualTo(Role.USER);
     }
 
     // 닉네임

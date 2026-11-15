@@ -11,6 +11,7 @@ import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
 import com.b.now._29.app.user.DuplicateEmailException;
 import com.b.now._29.app.user.InvalidCredentialsException;
 import com.b.now._29.app.user.InvalidNicknameException;
+import com.b.now._29.app.user.LastAdminDemotionNotAllowedException;
 import com.b.now._29.app.user.Nickname;
 import com.b.now._29.app.user.SelfDemotionNotAllowedException;
 import com.b.now._29.app.user.TooManyAttemptsException;
@@ -88,7 +89,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         DuplicateCategorySlugException.class,
         CategoryNotEmptyException.class,
         QuestionTypeChangeNotAllowedException.class,
-        SelfDemotionNotAllowedException.class
+        SelfDemotionNotAllowedException.class,
+        LastAdminDemotionNotAllowedException.class
     })
     public ProblemDetail handleConflict(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());

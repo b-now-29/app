@@ -398,7 +398,7 @@ class RankingRepositoryTest {
         correct(promoted, questions, 2, BASE);
         correct(actor, questions, 1, BASE);
         User managed = userRepository.findById(promoted.getId()).orElseThrow();
-        managed.changeRole(Role.ADMIN, actor.getId());
+        managed.changeRole(Role.ADMIN, actor.getId(), 1);
         userRepository.saveAndFlush(managed);
         entityManager.clear();
 

@@ -25,8 +25,10 @@ public class AdminUserService {
 
     @Transactional
     public AdminUserResponse changeRole(long id, Role role, long actorId) {
+        // 관리자 행을 먼저 잠가 역할 변경을 직렬화한다. 대상 조회보다 앞서야 한다
+        List<User> admins = userRepository.findWithWriteLockByRoleOrderByIdAsc(Role.ADMIN);
         User user = userRepository.findById(id).orElseThrow(() -> new AdminUserNotFoundException(id));
-        user.changeRole(role, actorId);
+        user.changeRole(role, actorId, admins.size());
         return AdminUserResponse.from(user);
     }
 }

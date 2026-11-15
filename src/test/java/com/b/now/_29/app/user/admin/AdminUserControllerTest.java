@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
+import com.b.now._29.app.user.LastAdminDemotionNotAllowedException;
 import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.SelfDemotionNotAllowedException;
 import com.b.now._29.app.user.UserRoleService;
@@ -215,6 +216,18 @@ class AdminUserControllerTest {
                 .andExpect(problemDetail(HttpStatus.CONFLICT))
                 .andExpect(jsonPath("$.detail").value(exception.getMessage()))
                 .andDo(document("admin-users-change-role-self"));
+    }
+
+    @Test
+    @DisplayName("관리자를 USER로 바꿔 관리자가 한 명도 남지 않게 되면 409 ProblemDetail이다 (#36)")
+    void rejectsLastAdminDemotion() throws Exception {
+        given(adminUserService.changeRole(3L, Role.USER, ADMIN_ID))
+                .willThrow(new LastAdminDemotionNotAllowedException());
+
+        mvc.perform(asAdmin(json(put(ROLE_PATH, 3L), "{\"role\": \"USER\"}")))
+                .andExpect(problemDetail(HttpStatus.CONFLICT))
+                .andExpect(jsonPath("$.detail").value("마지막 관리자의 권한은 해제할 수 없습니다."))
+                .andDo(document("admin-users-change-role-last-admin"));
     }
 
     @Test

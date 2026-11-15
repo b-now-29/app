@@ -92,10 +92,18 @@ public class User {
         this.nicknameTag = new NicknameTag(nickname, tag);
     }
 
-    /** 자기 자신을 USER로 바꾸는 것은 막는다. 같은 role로 바꾸면 변화 없이 받아들인다 (D5). */
-    public void changeRole(Role newRole, long actorId) {
+    /**
+     * 역할을 바꾼다. 자기 자신을 USER로 바꾸는 것은 막고 (D5), 그다음 마지막 관리자를 USER로 바꾸는 것도 막는다.
+     * 같은 role로 바꾸면 변화 없이 받아들인다.
+     *
+     * @param adminCount 지금 관리자 수 (ADMIN을 USER로 바꿀 때만 쓴다)
+     */
+    public void changeRole(Role newRole, long actorId, long adminCount) {
         if (newRole == Role.USER && id != null && id == actorId) {
             throw new SelfDemotionNotAllowedException(actorId);
+        }
+        if (role == Role.ADMIN && newRole == Role.USER && adminCount <= 1) {
+            throw new LastAdminDemotionNotAllowedException();
         }
         this.role = newRole;
     }

@@ -365,6 +365,10 @@ operation::admin-users-change-role-not-found[snippets='http-response']
 
 operation::admin-users-change-role-self[snippets='http-response']
 
+관리자를 `USER`로 바꾸면 관리자가 한 명도 남지 않을 때 409로 응답한다. 관리자 두 명이 동시에 서로를 해제해도 한 요청만 성공하고 나머지 요청은 이 응답을 받는다.
+
+operation::admin-users-change-role-last-admin[snippets='http-response']
+
 === 카테고리 통계 (관리자)
 삭제하지 않은 모든 카테고리를 표시 순서대로 반환하고, 카테고리마다 문제 유형별 풀이 수와 정답 수를 담는다. 모든 회원(관리자 포함)의 풀이 기록을 세되, 한 회원이 같은 문제를 여러 번 풀었으면 가장 최근 기록만 센다 (시각이 같으면 나중에 저장한 기록). 그래서 `solved`는 회원·문제 쌍의 수다. `types`에는 기록이 있는 유형만 `MULTIPLE_CHOICE`, `SHORT_ANSWER`, `ESSAY` 순서로 넣고, 기록이 없는 카테고리는 빈 배열이다. 삭제한 문제의 기록은 세지 않는다. 퍼센트는 계산하지 않는다.
 

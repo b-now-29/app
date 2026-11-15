@@ -128,13 +128,31 @@ class UserRepositoryTest {
     // 회원 목록
 
     @Test
+    @DisplayName("잠금 조회는 ADMIN 회원만 id 오름차순으로 반환한다 (#36)")
+    void findsAdminsWithWriteLockByIdAscending() {
+        User firstAdmin = userRepository.saveAndFlush(new User("lock-1@example.com", HASH, Role.ADMIN, NICKNAME, 11));
+        userRepository.saveAndFlush(new User("lock-2@example.com", HASH, NICKNAME, 12));
+        User secondAdmin = userRepository.saveAndFlush(new User("lock-3@example.com", HASH, Role.ADMIN, NICKNAME, 13));
+        entityManager.clear();
+
+        List<User> admins = userRepository.findWithWriteLockByRoleOrderByIdAsc(Role.ADMIN);
+
+        assertThat(admins).extracting(User::getRole).containsOnly(Role.ADMIN);
+        assertThat(admins).extracting(User::getId).isSorted();
+        assertThat(admins)
+                .filteredOn(user -> user.getEmail().startsWith("lock-"))
+                .extracting(User::getId)
+                .containsExactly(firstAdmin.getId(), secondAdmin.getId());
+    }
+
+    @Test
     @DisplayName("회원 목록은 id 오름차순이다. 나중에 수정한 행도 순서가 바뀌지 않는다")
     void listsUsersByIdAscending() {
         User first = userRepository.saveAndFlush(new User("order-1@example.com", HASH, NICKNAME, 1));
         User second = userRepository.saveAndFlush(new User("order-2@example.com", HASH, NICKNAME, 2));
         User third = userRepository.saveAndFlush(new User("order-3@example.com", HASH, NICKNAME, 3));
         // UPDATE는 PostgreSQL에서 행의 물리 위치를 뒤로 옮기므로, 정렬 없는 조회라면 first가 끝으로 갈 수 있다
-        first.changeRole(Role.ADMIN, third.getId() + 1000);
+        first.changeRole(Role.ADMIN, third.getId() + 1000, 1);
         userRepository.saveAndFlush(first);
         entityManager.clear();
 
