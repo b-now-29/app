@@ -33,7 +33,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  *       DuplicateCategorySlugException(String slug)} ({@code quiz.category}). 저장은 {@code saveAndFlush}, 유니크 제약
  *       위반도 같은 예외로 바꾼다
  *   <li>{@code AdminCategoryResponse update(String slug, CategoryUpdateRequest request)}
- *   <li>{@code void delete(String slug)} — {@code countByCategoryAndDeletedAtIsNull} 결과를 {@code category.delete(count)}에 넘긴다
+ *   <li>{@code void delete(String slug)} — 카테고리는 {@code findWithWriteLockBySlugAndDeletedAtIsNull}, {@code countByCategoryAndDeletedAtIsNull} 결과를 {@code category.delete(count)}에 넘긴다
  *   <li>DTO ({@code quiz.admin}): {@code record CategoryCreateRequest(String slug, String name, String description, int
  *       sortOrder)}, {@code record CategoryUpdateRequest(String name, String description, int sortOrder)}, {@code record
  *       AdminCategoryResponse(String slug, String name, String description, int sortOrder, long questionCount)}
@@ -120,7 +120,8 @@ class AdminCategoryServiceTest {
     @DisplayName("남은 문제가 없으면 soft delete 한다 (R6, D2)")
     void deletesCategory() {
         Category category = new Category(SLUG, "Kotlin", null, 40);
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.of(category));
+        given(categoryRepository.findWithWriteLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.of(category));
         given(questionRepository.countByCategoryAndDeletedAtIsNull(category)).willReturn(0L);
 
         adminCategoryService.delete(SLUG);
@@ -132,7 +133,8 @@ class AdminCategoryServiceTest {
     @DisplayName("삭제 안 된 문제가 남아 있으면 CategoryNotEmptyException이고 삭제하지 않는다 (R7)")
     void rejectsDeleteOfCategoryWithQuestions() {
         Category category = new Category(SLUG, "Kotlin", null, 40);
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.of(category));
+        given(categoryRepository.findWithWriteLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.of(category));
         given(questionRepository.countByCategoryAndDeletedAtIsNull(category)).willReturn(2L);
 
         assertThatThrownBy(() -> adminCategoryService.delete(SLUG)).isInstanceOf(CategoryNotEmptyException.class);
@@ -143,7 +145,8 @@ class AdminCategoryServiceTest {
     @Test
     @DisplayName("없거나 이미 삭제한 카테고리를 삭제하면 CategoryNotFoundException이다")
     void deleteOfUnknownCategory() {
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.empty());
+        given(categoryRepository.findWithWriteLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> adminCategoryService.delete(SLUG)).isInstanceOf(CategoryNotFoundException.class);
     }

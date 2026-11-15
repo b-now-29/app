@@ -55,8 +55,15 @@ public class AdminCategoryService {
 
     @Transactional
     public void delete(String slug) {
-        Category category = findActive(slug);
+        Category category = findActiveForUpdate(slug);
         category.delete(questionRepository.countByCategoryAndDeletedAtIsNull(category));
+    }
+
+    /** 문제 수를 세기 전에 행을 잠근다. */
+    private Category findActiveForUpdate(String slug) {
+        return categoryRepository
+                .findWithWriteLockBySlugAndDeletedAtIsNull(slug)
+                .orElseThrow(() -> new CategoryNotFoundException(slug));
     }
 
     private Category findActive(String slug) {

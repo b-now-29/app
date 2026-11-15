@@ -141,6 +141,28 @@ class CategoryRepositoryTest {
     }
 
     @Test
+    @DisplayName(
+            "잠금 조회 findWithWriteLockBySlugAndDeletedAtIsNull·findWithShareLockBySlugAndDeletedAtIsNull도 삭제한 카테고리를 찾지 않는다 (#34)")
+    void lockingLookupsFindOnlyActiveCategory() {
+        categoryRepository.saveAndFlush(new Category("active-slug", "남은 카테고리", "설명", 1000));
+        saveDeleted("deleted-slug");
+        entityManager.clear();
+
+        assertThat(categoryRepository.findWithWriteLockBySlugAndDeletedAtIsNull("active-slug"))
+                .hasValueSatisfying(found -> assertThat(found.getName()).isEqualTo("남은 카테고리"));
+        assertThat(categoryRepository.findWithWriteLockBySlugAndDeletedAtIsNull("deleted-slug"))
+                .isEmpty();
+        assertThat(categoryRepository.findWithWriteLockBySlugAndDeletedAtIsNull("unknown-slug"))
+                .isEmpty();
+        assertThat(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull("active-slug"))
+                .hasValueSatisfying(found -> assertThat(found.getName()).isEqualTo("남은 카테고리"));
+        assertThat(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull("deleted-slug"))
+                .isEmpty();
+        assertThat(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull("unknown-slug"))
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("description과 deleted_at 컬럼을 매핑한다 (D2)")
     void mapsDescriptionAndDeletedAt() {
         Category category = categoryRepository.saveAndFlush(new Category("mapped", "매핑", "설명 문장", 1000));

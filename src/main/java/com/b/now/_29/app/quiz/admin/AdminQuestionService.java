@@ -80,9 +80,10 @@ public class AdminQuestionService {
         return questionRepository.findWithChoicesById(id).orElseThrow(() -> new QuestionNotFoundException(id));
     }
 
+    /** 카테고리 삭제와 직렬화하려고 FOR SHARE로 잠근다. */
     private Category findCategory(String slug) {
         return categoryRepository
-                .findBySlugAndDeletedAtIsNull(slug)
+                .findWithShareLockBySlugAndDeletedAtIsNull(slug)
                 .orElseThrow(() -> new CategoryNotFoundException(slug));
     }
 }
