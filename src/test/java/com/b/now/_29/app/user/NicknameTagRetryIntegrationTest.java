@@ -95,11 +95,11 @@ class NicknameTagRetryIntegrationTest {
     void changeNicknameKeepsRoleChangedMeanwhile() {
         UserResponse member = signUp(uniqueEmail(), uniqueNickname());
         String newNickname = uniqueNickname();
-        // 번호를 계산하는 순간 관리자가 이 회원을 ADMIN으로 바꾼 상황. 구현이 회원을 언제 읽든 번호 계산은 반드시 거친다.
+        // 번호를 계산하는 순간 운영자가 이 회원을 CATEGORY_ADMIN으로 바꾼 상황. 구현이 회원을 언제 읽든 번호 계산은 반드시 거친다.
         // 지금 구조에서는 한 번 시도가 회원을 먼저 읽고 (hasNickname) 번호를 계산하므로, 영속 상태의 role은 옛 값 USER다.
         // @DynamicUpdate가 없으면 엔티티 저장이 role까지 UPDATE해 이 테스트가 실패한다
         given(userRepository.findMaxTagByNickname(newNickname)).willAnswer(invocation -> {
-            jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", member.id());
+            jdbc.update("UPDATE users SET role = 'CATEGORY_ADMIN' WHERE id = ?", member.id());
             return Optional.empty();
         });
 
@@ -108,7 +108,7 @@ class NicknameTagRetryIntegrationTest {
         assertThat(changed.nickname()).isEqualTo(newNickname);
         assertThat(changed.tag()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT role FROM users WHERE id = ?", String.class, member.id()))
-                .isEqualTo("ADMIN");
+                .isEqualTo("CATEGORY_ADMIN");
         assertThat(jdbc.queryForMap("SELECT nickname, tag FROM users WHERE id = ?", member.id()))
                 .containsEntry("nickname", newNickname)
                 .containsEntry("tag", 1);
@@ -119,14 +119,14 @@ class NicknameTagRetryIntegrationTest {
     void changeToSameNicknameKeepsRoleChangedMeanwhile() {
         String nickname = uniqueNickname();
         UserResponse member = signUp(uniqueEmail(), nickname);
-        jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", member.id());
+        jdbc.update("UPDATE users SET role = 'CATEGORY_ADMIN' WHERE id = ?", member.id());
 
         UserResponse unchanged = userService.changeNickname(member.id(), nickname);
 
         assertThat(unchanged.nickname()).isEqualTo(nickname);
         assertThat(unchanged.tag()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT role FROM users WHERE id = ?", String.class, member.id()))
-                .isEqualTo("ADMIN");
+                .isEqualTo("CATEGORY_ADMIN");
     }
 
     @Test

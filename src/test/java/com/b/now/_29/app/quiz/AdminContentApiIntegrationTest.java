@@ -18,9 +18,12 @@ import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
+import com.b.now._29.app.support.TestOwner;
+import com.b.now._29.app.user.UserService;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -56,14 +59,17 @@ class AdminContentApiIntegrationTest {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    UserService userService;
+
+    /** 운영자 (OWNER). */
     private Cookie admin;
+
     private String slug;
 
     @BeforeEach
     void setUp() throws Exception {
-        String email = uniqueEmail();
-        admin = signUp(email);
-        setRole(email, "ADMIN");
+        admin = TestOwner.cookie(jdbcTemplate, userService);
         slug = "it-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
@@ -77,9 +83,9 @@ class AdminContentApiIntegrationTest {
                 .andExpect(jsonPath("$.role").value("USER"));
         mvc.perform(get(ADMIN + "/categories").cookie(cookie)).andExpect(status().isForbidden());
 
-        setRole(email, "ADMIN");
+        setRole(email, "CATEGORY_ADMIN");
         mvc.perform(get("/api/v1/users/me").cookie(cookie))
-                .andExpect(jsonPath("$.role").value("ADMIN"));
+                .andExpect(jsonPath("$.role").value("CATEGORY_ADMIN"));
         mvc.perform(get(ADMIN + "/categories").cookie(cookie)).andExpect(status().isOk());
 
         setRole(email, "USER");
@@ -89,8 +95,10 @@ class AdminContentApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("관리자가 회원 관리 API로 role을 바꾸면 DB에 저장되어 그 회원의 같은 쿠키에 바로 반영되고, 자기 해제는 409다 (회원 관리 R1~R4)")
+    @DisplayName("OWNER가 회원 관리 API로 역할과 담당을 바꾸면 DB에 저장되어 그 회원의 같은 쿠키에 바로 반영되고, OWNER의 역할 변경은 409다 "
+            + "(role-owner-category-admin R2, R4, R9)")
     void roleChangeApiPersistsAndTakesEffectImmediately() throws Exception {
+        createCategory(slug).andExpect(status().isCreated());
         Cookie member = signUp(uniqueEmail());
         long memberId = userId(member);
         String rolePath = ADMIN + "/users/" + memberId + "/role";
@@ -100,20 +108,142 @@ class AdminContentApiIntegrationTest {
                 .andExpect(jsonPath("$[?(@.id == %d)].createdAt".formatted(memberId))
                         .value(hasItem(matchesPattern("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z"))));
 
-        mvc.perform(asAdmin(json(put(rolePath), "{\"role\": \"ADMIN\"}")))
+        mvc.perform(asAdmin(json(
+                        put(rolePath), "{\"role\": \"CATEGORY_ADMIN\", \"categorySlugs\": [\"%s\"]}".formatted(slug))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.role").value("ADMIN"));
-        mvc.perform(get(ADMIN + "/users").cookie(member)).andExpect(status().isOk());
+                .andExpect(jsonPath("$.role").value("CATEGORY_ADMIN"))
+                .andExpect(jsonPath("$.categorySlugs[0]").value(slug));
+        mvc.perform(asAdmin(get(ADMIN + "/users/" + memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categorySlugs.length()").value(1))
+                .andExpect(jsonPath("$.categorySlugs[0]").value(slug));
+        mvc.perform(get(ADMIN + "/categories").cookie(member)).andExpect(status().isOk());
+        mvc.perform(get(ADMIN + "/users").cookie(member)).andExpect(status().isForbidden());
 
         mvc.perform(asAdmin(json(put(rolePath), "{\"role\": \"USER\"}")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.role").value("USER"));
-        mvc.perform(get(ADMIN + "/users").cookie(member)).andExpect(status().isForbidden());
+                .andExpect(jsonPath("$.role").value("USER"))
+                .andExpect(jsonPath("$.categorySlugs.length()").value(0));
+        mvc.perform(get(ADMIN + "/categories").cookie(member)).andExpect(status().isForbidden());
 
-        mvc.perform(asAdmin(json(put(ADMIN + "/users/" + userId(admin) + "/role"), "{\"role\": \"USER\"}")))
+        long ownerId = TestOwner.id(jdbcTemplate, userService);
+        mvc.perform(asAdmin(json(put(ADMIN + "/users/" + ownerId + "/role"), "{\"role\": \"USER\"}")))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
-        mvc.perform(asAdmin(get(ADMIN + "/users"))).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/users/me").cookie(admin))
+                .andExpect(jsonPath("$.role").value("OWNER"));
+    }
+
+    // 카테고리 관리자의 담당 범위 (role-owner-category-admin R4~R6, R10)
+
+    @Test
+    @DisplayName("카테고리 관리자의 카테고리 목록과 통계는 담당 카테고리만이다 (R4)")
+    void categoryAdminSeesOnlyAssignedCategories() throws Exception {
+        String other = "it-" + UUID.randomUUID().toString().substring(0, 8);
+        createCategory(slug).andExpect(status().isCreated());
+        createCategory(other).andExpect(status().isCreated());
+        Cookie manager = categoryAdmin(slug);
+
+        mvc.perform(get(ADMIN + "/categories").cookie(manager))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].slug", hasItem(slug)))
+                .andExpect(jsonPath("$[*].slug", not(hasItem(other))))
+                .andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get(ADMIN + "/stats/categories").cookie(manager))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].slug").value(slug));
+        mvc.perform(asAdmin(get(ADMIN + "/categories")))
+                .andExpect(jsonPath("$[*].slug", hasItem(slug)))
+                .andExpect(jsonPath("$[*].slug", hasItem(other)));
+    }
+
+    @Test
+    @DisplayName("카테고리 관리자는 담당 카테고리를 고치고 문제를 관리하지만, 담당이 아닌 카테고리와 그 문제는 403이다 (R4, R6, D7)")
+    void categoryAdminIsLimitedToAssignedCategories() throws Exception {
+        String other = "it-" + UUID.randomUUID().toString().substring(0, 8);
+        createCategory(slug).andExpect(status().isCreated());
+        createCategory(other).andExpect(status().isCreated());
+        long otherQuestionId = createShortAnswer(other);
+        Cookie manager = categoryAdmin(slug);
+
+        mvc.perform(json(
+                        put(ADMIN + "/categories/{slug}", slug).cookie(manager),
+                        "{\"name\": \"고침\", \"sortOrder\": 1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("고침"));
+        mvc.perform(json(post(ADMIN + "/questions").cookie(manager), shortAnswerBody(slug)))
+                .andExpect(status().isCreated());
+
+        expectForbidden(mvc.perform(json(
+                put(ADMIN + "/categories/{slug}", other).cookie(manager), "{\"name\": \"남의 것\", \"sortOrder\": 1}")));
+        expectForbidden(mvc.perform(
+                get(ADMIN + "/questions").queryParam("category", other).cookie(manager)));
+        expectForbidden(
+                mvc.perform(get(ADMIN + "/questions/{id}", otherQuestionId).cookie(manager)));
+        expectForbidden(mvc.perform(json(post(ADMIN + "/questions").cookie(manager), shortAnswerBody(other))));
+        expectForbidden(
+                mvc.perform(delete(ADMIN + "/questions/{id}", otherQuestionId).cookie(manager)));
+        expectForbidden(mvc.perform(
+                get(ADMIN + "/stats/categories/{slug}/questions", other).cookie(manager)));
+
+        mvc.perform(asAdmin(get(ADMIN + "/questions/{id}", otherQuestionId))).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/categories"))
+                .andExpect(jsonPath("$[?(@.slug == '%s')].name".formatted(other), hasItem("통합 테스트")));
+    }
+
+    @Test
+    @DisplayName("카테고리 관리자는 카테고리를 만들거나 지울 수 없다 (R4)")
+    void categoryAdminCannotCreateOrDeleteCategory() throws Exception {
+        createCategory(slug).andExpect(status().isCreated());
+        Cookie manager = categoryAdmin(slug);
+        String newSlug = "it-" + UUID.randomUUID().toString().substring(0, 8);
+
+        expectForbidden(mvc.perform(json(
+                post(ADMIN + "/categories").cookie(manager),
+                "{\"slug\": \"%s\", \"name\": \"새 카테고리\", \"sortOrder\": 1}".formatted(newSlug))));
+        expectForbidden(mvc.perform(delete(ADMIN + "/categories/{slug}", slug).cookie(manager)));
+
+        mvc.perform(get("/api/v1/categories"))
+                .andExpect(jsonPath("$[*].slug", hasItem(slug)))
+                .andExpect(jsonPath("$[*].slug", not(hasItem(newSlug))));
+    }
+
+    @Test
+    @DisplayName("문제를 옮기려면 원래 카테고리와 옮겨 갈 카테고리를 모두 담당해야 한다 (R5)")
+    void movingQuestionNeedsBothCategories() throws Exception {
+        String other = "it-" + UUID.randomUUID().toString().substring(0, 8);
+        createCategory(slug).andExpect(status().isCreated());
+        createCategory(other).andExpect(status().isCreated());
+        long questionId = createShortAnswer(slug);
+        Cookie onlySource = categoryAdmin(slug);
+
+        expectForbidden(mvc.perform(
+                json(put(ADMIN + "/questions/{id}", questionId).cookie(onlySource), shortAnswerBody(other))));
+        mvc.perform(asAdmin(get(ADMIN + "/questions/{id}", questionId)))
+                .andExpect(jsonPath("$.categorySlug").value(slug));
+
+        Cookie both = categoryAdmin(slug, other);
+        mvc.perform(json(put(ADMIN + "/questions/{id}", questionId).cookie(both), shortAnswerBody(other)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categorySlug").value(other));
+    }
+
+    @Test
+    @DisplayName("어떤 카테고리 관리자의 유일한 담당 카테고리는 비어 있어도 409로 삭제할 수 없고, 담당을 풀면 삭제된다 (R10, D10)")
+    void soleAssignedCategoryCannotBeDeleted() throws Exception {
+        createCategory(slug).andExpect(status().isCreated());
+        Cookie manager = categoryAdmin(slug);
+        long managerId = userId(manager);
+
+        mvc.perform(asAdmin(delete(ADMIN + "/categories/{slug}", slug)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("이 카테고리만 담당하는 관리자가 있어 삭제할 수 없습니다."));
+
+        mvc.perform(asAdmin(json(put(ADMIN + "/users/" + managerId + "/role"), "{\"role\": \"USER\"}")))
+                .andExpect(status().isOk());
+        mvc.perform(asAdmin(delete(ADMIN + "/categories/{slug}", slug))).andExpect(status().isNoContent());
     }
 
     @Test
@@ -451,9 +581,30 @@ class AdminContentApiIntegrationTest {
         return ((Number) JsonPath.read(body(result), "$.id")).longValue();
     }
 
-    /** 운영의 첫 관리자 지정과 같은 방법으로 role을 바꾼다 (범위 밖: DB에서 UPDATE). */
+    /** 운영자 위임처럼 DB에서 직접 role을 바꾼다 (범위 밖: DB에서 UPDATE). */
     private void setRole(String email, String role) {
         jdbcTemplate.update("UPDATE users SET role = ? WHERE email = ?", role, email);
+    }
+
+    /** 새 회원을 가입시키고 OWNER가 회원 관리 API로 카테고리 관리자로 지정한다. */
+    private Cookie categoryAdmin(String... categorySlugs) throws Exception {
+        Cookie member = signUp(uniqueEmail());
+        String slugsJson = String.join(
+                ", ",
+                Arrays.stream(categorySlugs)
+                        .map(categorySlug -> "\"" + categorySlug + "\"")
+                        .toList());
+        mvc.perform(asAdmin(json(
+                        put(ADMIN + "/users/" + userId(member) + "/role"),
+                        "{\"role\": \"CATEGORY_ADMIN\", \"categorySlugs\": [%s]}".formatted(slugsJson))))
+                .andExpect(status().isOk());
+        return member;
+    }
+
+    private static void expectForbidden(ResultActions actions) throws Exception {
+        actions.andExpect(status().isForbidden())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403));
     }
 
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {

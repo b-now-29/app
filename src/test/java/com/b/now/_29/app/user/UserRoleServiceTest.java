@@ -7,16 +7,16 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * 관리자 요청마다 DB에서 role을 확인한다 (D3).
+ * 관리자 요청마다 DB에서 role을 확인한다 (D3). 보안 계층과 랭킹이 함께 쓴다 (role-owner-category-admin API 계약).
  *
- * <p>구현할 API: {@code @Service UserRoleService(UserRepository)}, {@code boolean isAdmin(long userId)}. {@code
- * SecurityConfig}가 {@code /api/v1/admin/**} 인가에 이 빈을 쓴다. {@code @WebMvcTest}에서는 {@code @WithAppSecurity}가 mock으로
- * 넣는다.
+ * <p>{@code @WebMvcTest}에서는 {@code @WithAppSecurity}가 mock으로 넣는다.
  */
 @ExtendWith(MockitoExtension.class)
 class UserRoleServiceTest {
@@ -29,29 +29,21 @@ class UserRoleServiceTest {
     @InjectMocks
     UserRoleService userRoleService;
 
-    @Test
-    @DisplayName("role이 ADMIN인 사용자는 관리자다 (D3)")
-    void adminIsAdmin() {
+    @ParameterizedTest
+    @EnumSource(Role.class)
+    @DisplayName("회원의 role을 그대로 돌려준다")
+    void findsRoleOfUser(Role role) {
         given(userRepository.findById(USER_ID))
-                .willReturn(Optional.of(new User("a@example.com", "hash", Role.ADMIN, new Nickname("관리자"), 1)));
+                .willReturn(Optional.of(new User("a@example.com", "hash", role, new Nickname("회원"), 1)));
 
-        assertThat(userRoleService.isAdmin(USER_ID)).isTrue();
+        assertThat(userRoleService.findRole(USER_ID)).contains(role);
     }
 
     @Test
-    @DisplayName("role이 USER인 사용자는 관리자가 아니다 (R2)")
-    void userIsNotAdmin() {
-        given(userRepository.findById(USER_ID))
-                .willReturn(Optional.of(new User("u@example.com", "hash", new Nickname("회원"), 1)));
-
-        assertThat(userRoleService.isAdmin(USER_ID)).isFalse();
-    }
-
-    @Test
-    @DisplayName("토큰은 유효하지만 DB에 없는 사용자는 관리자가 아니다")
-    void unknownUserIsNotAdmin() {
+    @DisplayName("토큰은 유효하지만 DB에 없는 사용자는 role이 없다 (empty)")
+    void unknownUserHasNoRole() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
-        assertThat(userRoleService.isAdmin(USER_ID)).isFalse();
+        assertThat(userRoleService.findRole(USER_ID)).isEmpty();
     }
 }

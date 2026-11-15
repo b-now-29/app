@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Link, Outlet, useFetcher, useLocation } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
 import NicknameText from "../components/NicknameText";
+import { isStaff } from "../user/role";
 import type { ActionError } from "./actionError";
 import { useCurrentUser } from "./routeLoaderData";
 
@@ -44,7 +45,7 @@ export default function RootLayout() {
             <ActionButton asChild variant="ghost" size="small">
               <Link to="/wrong-answers">오답 노트</Link>
             </ActionButton>
-            {user.role === "ADMIN" && (
+            {isStaff(user.role) && (
               <ActionButton asChild variant="ghost" size="small">
                 <Link to="/admin">관리</Link>
               </ActionButton>

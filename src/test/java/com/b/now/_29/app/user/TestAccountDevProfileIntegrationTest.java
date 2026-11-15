@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.support.SetCookieHeader;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -61,20 +63,43 @@ class TestAccountDevProfileIntegrationTest {
     }
 
     @Test
-    @DisplayName("dev 프로필의 관리자 테스트 계정은 관리자 API를 쓸 수 있고, 기존 테스트 계정은 USER라 403이다 (R9, D9)")
-    void adminTestAccountCanUseAdminApi() throws Exception {
+    @DisplayName("dev 프로필의 관리자 테스트 계정은 OWNER라 회원 관리 API까지 쓸 수 있고, 기존 테스트 계정은 USER라 403이다 (R9, D9, "
+            + "role-owner-category-admin D8)")
+    void adminTestAccountIsOwner() throws Exception {
         MvcResult admin = login("admin@example.com", "admin1234!")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.role").value("OWNER"))
                 .andExpect(jsonPath("$.nickname").value("관리자"))
                 .andExpect(jsonPath("$.tag").isNumber())
                 .andReturn();
         MvcResult user = login().andExpect(status().isOk()).andReturn();
 
         mvc.perform(get("/api/v1/admin/categories").cookie(cookieFrom(admin))).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/admin/users").cookie(cookieFrom(admin))).andExpect(status().isOk());
         mvc.perform(get("/api/v1/admin/categories").cookie(cookieFrom(user))).andExpect(status().isForbidden());
         assertThat(userRepository.findByEmail("test@example.com").orElseThrow().getRole())
                 .isEqualTo(Role.USER);
+        assertThat(userRepository.existsByRole(Role.OWNER)).isTrue();
+    }
+
+    @Test
+    @DisplayName("dev 프로필의 카테고리 관리자 테스트 계정은 첫 번째 카테고리만 담당하고 회원 관리 API는 403이다 (role-owner-category-admin D8)")
+    void managerTestAccountManagesFirstCategory() throws Exception {
+        MvcResult manager = login("manager@example.com", "manager1234!")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("CATEGORY_ADMIN"))
+                .andReturn();
+        MvcResult categories = mvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String firstSlug =
+                JsonPath.read(categories.getResponse().getContentAsString(StandardCharsets.UTF_8), "$[0].slug");
+
+        mvc.perform(get("/api/v1/admin/categories").cookie(cookieFrom(manager)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].slug").value(firstSlug));
+        mvc.perform(get("/api/v1/admin/users").cookie(cookieFrom(manager))).andExpect(status().isForbidden());
     }
 
     private ResultActions login() throws Exception {

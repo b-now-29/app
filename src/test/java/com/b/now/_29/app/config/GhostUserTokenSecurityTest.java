@@ -38,6 +38,7 @@ import jakarta.servlet.http.Cookie;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -134,7 +135,7 @@ class GhostUserTokenSecurityTest {
     @Test
     @DisplayName("회원이 없는 토큰으로 관리자 API를 부르면 403이 아니라 401이고 role을 확인하지 않는다")
     void adminOfGhostIsUnauthorized() throws Exception {
-        given(userRoleService.isAdmin(anyLong())).willReturn(true);
+        given(userRoleService.findRole(anyLong())).willReturn(Optional.of(Role.OWNER));
 
         expectUnauthorized(mvc.perform(get("/api/v1/admin/categories").cookie(cookie(TestJwts.valid(GHOST_ID)))));
 
@@ -228,8 +229,8 @@ class GhostUserTokenSecurityTest {
     @Test
     @DisplayName("회원이 있는 관리자 토큰은 관리자 API 인가를 통과하고, USER면 403이다")
     void adminDecisionOfMemberIsUnchanged() throws Exception {
-        given(adminCategoryService.getCategories()).willReturn(List.of());
-        given(userRoleService.isAdmin(MEMBER_ID)).willReturn(true, false);
+        given(adminCategoryService.getCategories(MEMBER_ID)).willReturn(List.of());
+        given(userRoleService.findRole(MEMBER_ID)).willReturn(Optional.of(Role.OWNER), Optional.of(Role.USER));
         Cookie member = cookie(TestJwts.valid(MEMBER_ID));
 
         mvc.perform(get("/api/v1/admin/categories").cookie(member)).andExpect(status().isOk());

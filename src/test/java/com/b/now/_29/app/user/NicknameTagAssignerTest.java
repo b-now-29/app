@@ -61,15 +61,15 @@ class NicknameTagAssignerTest {
         given(userRepository.findMaxTagByNickname("철수")).willReturn(Optional.of(3));
         given(userRepository.saveAndFlush(any(User.class))).willAnswer(invocation -> withId(invocation.getArgument(0)));
 
-        UserResponse response = assigner.createUser(EMAIL, HASH, Role.ADMIN, NICKNAME);
+        UserResponse response = assigner.createUser(EMAIL, HASH, Role.CATEGORY_ADMIN, NICKNAME);
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         then(userRepository).should().saveAndFlush(saved.capture());
         assertThat(saved.getValue().getEmail()).isEqualTo(EMAIL);
         assertThat(saved.getValue().getPasswordHash()).isEqualTo(HASH);
-        assertThat(saved.getValue().getRole()).isEqualTo(Role.ADMIN);
+        assertThat(saved.getValue().getRole()).isEqualTo(Role.CATEGORY_ADMIN);
         assertThat(saved.getValue().getNicknameTag()).isEqualTo(new NicknameTag("철수", 4));
-        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.ADMIN, "철수", 4));
+        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.CATEGORY_ADMIN, "철수", 4));
     }
 
     @Test
@@ -86,13 +86,13 @@ class NicknameTagAssignerTest {
     @Test
     @DisplayName("다른 닉네임으로 바꾸면 새 닉네임의 가장 큰 번호 + 1로 엔티티를 바꾸고 flush한다. merge하지 않는다 (R3, R5, D12)")
     void changeNicknameToOther() {
-        User user = withId(new User(EMAIL, HASH, Role.ADMIN, NICKNAME, 2));
+        User user = withId(new User(EMAIL, HASH, Role.CATEGORY_ADMIN, NICKNAME, 2));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.findMaxTagByNickname("영희")).willReturn(Optional.of(4));
 
         UserResponse response = assigner.changeNickname(USER_ID, new Nickname("영희"));
 
-        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.ADMIN, "영희", 5));
+        assertThat(response).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.CATEGORY_ADMIN, "영희", 5));
         assertThat(user.getNicknameTag()).isEqualTo(new NicknameTag("영희", 5));
         then(userRepository).should().flush();
         then(userRepository).should(never()).save(any(User.class));

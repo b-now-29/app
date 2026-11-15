@@ -49,13 +49,17 @@ public class Category {
     }
 
     /**
-     * 삭제 처리한다. 삭제되지 않은 문제가 남아 있으면 거부한다.
+     * 삭제 처리한다. 삭제되지 않은 문제가 남아 있거나 이 카테고리만 담당하는 관리자가 있으면 거부한다.
      *
      * @param remainingQuestionCount 삭제되지 않은 문제 수 (category는 question을 참조하지 않으므로 값으로 받는다)
+     * @param soleAdminCount 삭제되지 않은 담당이 이 카테고리 하나뿐인 관리자 수
      */
-    public void delete(long remainingQuestionCount) {
+    public void delete(long remainingQuestionCount, long soleAdminCount) {
         if (remainingQuestionCount > 0) {
             throw new CategoryNotEmptyException(slug);
+        }
+        if (soleAdminCount > 0) {
+            throw new CategoryHasSoleAdminException();
         }
         this.deletedAt = Instant.now();
     }

@@ -2,6 +2,7 @@ package com.b.now._29.app.quiz.ranking;
 
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.CategoryRepository;
+import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.UserRoleService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -42,8 +43,10 @@ public class RankingService {
         return RankingResponse.of(rankingRepository.findRankingsInCategory(slug, TOP_LIMIT, viewer.memberId()), viewer);
     }
 
-    /** 비회원과 관리자는 ANONYMOUS다. memberId가 null이면 쿼리는 상위 목록만 돌려준다 (R3, R8). */
+    /** 비회원과 관리자 (카테고리 관리자, 운영자)는 ANONYMOUS다. memberId가 null이면 쿼리는 상위 목록만 돌려준다 (R3, R8). */
     private RankingViewer viewer(Long userId) {
-        return userId == null || userRoleService.isAdmin(userId) ? RankingViewer.ANONYMOUS : new RankingViewer(userId);
+        boolean staff = userId != null
+                && userRoleService.findRole(userId).map(Role::isStaff).orElse(false);
+        return userId == null || staff ? RankingViewer.ANONYMOUS : new RankingViewer(userId);
     }
 }

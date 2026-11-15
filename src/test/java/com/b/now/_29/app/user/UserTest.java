@@ -7,17 +7,16 @@ import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
-/** 회원 엔티티의 생성 검증, role·닉네임 변경, 토큰 버전을 확인한다. */
+/**
+ * 회원 엔티티의 생성 검증, role·닉네임 변경, 토큰 버전을 확인한다.
+ */
 class UserTest {
 
-    private static final long ADMIN_ID = 1L;
     private static final long OTHER_ID = 2L;
-
-    /** 마지막 관리자 규칙에 걸리지 않을 만큼 많은 관리자 수. */
-    private static final long MANY_ADMINS = 10;
 
     private static final Nickname NICKNAME = new Nickname("철수");
 
@@ -37,22 +36,20 @@ class UserTest {
     }
 
     @Test
-    @DisplayName("새로 만든 사용자의 role은 USER이고 관리자가 아니다")
+    @DisplayName("새로 만든 사용자의 role은 USER다")
     void newUserIsUser() {
         User user = new User("user@example.com", "hash", NICKNAME, 1);
 
         assertThat(user.getRole()).isEqualTo(Role.USER);
-        assertThat(user.isAdmin()).isFalse();
     }
 
     @Test
-    @DisplayName("role을 ADMIN으로 만든 사용자는 관리자다")
-    void adminUserIsAdmin() {
-        User user = new User("  Admin@Example.COM ", "hash", Role.ADMIN, NICKNAME, 1);
+    @DisplayName("role을 정해 만든 사용자는 그 role을 가진다")
+    void storesGivenRole() {
+        User user = new User("  Admin@Example.COM ", "hash", Role.CATEGORY_ADMIN, NICKNAME, 1);
 
         assertThat(user.getEmail()).isEqualTo("admin@example.com");
-        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
-        assertThat(user.isAdmin()).isTrue();
+        assertThat(user.getRole()).isEqualTo(Role.CATEGORY_ADMIN);
     }
 
     // 가입 시각
@@ -63,145 +60,74 @@ class UserTest {
         Instant before = Instant.now();
 
         User user = new User("user@example.com", "hash", NICKNAME, 1);
-        User admin = new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 2);
+        User admin = new User("admin@example.com", "hash", Role.CATEGORY_ADMIN, NICKNAME, 2);
 
         Instant after = Instant.now();
         assertThat(user.getCreatedAt()).isNotNull().isBetween(before, after);
         assertThat(admin.getCreatedAt()).isNotNull().isBetween(before, after);
     }
 
-    // role 변경
+    // role 변경 (role-owner-category-admin R2)
 
     @Test
-    @DisplayName("관리자는 다른 USER 회원을 ADMIN으로 지정할 수 있다")
-    void promotesOtherUser() {
+    @DisplayName("USER 회원을 CATEGORY_ADMIN으로 바꿀 수 있다")
+    void promotesUserToCategoryAdmin() {
         User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.ADMIN, ADMIN_ID, MANY_ADMINS);
+        other.changeRole(Role.CATEGORY_ADMIN);
 
-        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
-        assertThat(other.isAdmin()).isTrue();
+        assertThat(other.getRole()).isEqualTo(Role.CATEGORY_ADMIN);
     }
 
     @Test
-    @DisplayName("관리자는 다른 ADMIN 회원을 USER로 해제할 수 있다")
-    void demotesOtherAdmin() {
-        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
+    @DisplayName("CATEGORY_ADMIN 회원을 USER로 바꿀 수 있다")
+    void demotesCategoryAdminToUser() {
+        User other = withId(new User("other@example.com", "hash", Role.CATEGORY_ADMIN, NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS);
+        other.changeRole(Role.USER);
 
         assertThat(other.getRole()).isEqualTo(Role.USER);
-        assertThat(other.isAdmin()).isFalse();
     }
 
-    @Test
+    @ParameterizedTest
+    @EnumSource(
+            value = Role.class,
+            names = {"USER", "CATEGORY_ADMIN"})
     @DisplayName("이미 같은 role로 바꾸는 요청은 변화 없이 받아들인다")
-    void sameRoleIsNoOp() {
-        User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
+    void sameRoleIsNoOp(Role role) {
+        User other = withId(new User("other@example.com", "hash", role, NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS);
+        other.changeRole(role);
 
-        assertThat(other.getRole()).isEqualTo(Role.USER);
-    }
-
-    @Test
-    @DisplayName("자기 자신을 USER로 바꾸면 SelfDemotionNotAllowedException이고 role은 그대로 ADMIN이다")
-    void rejectsSelfDemotion() {
-        User self = withId(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1), ADMIN_ID);
-
-        assertThatThrownBy(() -> self.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS))
-                .isInstanceOf(SelfDemotionNotAllowedException.class);
-
-        assertThat(self.getRole()).isEqualTo(Role.ADMIN);
-    }
-
-    @Test
-    @DisplayName("자기 자신을 ADMIN으로 지정하는 요청은 변화 없이 받아들인다")
-    void allowsSelfKeepingAdmin() {
-        User self = withId(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1), ADMIN_ID);
-
-        self.changeRole(Role.ADMIN, ADMIN_ID, MANY_ADMINS);
-
-        assertThat(self.getRole()).isEqualTo(Role.ADMIN);
-    }
-
-    @Test
-    @DisplayName("id가 아직 없는 사용자도 다른 회원으로 보고 role을 바꾼다 (null id 비교에서 예외가 나지 않는다)")
-    void unsavedUserIsNotSelf() {
-        User unsaved = new User("new@example.com", "hash", Role.ADMIN, NICKNAME, 1);
-
-        unsaved.changeRole(Role.USER, ADMIN_ID, MANY_ADMINS);
-
-        assertThat(unsaved.getRole()).isEqualTo(Role.USER);
-    }
-
-    // 마지막 관리자 해제 막기 (#36)
-
-    @ParameterizedTest
-    @ValueSource(longs = {1, 0})
-    @DisplayName("관리자가 1명 이하일 때 다른 ADMIN 회원을 USER로 바꾸면 LastAdminDemotionNotAllowedException이고 role은 그대로 ADMIN이다 (#36)")
-    void rejectsLastAdminDemotion(long adminCount) {
-        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
-
-        assertThatThrownBy(() -> other.changeRole(Role.USER, ADMIN_ID, adminCount))
-                .isInstanceOf(LastAdminDemotionNotAllowedException.class)
-                .hasMessage("마지막 관리자의 권한은 해제할 수 없습니다.");
-
-        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
-    }
-
-    @Test
-    @DisplayName("관리자가 1명뿐이고 그 관리자가 자기 자신을 USER로 바꾸면 마지막 관리자 예외가 아니라 SelfDemotionNotAllowedException이다 (#36)")
-    void selfDemotionTakesPrecedenceOverLastAdmin() {
-        User self = withId(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1), ADMIN_ID);
-
-        assertThatThrownBy(() -> self.changeRole(Role.USER, ADMIN_ID, 1))
-                .isInstanceOf(SelfDemotionNotAllowedException.class);
-
-        assertThat(self.getRole()).isEqualTo(Role.ADMIN);
-    }
-
-    @Test
-    @DisplayName("관리자가 2명이면 다른 ADMIN 회원을 USER로 바꿀 수 있다 (#36)")
-    void demotesWhenTwoAdmins() {
-        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
-
-        other.changeRole(Role.USER, ADMIN_ID, 2);
-
-        assertThat(other.getRole()).isEqualTo(Role.USER);
+        assertThat(other.getRole()).isEqualTo(role);
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0, 1})
-    @DisplayName("USER를 ADMIN으로 지정하는 요청은 관리자 수와 상관없이 받아들인다 (#36)")
-    void promotesRegardlessOfAdminCount(long adminCount) {
-        User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
+    @EnumSource(Role.class)
+    @DisplayName("OWNER의 역할은 어떤 값으로도 바꿀 수 없다. OwnerRoleChangeNotAllowedException이고 role은 그대로 OWNER다 (R2)")
+    void rejectsChangingOwner(Role newRole) {
+        User owner = withId(new User("owner@example.com", "hash", Role.OWNER, NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.ADMIN, ADMIN_ID, adminCount);
+        assertThatThrownBy(() -> owner.changeRole(newRole))
+                .isInstanceOf(OwnerRoleChangeNotAllowedException.class)
+                .hasMessage("운영자의 역할은 바꿀 수 없습니다.");
 
-        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(owner.getRole()).isEqualTo(Role.OWNER);
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0, 1})
-    @DisplayName("ADMIN을 ADMIN으로 지정하는 요청은 관리자 수와 상관없이 변화 없이 받아들인다 (#36)")
-    void keepsAdminRegardlessOfAdminCount(long adminCount) {
-        User other = withId(new User("other@example.com", "hash", Role.ADMIN, NICKNAME, 1), OTHER_ID);
+    @EnumSource(
+            value = Role.class,
+            names = {"USER", "CATEGORY_ADMIN"})
+    @DisplayName("누구도 OWNER로 바꿀 수 없다. OwnerRoleChangeNotAllowedException이고 role은 그대로다 (R2)")
+    void rejectsPromotionToOwner(Role current) {
+        User other = withId(new User("other@example.com", "hash", current, NICKNAME, 1), OTHER_ID);
 
-        other.changeRole(Role.ADMIN, ADMIN_ID, adminCount);
+        assertThatThrownBy(() -> other.changeRole(Role.OWNER))
+                .isInstanceOf(OwnerRoleChangeNotAllowedException.class)
+                .hasMessage("운영자의 역할은 바꿀 수 없습니다.");
 
-        assertThat(other.getRole()).isEqualTo(Role.ADMIN);
-    }
-
-    @ParameterizedTest
-    @ValueSource(longs = {0, 1})
-    @DisplayName("USER를 USER로 바꾸는 요청은 관리자를 줄이지 않으므로 관리자 수와 상관없이 받아들인다 (#36)")
-    void keepsUserRegardlessOfAdminCount(long adminCount) {
-        User other = withId(new User("other@example.com", "hash", NICKNAME, 1), OTHER_ID);
-
-        other.changeRole(Role.USER, ADMIN_ID, adminCount);
-
-        assertThat(other.getRole()).isEqualTo(Role.USER);
+        assertThat(other.getRole()).isEqualTo(current);
     }
 
     // 닉네임
@@ -210,7 +136,7 @@ class UserTest {
     @DisplayName("만든 사용자는 정규화한 닉네임과 번호를 가진다")
     void storesNicknameAndTag() {
         User user = new User("user@example.com", "hash", new Nickname("  철수 "), 3);
-        User admin = new User("admin@example.com", "hash", Role.ADMIN, new Nickname("영희"), 1);
+        User admin = new User("admin@example.com", "hash", Role.CATEGORY_ADMIN, new Nickname("영희"), 1);
 
         assertThat(user.getNickname()).isEqualTo("철수");
         assertThat(user.getTag()).isEqualTo(3);
@@ -224,7 +150,7 @@ class UserTest {
     void rejectsTagBelowOne(int tag) {
         assertThatThrownBy(() -> new User("user@example.com", "hash", NICKNAME, tag))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new User("user@example.com", "hash", Role.ADMIN, NICKNAME, tag))
+        assertThatThrownBy(() -> new User("user@example.com", "hash", Role.CATEGORY_ADMIN, NICKNAME, tag))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -241,14 +167,14 @@ class UserTest {
     @Test
     @DisplayName("changeNickname은 닉네임과 번호를 함께 바꾸고 다른 값은 그대로 둔다")
     void changesNicknameAndTag() {
-        User user = withId(new User("user@example.com", "hash", Role.ADMIN, NICKNAME, 2), OTHER_ID);
+        User user = withId(new User("user@example.com", "hash", Role.CATEGORY_ADMIN, NICKNAME, 2), OTHER_ID);
 
         user.changeNickname(new Nickname("  영희 "), 5);
 
         assertThat(user.getNickname()).isEqualTo("영희");
         assertThat(user.getTag()).isEqualTo(5);
         assertThat(user.getNicknameTag()).isEqualTo(new NicknameTag("영희", 5));
-        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(user.getRole()).isEqualTo(Role.CATEGORY_ADMIN);
         assertThat(user.getEmail()).isEqualTo("user@example.com");
         assertThat(user.getId()).isEqualTo(OTHER_ID);
     }
@@ -320,14 +246,14 @@ class UserTest {
         assertThat(User.INITIAL_TOKEN_VERSION).isZero();
         assertThat(new User("user@example.com", "hash", NICKNAME, 1).getTokenVersion())
                 .isEqualTo(User.INITIAL_TOKEN_VERSION);
-        assertThat(new User("admin@example.com", "hash", Role.ADMIN, NICKNAME, 1).getTokenVersion())
+        assertThat(new User("admin@example.com", "hash", Role.CATEGORY_ADMIN, NICKNAME, 1).getTokenVersion())
                 .isEqualTo(User.INITIAL_TOKEN_VERSION);
     }
 
     @Test
     @DisplayName("revokeTokens를 부를 때마다 토큰 버전이 1씩 오르고 다른 값은 그대로다")
     void revokeTokensIncrementsVersion() {
-        User user = withId(new User("user@example.com", "hash", Role.ADMIN, NICKNAME, 2), OTHER_ID);
+        User user = withId(new User("user@example.com", "hash", Role.CATEGORY_ADMIN, NICKNAME, 2), OTHER_ID);
 
         user.revokeTokens();
         assertThat(user.getTokenVersion()).isEqualTo(1);
@@ -336,7 +262,7 @@ class UserTest {
         assertThat(user.getTokenVersion()).isEqualTo(2);
         assertThat(user.getId()).isEqualTo(OTHER_ID);
         assertThat(user.getEmail()).isEqualTo("user@example.com");
-        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(user.getRole()).isEqualTo(Role.CATEGORY_ADMIN);
         assertThat(user.getNicknameTag()).isEqualTo(new NicknameTag("철수", 2));
     }
 
@@ -363,7 +289,7 @@ class UserTest {
     @Test
     @DisplayName("지금 해시가 비교에 쓴 해시와 같으면 changePassword는 해시를 바꾸고 토큰 버전을 1 올려, 바꾸기 전에 발급한 토큰을 모두 무효로 한다 (R4, D4)")
     void changePasswordReplacesHashAndRevokesTokens() {
-        User user = withId(new User("user@example.com", "old-hash", Role.ADMIN, NICKNAME, 2), OTHER_ID);
+        User user = withId(new User("user@example.com", "old-hash", Role.CATEGORY_ADMIN, NICKNAME, 2), OTHER_ID);
         user.revokeTokens();
 
         user.changePassword("old-hash", "new-hash");
@@ -372,7 +298,7 @@ class UserTest {
         assertThat(user.getTokenVersion()).isEqualTo(2);
         assertThat(user.tokenSubject()).isEqualTo(new TokenSubject(OTHER_ID, 2));
         assertThat(user.getEmail()).isEqualTo("user@example.com");
-        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(user.getRole()).isEqualTo(Role.CATEGORY_ADMIN);
         assertThat(user.getNicknameTag()).isEqualTo(new NicknameTag("철수", 2));
     }
 

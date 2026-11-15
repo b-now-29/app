@@ -13,6 +13,8 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
@@ -67,24 +69,73 @@ class UserRepositoryTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    @Test
-    @DisplayName("role 컬럼을 role 필드로 읽고 쓴다")
-    void mapsRoleColumn() {
-        userRepository.saveAndFlush(new User(EMAIL, HASH, NICKNAME, 1));
-        userRepository.saveAndFlush(new User("admin-repository@example.com", HASH, Role.ADMIN, NICKNAME, 2));
+    @ParameterizedTest
+    @EnumSource(Role.class)
+    @DisplayName("role 컬럼을 role 필드로 읽고 쓴다. 세 역할 모두 저장된다 (role-owner-category-admin R1)")
+    void mapsRoleColumn(Role role) {
+        startWithoutOwner();
+        userRepository.saveAndFlush(new User("role-repository@example.com", HASH, role, NICKNAME, 2));
         entityManager.clear();
 
-        assertThat(userRepository.findByEmail(EMAIL).orElseThrow().getRole()).isEqualTo(Role.USER);
         assertThat(userRepository
-                        .findByEmail("admin-repository@example.com")
+                        .findByEmail("role-repository@example.com")
                         .orElseThrow()
                         .getRole())
-                .isEqualTo(Role.ADMIN);
+                .isEqualTo(role);
         assertThat(entityManager
                         .createNativeQuery("SELECT role FROM users WHERE email = :email")
-                        .setParameter("email", "admin-repository@example.com")
+                        .setParameter("email", "role-repository@example.com")
                         .getSingleResult())
-                .isEqualTo("ADMIN");
+                .isEqualTo(role.name());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 더 이상 role 값이 아니라 DB 제약으로 넣을 수 없다 (role-owner-category-admin R1)")
+    void rejectsLegacyAdminRole() {
+        User saved = userRepository.saveAndFlush(user(EMAIL));
+
+        assertThatThrownBy(() -> entityManager
+                        .createNativeQuery("UPDATE users SET role = 'ADMIN' WHERE id = :id")
+                        .setParameter("id", saved.getId())
+                        .executeUpdate())
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    @DisplayName("OWNER는 DB의 부분 유니크 인덱스로 두 명이 될 수 없다 (role-owner-category-admin R2, D5)")
+    void rejectsSecondOwner() {
+        startWithoutOwner();
+        userRepository.saveAndFlush(new User("owner-1@example.com", HASH, Role.OWNER, NICKNAME, 21));
+        User second = new User("owner-2@example.com", HASH, Role.OWNER, NICKNAME, 22);
+
+        assertThatThrownBy(() -> userRepository.saveAndFlush(second))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("CATEGORY_ADMIN은 여러 명일 수 있다 (role-owner-category-admin R1)")
+    void allowsManyCategoryAdmins() {
+        assertThatCode(() -> {
+                    userRepository.saveAndFlush(
+                            new User("manager-1@example.com", HASH, Role.CATEGORY_ADMIN, NICKNAME, 31));
+                    userRepository.saveAndFlush(
+                            new User("manager-2@example.com", HASH, Role.CATEGORY_ADMIN, NICKNAME, 32));
+                })
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("existsByRole은 그 역할의 회원이 있는지 본다 (dev 테스트 계정의 OWNER 생성 판단, D8)")
+    void existsByRole() {
+        startWithoutOwner();
+        userRepository.saveAndFlush(user(EMAIL));
+
+        assertThat(userRepository.existsByRole(Role.OWNER)).isFalse();
+
+        userRepository.saveAndFlush(new User("owner-exists@example.com", HASH, Role.OWNER, NICKNAME, 41));
+
+        assertThat(userRepository.existsByRole(Role.OWNER)).isTrue();
+        assertThat(userRepository.existsByRole(Role.USER)).isTrue();
     }
 
     @Test
@@ -128,31 +179,13 @@ class UserRepositoryTest {
     // 회원 목록
 
     @Test
-    @DisplayName("잠금 조회는 ADMIN 회원만 id 오름차순으로 반환한다 (#36)")
-    void findsAdminsWithWriteLockByIdAscending() {
-        User firstAdmin = userRepository.saveAndFlush(new User("lock-1@example.com", HASH, Role.ADMIN, NICKNAME, 11));
-        userRepository.saveAndFlush(new User("lock-2@example.com", HASH, NICKNAME, 12));
-        User secondAdmin = userRepository.saveAndFlush(new User("lock-3@example.com", HASH, Role.ADMIN, NICKNAME, 13));
-        entityManager.clear();
-
-        List<User> admins = userRepository.findWithWriteLockByRoleOrderByIdAsc(Role.ADMIN);
-
-        assertThat(admins).extracting(User::getRole).containsOnly(Role.ADMIN);
-        assertThat(admins).extracting(User::getId).isSorted();
-        assertThat(admins)
-                .filteredOn(user -> user.getEmail().startsWith("lock-"))
-                .extracting(User::getId)
-                .containsExactly(firstAdmin.getId(), secondAdmin.getId());
-    }
-
-    @Test
     @DisplayName("회원 목록은 id 오름차순이다. 나중에 수정한 행도 순서가 바뀌지 않는다")
     void listsUsersByIdAscending() {
         User first = userRepository.saveAndFlush(new User("order-1@example.com", HASH, NICKNAME, 1));
         User second = userRepository.saveAndFlush(new User("order-2@example.com", HASH, NICKNAME, 2));
         User third = userRepository.saveAndFlush(new User("order-3@example.com", HASH, NICKNAME, 3));
         // UPDATE는 PostgreSQL에서 행의 물리 위치를 뒤로 옮기므로, 정렬 없는 조회라면 first가 끝으로 갈 수 있다
-        first.changeRole(Role.ADMIN, third.getId() + 1000, 1);
+        first.changeRole(Role.CATEGORY_ADMIN);
         userRepository.saveAndFlush(first);
         entityManager.clear();
 
@@ -165,6 +198,20 @@ class UserRepositoryTest {
         assertThat(userRepository.findAllByOrderByIdAsc())
                 .extracting(User::getId)
                 .isSorted();
+    }
+
+    @Test
+    @DisplayName("findWithWriteLockByIdInOrderByIdAsc는 주어진 id의 회원만 id 오름차순으로 돌려준다 (카테고리 삭제 시 관리자 행 잠금, D13)")
+    void findsUsersByIdsInIdOrder() {
+        User first = userRepository.saveAndFlush(new User("lock-1@example.com", HASH, NICKNAME, 1));
+        User second = userRepository.saveAndFlush(new User("lock-2@example.com", HASH, NICKNAME, 2));
+        User third = userRepository.saveAndFlush(new User("lock-3@example.com", HASH, NICKNAME, 3));
+        entityManager.clear();
+
+        List<User> found = userRepository.findWithWriteLockByIdInOrderByIdAsc(List.of(third.getId(), first.getId()));
+
+        assertThat(found).extracting(User::getId).containsExactly(first.getId(), third.getId());
+        assertThat(found).extracting(User::getId).doesNotContain(second.getId());
     }
 
     // 닉네임과 번호
@@ -275,10 +322,10 @@ class UserRepositoryTest {
     void changeNicknameDoesNotOverwriteRoleChangedMeanwhile() {
         User saved = userRepository.saveAndFlush(new User(EMAIL, HASH, new Nickname("철수"), 1));
         entityManager.clear();
-        // 회원을 읽은 뒤 (영속 상태의 role은 USER) 관리자가 다른 트랜잭션에서 ADMIN으로 바꾼 상황
+        // 회원을 읽은 뒤 (영속 상태의 role은 USER) 운영자가 다른 트랜잭션에서 CATEGORY_ADMIN으로 바꾼 상황
         User loaded = userRepository.findById(saved.getId()).orElseThrow();
         entityManager
-                .createNativeQuery("UPDATE users SET role = 'ADMIN' WHERE id = :id")
+                .createNativeQuery("UPDATE users SET role = 'CATEGORY_ADMIN' WHERE id = :id")
                 .setParameter("id", saved.getId())
                 .executeUpdate();
 
@@ -289,7 +336,7 @@ class UserRepositoryTest {
         User found = userRepository.findById(saved.getId()).orElseThrow();
         assertThat(found.getNickname()).isEqualTo("영희");
         assertThat(found.getTag()).isEqualTo(3);
-        assertThat(found.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(found.getRole()).isEqualTo(Role.CATEGORY_ADMIN);
         assertThat(found.getEmail()).isEqualTo(EMAIL);
         assertThat(found.getPasswordHash()).isEqualTo(HASH);
     }
@@ -385,7 +432,7 @@ class UserRepositoryTest {
         entityManager.clear();
         User loaded = userRepository.findById(saved.getId()).orElseThrow();
         entityManager
-                .createNativeQuery("UPDATE users SET role = 'ADMIN' WHERE id = :id")
+                .createNativeQuery("UPDATE users SET role = 'CATEGORY_ADMIN' WHERE id = :id")
                 .setParameter("id", saved.getId())
                 .executeUpdate();
 
@@ -401,11 +448,18 @@ class UserRepositoryTest {
                         .intValue())
                 .isEqualTo(1);
         assertThat(userRepository.findById(saved.getId()).orElseThrow().getRole())
-                .isEqualTo(Role.ADMIN);
+                .isEqualTo(Role.CATEGORY_ADMIN);
     }
 
     private static User user(String email) {
         return new User(email, HASH, NICKNAME, 1);
+    }
+
+    /** OWNER는 1명뿐이라 (D5) 이미 있으면 새 OWNER를 저장할 수 없다. 테스트 트랜잭션 안에서만 OWNER가 없는 상태로 만든다 (롤백된다). */
+    private void startWithoutOwner() {
+        entityManager
+                .createNativeQuery("UPDATE users SET role = 'USER' WHERE role = 'OWNER'")
+                .executeUpdate();
     }
 
     private void insertLegacyRow(String email, String nickname, int tag) {

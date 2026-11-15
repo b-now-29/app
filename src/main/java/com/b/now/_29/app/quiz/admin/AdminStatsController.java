@@ -1,6 +1,7 @@
 package com.b.now._29.app.quiz.admin;
 
 import java.util.List;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,12 +18,13 @@ public class AdminStatsController {
     }
 
     @GetMapping("/categories")
-    public List<AdminCategoryStatResponse> getCategoryStats() {
-        return adminStatsService.getCategoryStats();
+    public List<AdminCategoryStatResponse> getCategoryStats(@AuthenticationPrincipal Long actorId) {
+        return adminStatsService.getCategoryStats(actorId);
     }
 
     @GetMapping("/categories/{slug}/questions")
-    public List<AdminQuestionStatResponse> getQuestionStats(@PathVariable String slug) {
-        return adminStatsService.getQuestionStats(slug);
+    public List<AdminQuestionStatResponse> getQuestionStats(
+            @PathVariable String slug, @AuthenticationPrincipal Long actorId) {
+        return adminStatsService.getQuestionStats(actorId, slug);
     }
 }

@@ -90,7 +90,7 @@ class AuthControllerTest {
                         responseFields(
                                 fieldWithPath("id").description("사용자 ID"),
                                 fieldWithPath("email").description("이메일"),
-                                fieldWithPath("role").description("권한 (USER, ADMIN)"),
+                                fieldWithPath("role").description("권한 (USER, CATEGORY_ADMIN, OWNER)"),
                                 fieldWithPath("nickname").description("닉네임"),
                                 fieldWithPath("tag").description("같은 닉네임 안에서 회원을 구분하는 번호"))))
                 .andReturn();

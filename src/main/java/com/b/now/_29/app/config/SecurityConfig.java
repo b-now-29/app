@@ -1,6 +1,7 @@
 package com.b.now._29.app.config;
 
 import com.b.now._29.app.user.AuthCookies;
+import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.TokenService;
 import com.b.now._29.app.user.TokenUserVerifier;
 import com.b.now._29.app.user.UserRoleService;
@@ -8,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
+import java.util.function.Predicate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -28,7 +30,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * {@code /api/v1/users/me}와 그 하위 경로, 자기 채점 저장만 인증을 요구하고 {@code /api/v1/admin/**}은 관리자만 허용한다. 나머지는 모두 허용한다.
+ * {@code /api/v1/users/me}와 그 하위 경로, 자기 채점 저장만 인증을 요구하고 {@code /api/v1/admin/**}은 카테고리 관리자와 운영자만 허용한다. 그중 회원 관리와
+ * 카테고리 생성·삭제는 운영자만 허용한다. 나머지는 모두 허용한다.
  *
  * <p>토큰 검증과 연장은 직접 만든 필터로 한다. 잘못된 토큰은 거부하지 않고 비회원으로 처리한다.
  */
@@ -52,8 +55,16 @@ public class SecurityConfig {
                 .rebuild()
                 .addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class)
                 .build();
-        http.authorizeHttpRequests(auth -> auth.requestMatchers("/api/v1/admin/**")
-                        .access(adminOnly(userRoleService))
+        AuthorizationManager<RequestAuthorizationContext> ownerOnly = withRole(userRoleService, Role::isOwner);
+        AuthorizationManager<RequestAuthorizationContext> staffOnly = withRole(userRoleService, Role::isStaff);
+        http.authorizeHttpRequests(auth -> auth.requestMatchers("/api/v1/admin/users", "/api/v1/admin/users/**")
+                        .access(ownerOnly)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/categories")
+                        .access(ownerOnly)
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/admin/categories/*")
+                        .access(ownerOnly)
+                        .requestMatchers("/api/v1/admin/**")
+                        .access(staffOnly)
                         .requestMatchers("/api/v1/users/me", "/api/v1/users/me/**")
                         .authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/questions/*/self-grades")
@@ -79,14 +90,17 @@ public class SecurityConfig {
     }
 
     /**
-     * 관리자 경로는 요청마다 DB에서 role을 확인한다. 비회원은 거부해 401 entry point로, 회원인데 관리자가 아니면 거부해 403 handler로 간다.
+     * 관리자 경로는 요청마다 DB에서 role을 확인한다. 비회원은 거부해 401 entry point로, 회원인데 허용된 role이 아니면 거부해 403 handler로
+     * 간다. 카테고리 단위 판단은 Service가 한다.
      */
-    private static AuthorizationManager<RequestAuthorizationContext> adminOnly(UserRoleService userRoleService) {
+    private static AuthorizationManager<RequestAuthorizationContext> withRole(
+            UserRoleService userRoleService, Predicate<Role> allowed) {
         return (authentication, context) -> {
-            boolean admin = AuthenticatedUser.of(authentication.get())
-                    .map(userRoleService::isAdmin)
-                    .orElse(false);
-            return new AuthorizationDecision(admin);
+            boolean granted = AuthenticatedUser.of(authentication.get())
+                    .flatMap(userRoleService::findRole)
+                    .filter(allowed)
+                    .isPresent();
+            return new AuthorizationDecision(granted);
         };
     }
 

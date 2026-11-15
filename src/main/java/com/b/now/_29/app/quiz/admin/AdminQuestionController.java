@@ -3,6 +3,7 @@ package com.b.now._29.app.quiz.admin;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,29 +26,32 @@ public class AdminQuestionController {
     }
 
     @GetMapping
-    public List<AdminQuestionResponse> getQuestions(@RequestParam("category") String categorySlug) {
-        return adminQuestionService.getQuestions(categorySlug);
+    public List<AdminQuestionResponse> getQuestions(
+            @RequestParam("category") String categorySlug, @AuthenticationPrincipal Long actorId) {
+        return adminQuestionService.getQuestions(actorId, categorySlug);
     }
 
     @GetMapping("/{id}")
-    public AdminQuestionResponse getQuestion(@PathVariable long id) {
-        return adminQuestionService.getQuestion(id);
+    public AdminQuestionResponse getQuestion(@PathVariable long id, @AuthenticationPrincipal Long actorId) {
+        return adminQuestionService.getQuestion(actorId, id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminQuestionResponse create(@Valid @RequestBody QuestionRequest request) {
-        return adminQuestionService.create(request);
+    public AdminQuestionResponse create(
+            @Valid @RequestBody QuestionRequest request, @AuthenticationPrincipal Long actorId) {
+        return adminQuestionService.create(actorId, request);
     }
 
     @PutMapping("/{id}")
-    public AdminQuestionResponse update(@PathVariable long id, @Valid @RequestBody QuestionRequest request) {
-        return adminQuestionService.update(id, request);
+    public AdminQuestionResponse update(
+            @PathVariable long id, @Valid @RequestBody QuestionRequest request, @AuthenticationPrincipal Long actorId) {
+        return adminQuestionService.update(actorId, id, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable long id) {
-        adminQuestionService.delete(id);
+    public void delete(@PathVariable long id, @AuthenticationPrincipal Long actorId) {
+        adminQuestionService.delete(actorId, id);
     }
 }

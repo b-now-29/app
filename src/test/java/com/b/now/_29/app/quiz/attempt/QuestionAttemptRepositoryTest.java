@@ -348,7 +348,7 @@ class QuestionAttemptRepositoryTest {
         long id = attempt(me, question, true, BASE);
         question.delete();
         questionRepository.saveAndFlush(question);
-        category.delete(0);
+        category.delete(0, 0);
         categoryRepository.saveAndFlush(category);
         entityManager.clear();
 

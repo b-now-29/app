@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 DO
 $$
     DECLARE
-        -- dev 회원 20명 (user01~20@dev.local). 퀴즈왕 3명은 tag 1~3 확인용, 18번 '신입'은 풀이 0건, 20번은 ADMIN
+        -- dev 회원 20명 (user01~20@dev.local). 퀴즈왕 3명은 tag 1~3 확인용, 18번 '신입'은 풀이 0건, 20번은 CATEGORY_ADMIN
         nicknames  text[] := ARRAY['퀴즈왕', '퀴즈왕', '퀴즈왕', '코딩러', '코딩러', '달리기', '문제풀이', '알고왕', '자바킹', '스프링',
             '리액트', 'DB마스터', '백엔드', '프론트', '새벽반', '야근러', '만점왕', '신입', '복습러', '운영자'];
         -- 회원별 정답 확률 (0.3~0.9). user01~user20 순서 (퀴즈왕 #1 0.9, #2 0.5, #3 0.3)
@@ -47,9 +47,11 @@ $$
         WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'test@example.com');
 
         INSERT INTO users (email, password_hash, role, nickname, tag, created_at)
-        SELECT 'admin@example.com', crypt('admin1234!', gen_salt('bf')), 'ADMIN', '관리자',
+        -- OWNER는 한 명뿐이므로 이미 OWNER가 있으면 만들지 않는다
+        SELECT 'admin@example.com', crypt('admin1234!', gen_salt('bf')), 'OWNER', '관리자',
                COALESCE((SELECT max(tag) FROM users WHERE nickname = '관리자'), 0) + 1, now()
-        WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'admin@example.com');
+        WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'admin@example.com')
+          AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'OWNER');
 
         -- test 계정: 정답 약 60%, 풀이 60건 + 다시 푼 기록 10건
         INSERT INTO dev_seed_plan (user_id, accuracy, cnt, re_cnt)
@@ -63,7 +65,7 @@ $$
                 INSERT INTO users (email, password_hash, role, nickname, tag, created_at)
                 VALUES ('user' || lpad(i::text, 2, '0') || '@dev.local',
                         crypt('dev1234!', gen_salt('bf')),
-                        CASE WHEN i = 20 THEN 'ADMIN' ELSE 'USER' END,
+                        'USER',
                         nicknames[i],
                         COALESCE((SELECT max(tag) FROM users WHERE nickname = nicknames[i]), 0) + 1,
                         -- 풀이 기록(최근 30일)보다 먼저 가입하도록 30~60일 전, 신입은 1일 전
@@ -88,6 +90,19 @@ $$
         INSERT INTO category (slug, name, description, sort_order, deleted_at)
         VALUES ('dev-deleted', '삭제된 카테고리', '삭제된 카테고리 확인용', 901, now() - interval '3 days')
         RETURNING id INTO deleted_id;
+
+        -- 20번은 카테고리를 만든 뒤 공개 목록의 첫 번째 카테고리를 담당하는 CATEGORY_ADMIN이 된다.
+        -- 담당 0개인 카테고리 관리자는 없으므로 카테고리가 하나도 없으면 USER로 둔다
+        INSERT INTO category_admin (user_id, category_id)
+        SELECT u.id, c.id
+        FROM users u
+                 CROSS JOIN (SELECT id FROM category WHERE deleted_at IS NULL ORDER BY sort_order, id LIMIT 1) c
+        WHERE u.email = 'user20@dev.local';
+
+        UPDATE users
+        SET role = 'CATEGORY_ADMIN'
+        WHERE email = 'user20@dev.local'
+          AND EXISTS (SELECT 1 FROM category_admin ca WHERE ca.user_id = users.id);
 
         -- dev-bulk: 객관식 1~40, 주관식 41~50, 서술형 51~60 (39번 객관식, 59번 서술형은 삭제)
         FOR i IN 1..60

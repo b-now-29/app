@@ -49,7 +49,7 @@ class AdminCategoryRepositoryTest {
         Category earlier = categoryRepository.saveAndFlush(new Category("admin-earlier", "먼저", null, 2000));
         categoryRepository.saveAndFlush(new Category("admin-empty", "빈 카테고리", null, 2002));
         Category removed = categoryRepository.saveAndFlush(new Category("admin-deleted", "삭제한 카테고리", 1999));
-        removed.delete(0);
+        removed.delete(0, 0);
         categoryRepository.saveAndFlush(removed);
         saveQuestion(later, "남은 문제 1");
         saveQuestion(later, "남은 문제 2");

@@ -29,8 +29,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * {@code HttpSecurity} 빈이 없다.
  *
  * <p>{@code UserRoleService}: 관리자 경로 인가가 요청마다 DB의 role을 확인하는데, {@code @WebMvcTest}에는 Repository가 없으므로 mock으로
- * 넣는다. 기본값은 {@code isAdmin = false}(USER)다. 관리자로 요청하려면 테스트에서 {@code @Autowired UserRoleService}로 받아
- * {@code given(...isAdmin(id)).willReturn(true)}로 정한다.
+ * 넣는다. 기본값은 {@code findRole = Optional.empty()}(role 없음, 관리자 경로는 403)다. 관리자로 요청하려면 테스트에서 {@code @Autowired
+ * UserRoleService}로 받아 {@code given(...findRole(id)).willReturn(Optional.of(Role.OWNER))}처럼 정한다.
  *
  * <p>{@code TokenUserVerifier}: 인증 필터가 토큰의 회원이 DB에 있고 토큰 버전이 지금 버전과 같은지 확인하는 데 쓰므로 mock으로 넣는다. 기본값은
  * {@link ExistingUsersByDefault}가 정한 {@code isCurrent = true}(유효한 회원)다. 회원 없음이나 무효가 된 토큰은
