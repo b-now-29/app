@@ -43,7 +43,7 @@ import org.springframework.test.util.ReflectionTestUtils;
  *   <li>{@code List<AdminQuestionResponse> getQuestions(String categorySlug)} — 카테고리 확인은 {@code
  *       existsBySlugAndDeletedAtIsNull}, 목록은 {@code findAllByCategorySlugAndTypeInOrderBySortOrderAscIdAsc(slug, 세 유형)}
  *   <li>{@code AdminQuestionResponse getQuestion(long id)} — {@code findWithChoicesById}
- *   <li>{@code AdminQuestionResponse create(QuestionRequest request)} — 카테고리는 {@code findBySlugAndDeletedAtIsNull}, 저장은
+ *   <li>{@code AdminQuestionResponse create(QuestionRequest request)} — 카테고리는 {@code findWithShareLockBySlugAndDeletedAtIsNull}, 저장은
  *       {@code saveAndFlush}
  *   <li>{@code AdminQuestionResponse update(long id, QuestionRequest request)} — {@code findWithChoicesById} 후 {@code
  *       question.update}
@@ -142,7 +142,8 @@ class AdminQuestionServiceTest {
     @Test
     @DisplayName("문제를 등록하면 카테고리에 저장하고 id와 정답을 포함해 응답한다 (R5, R8)")
     void createsQuestion() {
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.of(java));
+        given(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.of(java));
         given(questionRepository.saveAndFlush(any(Question.class)))
                 .willAnswer(invocation -> withIds(invocation.getArgument(0)));
 
@@ -170,7 +171,8 @@ class AdminQuestionServiceTest {
     @Test
     @DisplayName("없거나 삭제한 카테고리에 문제를 등록하면 CategoryNotFoundException이고 저장하지 않는다")
     void createInUnknownCategory() {
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.empty());
+        given(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> adminQuestionService.create(validRequest()))
                 .isInstanceOf(CategoryNotFoundException.class);
@@ -182,7 +184,8 @@ class AdminQuestionServiceTest {
     @Test
     @DisplayName("유형별 규칙을 어긴 등록은 InvalidQuestionException이고 저장하지 않는다 (R5)")
     void rejectsInvalidQuestion() {
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.of(java));
+        given(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.of(java));
 
         assertThatThrownBy(() -> adminQuestionService.create(
                         new QuestionRequest(SLUG, QuestionType.ESSAY, "서술형", null, "  ", 0, List.of())))
@@ -196,7 +199,9 @@ class AdminQuestionServiceTest {
     @DisplayName("없거나 삭제한 문제를 수정하면 QuestionNotFoundException이다")
     void updateOfUnknownQuestion() {
         given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.empty());
-        lenient().when(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).thenReturn(Optional.of(java));
+        lenient()
+                .when(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .thenReturn(Optional.of(java));
 
         assertThatThrownBy(() -> adminQuestionService.update(QUESTION_ID, validRequest()))
                 .isInstanceOf(QuestionNotFoundException.class);
@@ -207,7 +212,8 @@ class AdminQuestionServiceTest {
     void updateToUnknownCategory() {
         Question question = withIds(Question.create(java, validRequestDraft()));
         lenient().when(questionRepository.findWithChoicesById(QUESTION_ID)).thenReturn(Optional.of(question));
-        given(categoryRepository.findBySlugAndDeletedAtIsNull("removed")).willReturn(Optional.empty());
+        given(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull("removed"))
+                .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> adminQuestionService.update(
                         QUESTION_ID,
@@ -224,7 +230,9 @@ class AdminQuestionServiceTest {
     void rejectsTypeChangeOfAttemptedQuestion() {
         Question question = withIds(Question.create(java, validRequestDraft()));
         given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question));
-        lenient().when(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).thenReturn(Optional.of(java));
+        lenient()
+                .when(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .thenReturn(Optional.of(java));
         given(questionAttemptRepository.existsByQuestionId(QUESTION_ID)).willReturn(true);
 
         assertThatThrownBy(() -> adminQuestionService.update(
@@ -243,7 +251,8 @@ class AdminQuestionServiceTest {
     void updatesAttemptedQuestionKeepingType() {
         Question question = withIds(Question.create(java, validRequestDraft()));
         given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question));
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.of(java));
+        given(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.of(java));
         given(questionAttemptRepository.existsByQuestionId(QUESTION_ID)).willReturn(true);
         given(questionRepository.saveAndFlush(any(Question.class)))
                 .willAnswer(invocation -> withIds(invocation.getArgument(0)));
@@ -269,7 +278,8 @@ class AdminQuestionServiceTest {
     void changesTypeWithoutAttempts() {
         Question question = withIds(Question.create(java, validRequestDraft()));
         given(questionRepository.findWithChoicesById(QUESTION_ID)).willReturn(Optional.of(question));
-        given(categoryRepository.findBySlugAndDeletedAtIsNull(SLUG)).willReturn(Optional.of(java));
+        given(categoryRepository.findWithShareLockBySlugAndDeletedAtIsNull(SLUG))
+                .willReturn(Optional.of(java));
         given(questionAttemptRepository.existsByQuestionId(QUESTION_ID)).willReturn(false);
         given(questionRepository.saveAndFlush(any(Question.class)))
                 .willAnswer(invocation -> withIds(invocation.getArgument(0)));
