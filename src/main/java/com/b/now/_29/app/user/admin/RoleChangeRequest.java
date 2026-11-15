@@ -4,7 +4,6 @@ import com.b.now._29.app.user.Role;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-
 import java.util.List;
 
 /**
