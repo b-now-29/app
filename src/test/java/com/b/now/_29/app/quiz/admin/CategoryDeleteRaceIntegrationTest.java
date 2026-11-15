@@ -1,5 +1,6 @@
 package com.b.now._29.app.quiz.admin;
 
+import static com.b.now._29.app.support.TransactionRace.TIMEOUT_SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -8,16 +9,13 @@ import com.b.now._29.app.quiz.category.CategoryNotEmptyException;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.question.QuestionType;
 import com.b.now._29.app.support.TestJwts;
+import com.b.now._29.app.support.TransactionRace;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,12 +39,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Import(TestcontainersConfiguration.class)
 class CategoryDeleteRaceIntegrationTest {
 
-    /** 뒤에 시작한 요청이 이 시간 안에 끝나면 블록되지 않은 것으로 본다. */
-    private static final long BLOCKED_MILLIS = 500;
-
-    /** 테스트가 멈추지 않도록 모든 대기에 두는 상한. */
-    private static final long TIMEOUT_SECONDS = 10;
-
     @Autowired
     AdminCategoryService adminCategoryService;
 
@@ -59,25 +51,20 @@ class CategoryDeleteRaceIntegrationTest {
     @Autowired
     JdbcTemplate jdbc;
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
-    private final CountDownLatch firstDone = new CountDownLatch(1);
-    private final CountDownLatch release = new CountDownLatch(1);
     private final List<String> slugs = new ArrayList<>();
 
+    private TransactionRace race;
     private String slug;
 
     @BeforeEach
     void setUp() {
+        race = new TransactionRace(transactionTemplate);
         slug = newCategory();
     }
 
     @AfterEach
     void tearDown() throws InterruptedException {
-        release.countDown();
-        executor.shutdown();
-        if (!executor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            executor.shutdownNow();
-        }
+        race.close();
         for (String created : slugs) {
             jdbc.update("DELETE FROM question WHERE category_id IN (SELECT id FROM category WHERE slug = ?)", created);
             jdbc.update("DELETE FROM category WHERE slug = ?", created);
@@ -87,12 +74,12 @@ class CategoryDeleteRaceIntegrationTest {
     @Test
     @DisplayName("삭제가 먼저 커밋 전이면 문제 등록은 기다렸다가 CategoryNotFoundException이고, 삭제된 카테고리에 활성 문제가 없다")
     void createWaitsForDeleteThenNotFound() throws Exception {
-        Future<?> deleting = startFirst(() -> adminCategoryService.delete(slug));
+        Future<?> deleting = race.holdFirst(() -> adminCategoryService.delete(slug));
 
-        Future<AdminQuestionResponse> creating = executor.submit(() -> adminQuestionService.create(shortAnswer(slug)));
+        Future<AdminQuestionResponse> creating = race.submit(() -> adminQuestionService.create(shortAnswer(slug)));
 
-        assertBlocked(creating);
-        release.countDown();
+        race.assertBlocked(creating);
+        race.releaseFirst();
         deleting.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThatThrownBy(() -> creating.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .isInstanceOf(ExecutionException.class)
@@ -106,13 +93,13 @@ class CategoryDeleteRaceIntegrationTest {
     void updateWaitsForDeleteThenNotFound() throws Exception {
         String other = newCategory();
         long questionId = adminQuestionService.create(shortAnswer(other)).id();
-        Future<?> deleting = startFirst(() -> adminCategoryService.delete(slug));
+        Future<?> deleting = race.holdFirst(() -> adminCategoryService.delete(slug));
 
         Future<AdminQuestionResponse> moving =
-                executor.submit(() -> adminQuestionService.update(questionId, shortAnswer(slug)));
+                race.submit(() -> adminQuestionService.update(questionId, shortAnswer(slug)));
 
-        assertBlocked(moving);
-        release.countDown();
+        race.assertBlocked(moving);
+        race.releaseFirst();
         deleting.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThatThrownBy(() -> moving.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .isInstanceOf(ExecutionException.class)
@@ -125,46 +112,18 @@ class CategoryDeleteRaceIntegrationTest {
     @Test
     @DisplayName("문제 등록이 먼저 커밋 전이면 삭제는 기다렸다가 CategoryNotEmptyException이고, 카테고리와 문제가 남는다")
     void deleteWaitsForCreateThenNotEmpty() throws Exception {
-        Future<?> creating = startFirst(() -> adminQuestionService.create(shortAnswer(slug)));
+        Future<?> creating = race.holdFirst(() -> adminQuestionService.create(shortAnswer(slug)));
 
-        Future<?> deleting = executor.submit(() -> adminCategoryService.delete(slug));
+        Future<?> deleting = race.submit(() -> adminCategoryService.delete(slug));
 
-        assertBlocked(deleting);
-        release.countDown();
+        race.assertBlocked(deleting);
+        race.releaseFirst();
         creating.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThatThrownBy(() -> deleting.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .isInstanceOf(ExecutionException.class)
                 .hasCauseInstanceOf(CategoryNotEmptyException.class);
         assertThat(isDeleted(slug)).isFalse();
         assertThat(activeQuestionCount(slug)).isEqualTo(1);
-    }
-
-    /** 한 트랜잭션 안에서 작업을 마친 뒤, 커밋하지 않고 {@code release}까지 기다린다. 작업을 마칠 때까지 기다렸다가 돌아온다. */
-    private Future<?> startFirst(Runnable work) throws Exception {
-        Future<?> first = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
-            work.run();
-            firstDone.countDown();
-            awaitRelease();
-        }));
-        if (!firstDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            first.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            throw new AssertionError("먼저 시작한 트랜잭션이 작업을 마치지 못했다");
-        }
-        return first;
-    }
-
-    private void awaitRelease() {
-        try {
-            release.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private static void assertBlocked(Future<?> later) {
-        assertThatThrownBy(() -> later.get(BLOCKED_MILLIS, TimeUnit.MILLISECONDS))
-                .as("먼저 시작한 트랜잭션이 커밋하기 전에는 끝나지 않아야 한다")
-                .isInstanceOf(TimeoutException.class);
     }
 
     private String newCategory() {
