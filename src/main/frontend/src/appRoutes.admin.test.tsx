@@ -1,7 +1,9 @@
 // 관리자 화면 (R3, R4, R5, R7, 화면 흐름). appRoutes 전체로 그려서 route 구성까지 함께 확인한다.
 //
 // 화면 계약 (frontend-dev가 맞출 이름·라벨):
-// - 메뉴: role이 ADMIN이면 "관리" 링크 (href="/admin"). USER·비회원에게는 없다.
+// - 메뉴: role이 CATEGORY_ADMIN·OWNER면 "관리" 링크 (href="/admin"). USER·비회원에게는 없다.
+//   관리 탭의 "회원" 링크는 OWNER에게만 있다 (role-owner-category-admin R8).
+// - 카테고리 화면의 추가 폼 ("추가" 버튼, slug 칸)과 항목의 "삭제" 버튼은 OWNER에게만 있다 (D3). 수정은 둘 다 할 수 있다.
 // - /admin: 공통 틀. <nav aria-label="관리 메뉴"> 안에 "카테고리"(/admin/categories), "문제"(/admin/questions) 링크.
 //   loader는 adminLoader (401 → /login, 403 → /). /admin 자체는 /admin/categories로 보낸다.
 // - /admin/categories: h1 "카테고리 관리", 목록 <ul aria-label="카테고리 목록">의 항목마다 이름·slug·"문제 N개"와
@@ -52,11 +54,19 @@ vi.mock("./api/admin");
 vi.mock("./api/categories");
 vi.mock("./api/users");
 
+// 운영자 (OWNER). 이 파일의 기존 테스트는 모든 권한이 있는 운영자로 확인한다
 const ADMIN: UserResponse = {
   id: 1,
   email: "admin@example.com",
-  role: "ADMIN",
+  role: "OWNER",
   nickname: "관리자",
+  tag: 1,
+};
+const CATEGORY_ADMIN: UserResponse = {
+  id: 3,
+  email: "manager@example.com",
+  role: "CATEGORY_ADMIN",
+  nickname: "매니저",
   tag: 1,
 };
 const USER: UserResponse = {
@@ -117,7 +127,7 @@ function rejectUnlessAdmin(): Promise<never> | null {
   if (currentUser === null) {
     return Promise.reject(new ApiError(401, "로그인이 필요합니다."));
   }
-  if (currentUser.role !== "ADMIN") {
+  if (currentUser.role === "USER") {
     return Promise.reject(new ApiError(403, "권한이 없습니다."));
   }
   return null;
@@ -264,8 +274,12 @@ function choiceInputs() {
   return screen.getAllByRole("textbox", { name: /^보기 \d+$/ });
 }
 
-describe("관리 메뉴 (R3)", () => {
-  it("ADMIN에게는 /admin으로 가는 관리 링크가 보인다", async () => {
+describe("관리 메뉴 (R3, role-owner-category-admin R8)", () => {
+  it.each([
+    ["OWNER", ADMIN],
+    ["CATEGORY_ADMIN", CATEGORY_ADMIN],
+  ])("%s에게는 /admin으로 가는 관리 링크가 보인다", async (_name, user) => {
+    currentUser = user;
     renderApp("/");
 
     const menu = await mainMenu();
@@ -307,6 +321,84 @@ describe("관리 메뉴 (R3)", () => {
     expect(tabs.getByRole("link", { name: "문제" })).toHaveAttribute(
       "href",
       "/admin/questions",
+    );
+  });
+
+  it("OWNER의 관리 탭에는 회원 링크가 있다 (role-owner-category-admin R8)", async () => {
+    renderApp("/admin/categories");
+
+    const tabs = within(
+      await screen.findByRole("navigation", { name: "관리 메뉴" }),
+    );
+    expect(tabs.getByRole("link", { name: "회원" })).toHaveAttribute(
+      "href",
+      "/admin/users",
+    );
+  });
+
+  it("CATEGORY_ADMIN의 관리 탭에는 회원 링크가 없고 나머지 탭은 있다 (role-owner-category-admin R8)", async () => {
+    currentUser = CATEGORY_ADMIN;
+    renderApp("/admin/categories");
+
+    const tabs = within(
+      await screen.findByRole("navigation", { name: "관리 메뉴" }),
+    );
+    expect(tabs.getByRole("link", { name: "카테고리" })).toBeInTheDocument();
+    expect(tabs.getByRole("link", { name: "문제" })).toBeInTheDocument();
+    expect(tabs.getByRole("link", { name: "통계" })).toBeInTheDocument();
+    expect(tabs.queryByRole("link", { name: "회원" })).not.toBeInTheDocument();
+  });
+});
+
+describe("카테고리 관리자의 카테고리 화면 (role-owner-category-admin 화면 흐름, D3)", () => {
+  beforeEach(() => {
+    currentUser = CATEGORY_ADMIN;
+    // 서버가 담당 카테고리만 걸러 준다
+    categories = [JAVA];
+  });
+
+  it("서버가 준 담당 카테고리 목록을 그대로 보여 준다", async () => {
+    renderApp("/admin/categories");
+
+    const list = await screen.findByRole("list", { name: "카테고리 목록" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent("Java");
+  });
+
+  it("카테고리 추가 폼과 삭제 버튼이 없고, 수정 버튼은 있다", async () => {
+    renderApp("/admin/categories");
+
+    const item = await findCategoryItem("Java");
+    expect(
+      within(item).getByRole("button", { name: "수정" }),
+    ).toBeInTheDocument();
+    expect(
+      within(item).queryByRole("button", { name: "삭제" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "추가" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("slug")).not.toBeInTheDocument();
+  });
+
+  it("담당 카테고리를 수정해 저장하면 slug 경로로 보낸다", async () => {
+    const user = userEvent.setup();
+    renderApp("/admin/categories");
+
+    await user.click(
+      within(await findCategoryItem("Java")).getByRole("button", {
+        name: "수정",
+      }),
+    );
+    await user.clear(screen.getByLabelText("이름"));
+    await user.type(screen.getByLabelText("이름"), "자바");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    await findCategoryItem("자바");
+    expect(updateCategory).toHaveBeenCalledWith(
+      "java",
+      expect.objectContaining({ name: "자바" }),
     );
   });
 });

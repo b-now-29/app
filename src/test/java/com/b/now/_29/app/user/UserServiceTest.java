@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -149,15 +150,15 @@ class UserServiceTest {
     @Test
     @DisplayName("관리자·테스트 계정을 만드는 createAccount도 가입과 같은 한 번 시도로 그 role의 회원을 만든다")
     void createAccountWithRole() {
-        UserResponse admin = new UserResponse(USER_ID, EMAIL, Role.ADMIN, NICKNAME, 5);
+        UserResponse admin = new UserResponse(USER_ID, EMAIL, Role.OWNER, NICKNAME, 5);
         given(userRepository.existsByEmail(EMAIL)).willReturn(false);
-        given(assigner.createUser(eq(EMAIL), anyString(), eq(Role.ADMIN), eq(new Nickname(NICKNAME))))
+        given(assigner.createUser(eq(EMAIL), anyString(), eq(Role.OWNER), eq(new Nickname(NICKNAME))))
                 .willReturn(admin);
 
-        UserResponse response = userService.createAccount(EMAIL, PASSWORD, NICKNAME, Role.ADMIN);
+        UserResponse response = userService.createAccount(EMAIL, PASSWORD, NICKNAME, Role.OWNER);
 
         ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
-        then(assigner).should().createUser(eq(EMAIL), hash.capture(), eq(Role.ADMIN), eq(new Nickname(NICKNAME)));
+        then(assigner).should().createUser(eq(EMAIL), hash.capture(), eq(Role.OWNER), eq(new Nickname(NICKNAME)));
         assertThat(hasher.matches(PASSWORD, hash.getValue())).isTrue();
         assertThat(response).isEqualTo(admin);
     }
@@ -375,14 +376,17 @@ class UserServiceTest {
         assertThat(userService.getUser(USER_ID)).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.USER, NICKNAME, TAG));
     }
 
-    @Test
-    @DisplayName("관리자를 조회하면 응답의 role이 ADMIN이다")
-    void getAdminUser() {
+    @ParameterizedTest
+    @EnumSource(
+            value = Role.class,
+            names = {"CATEGORY_ADMIN", "OWNER"})
+    @DisplayName("관리자를 조회하면 응답의 role이 그 관리자 역할이다 (role-owner-category-admin API 계약)")
+    void getAdminUser(Role role) {
         given(userRepository.findById(USER_ID))
                 .willReturn(Optional.of(
-                        withId(new User(EMAIL, hasher.encode(PASSWORD), Role.ADMIN, new Nickname(NICKNAME), TAG))));
+                        withId(new User(EMAIL, hasher.encode(PASSWORD), role, new Nickname(NICKNAME), TAG))));
 
-        assertThat(userService.getUser(USER_ID)).isEqualTo(new UserResponse(USER_ID, EMAIL, Role.ADMIN, NICKNAME, TAG));
+        assertThat(userService.getUser(USER_ID)).isEqualTo(new UserResponse(USER_ID, EMAIL, role, NICKNAME, TAG));
     }
 
     @Test

@@ -26,6 +26,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
@@ -371,11 +373,14 @@ class RankingRepositoryTest {
 
     // 랭킹에서 빼는 회원 (R3)
 
-    @Test
-    @DisplayName("관리자는 점수가 높아도 랭킹에 넣지 않고 등수도 차지하지 않는다 (R3, D4)")
-    void excludesAdmins() {
+    @ParameterizedTest
+    @EnumSource(
+            value = Role.class,
+            names = {"CATEGORY_ADMIN", "OWNER"})
+    @DisplayName("관리자 (카테고리 관리자, 운영자)는 점수가 높아도 랭킹에 넣지 않고 등수도 차지하지 않는다 (R3, D4, role-owner-category-admin R7)")
+    void excludesAdmins(Role adminRole) {
         User admin =
-                userRepository.saveAndFlush(new User(nextEmail(), "$2a$10$hash", Role.ADMIN, new Nickname("관리자"), 1));
+                userRepository.saveAndFlush(new User(nextEmail(), "$2a$10$hash", adminRole, new Nickname("관리자"), 1));
         User user = saveUser("회원");
         List<Question> questions = saveQuestions(saveCategory("rank-a", 1000), 3);
         correct(admin, questions, 3, BASE);
@@ -398,7 +403,7 @@ class RankingRepositoryTest {
         correct(promoted, questions, 2, BASE);
         correct(actor, questions, 1, BASE);
         User managed = userRepository.findById(promoted.getId()).orElseThrow();
-        managed.changeRole(Role.ADMIN, actor.getId(), 1);
+        managed.changeRole(Role.CATEGORY_ADMIN);
         userRepository.saveAndFlush(managed);
         entityManager.clear();
 
@@ -623,8 +628,8 @@ class RankingRepositoryTest {
     @Test
     @DisplayName("카테고리 랭킹도 삭제된 문제, 관리자, 점수 0을 뺀다 (R2, R3, R5)")
     void categoryRankingAppliesSameExclusions() {
-        User admin =
-                userRepository.saveAndFlush(new User(nextEmail(), "$2a$10$hash", Role.ADMIN, new Nickname("관리자"), 1));
+        User admin = userRepository.saveAndFlush(
+                new User(nextEmail(), "$2a$10$hash", Role.CATEGORY_ADMIN, new Nickname("관리자"), 1));
         User zero = saveUser("영점");
         User onlyDeleted = saveUser("삭제만");
         User scorer = saveUser("득점");
@@ -749,7 +754,7 @@ class RankingRepositoryTest {
     /** 문제 수 검증은 삭제 대상이 아니므로 남은 문제 0개로 지운다. 문제 행은 그대로 둔다. */
     private void deleteCategory(Category category) {
         Category managed = categoryRepository.findById(category.getId()).orElseThrow();
-        managed.delete(0);
+        managed.delete(0, 0);
         categoryRepository.saveAndFlush(managed);
     }
 

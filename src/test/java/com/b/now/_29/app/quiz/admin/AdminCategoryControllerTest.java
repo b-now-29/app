@@ -23,14 +23,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.b.now._29.app.quiz.category.CategoryHasSoleAdminException;
 import com.b.now._29.app.quiz.category.CategoryNotEmptyException;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.DuplicateCategorySlugException;
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
+import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.UserRoleService;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,10 +51,12 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 /**
  * 관리자 카테고리 API (R4, R7, API 계약). 구현할 컨트롤러: {@code quiz.admin.AdminCategoryController} ({@code
- * /api/v1/admin/categories}).
+ * /api/v1/admin/categories}). 목록과 수정은 요청한 관리자 id ({@code @AuthenticationPrincipal Long})를 Service에 넘긴다
+ * (role-owner-category-admin).
  *
- * <p>예외 매핑: {@code DuplicateCategorySlugException}·{@code CategoryNotEmptyException} ({@code quiz.category}) → 409,
- * {@code CategoryNotFoundException} → 404 (기존). 요청 검증: slug {@code ^[a-z0-9-]{1,50}$}, name 공백 불가·100자 이하. 400 문구는
+ * <p>예외 매핑: {@code DuplicateCategorySlugException}·{@code CategoryNotEmptyException}·{@code
+ * CategoryHasSoleAdminException} ({@code quiz.category}) → 409, {@code CategoryAccessDeniedException} → 403, {@code
+ * CategoryNotFoundException} → 404 (기존). 요청 검증: slug {@code ^[a-z0-9-]{1,50}$}, name 공백 불가·100자 이하. 400 문구는
  * D14 형식이다.
  */
 @WebMvcTest(AdminCategoryController.class)
@@ -59,8 +64,11 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @WithAppSecurity
 class AdminCategoryControllerTest {
 
+    /** OWNER. */
     private static final long ADMIN_ID = 1L;
+
     private static final long USER_ID = 2L;
+    private static final long CATEGORY_ADMIN_ID = 3L;
     private static final String COOKIE_NAME = "access_token";
     private static final String BASE = "/api/v1/admin/categories";
 
@@ -75,13 +83,15 @@ class AdminCategoryControllerTest {
 
     @BeforeEach
     void setUp() {
-        given(userRoleService.isAdmin(ADMIN_ID)).willReturn(true);
+        given(userRoleService.findRole(ADMIN_ID)).willReturn(Optional.of(Role.OWNER));
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
+        given(userRoleService.findRole(CATEGORY_ADMIN_ID)).willReturn(Optional.of(Role.CATEGORY_ADMIN));
     }
 
     @Test
-    @DisplayName("카테고리 목록은 삭제 안 된 카테고리를 문제 수와 함께 JSON 배열로 반환한다 (API 계약)")
+    @DisplayName("카테고리 목록은 삭제 안 된 카테고리를 문제 수와 함께 JSON 배열로 반환한다. 요청한 관리자 id를 Service에 넘긴다 (API 계약)")
     void getCategories() throws Exception {
-        given(adminCategoryService.getCategories())
+        given(adminCategoryService.getCategories(ADMIN_ID))
                 .willReturn(List.of(
                         new AdminCategoryResponse("java", "Java", "자바 기초", 10, 5),
                         new AdminCategoryResponse("kotlin", "Kotlin", null, 40, 0)));
@@ -96,13 +106,28 @@ class AdminCategoryControllerTest {
                 .andExpect(jsonPath("$[1].description").value(nullValue()))
                 .andDo(document(
                         "admin-categories-list",
-                        requestCookies(cookieWithName(COOKIE_NAME).description("ADMIN 회원의 인증 쿠키")),
+                        requestCookies(
+                                cookieWithName(COOKIE_NAME).description("관리자 (CATEGORY_ADMIN 또는 OWNER) 회원의 인증 쿠키")),
                         responseFields(
                                 fieldWithPath("[].slug").description("카테고리 식별자"),
                                 fieldWithPath("[].name").description("카테고리 이름"),
                                 fieldWithPath("[].description").optional().description("설명 (없으면 null)"),
                                 fieldWithPath("[].sortOrder").description("표시 순서 (작을수록 앞)"),
                                 fieldWithPath("[].questionCount").description("삭제하지 않은 문제 수"))));
+    }
+
+    @Test
+    @DisplayName("CATEGORY_ADMIN도 카테고리 목록을 조회하고, 그 회원의 id로 Service를 부른다 (role-owner-category-admin R4)")
+    void categoryAdminGetsCategories() throws Exception {
+        given(adminCategoryService.getCategories(CATEGORY_ADMIN_ID))
+                .willReturn(List.of(new AdminCategoryResponse("java", "Java", null, 10, 5)));
+
+        mvc.perform(asCategoryAdmin(get(BASE)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].slug").value("java"));
+
+        then(adminCategoryService).should().getCategories(CATEGORY_ADMIN_ID);
     }
 
     @Test
@@ -230,7 +255,7 @@ class AdminCategoryControllerTest {
     @DisplayName("카테고리를 고치면 200과 고친 카테고리를 응답한다. slug는 경로로만 받는다 (R4)")
     void updateCategory() throws Exception {
         CategoryUpdateRequest request = new CategoryUpdateRequest("자바", "자바 기초 문법", 5);
-        given(adminCategoryService.update("java", request))
+        given(adminCategoryService.update(ADMIN_ID, "java", request))
                 .willReturn(new AdminCategoryResponse("java", "자바", "자바 기초 문법", 5, 5));
 
         mvc.perform(asAdmin(json(
@@ -254,7 +279,19 @@ class AdminCategoryControllerTest {
                                 fieldWithPath("sortOrder").description("표시 순서"),
                                 fieldWithPath("questionCount").description("삭제하지 않은 문제 수"))));
 
-        then(adminCategoryService).should().update("java", request);
+        then(adminCategoryService).should().update(ADMIN_ID, "java", request);
+    }
+
+    @Test
+    @DisplayName("CATEGORY_ADMIN이 담당이 아닌 카테고리를 고치면 403 ProblemDetail이다 (role-owner-category-admin R6, D7)")
+    void updateUnassignedCategory() throws Exception {
+        given(adminCategoryService.update(CATEGORY_ADMIN_ID, "spring", new CategoryUpdateRequest("이름", null, 0)))
+                .willThrow(new CategoryAccessDeniedException());
+
+        mvc.perform(asCategoryAdmin(json(put(BASE + "/{slug}", "spring"), "{\"name\": \"이름\", \"sortOrder\": 0}")))
+                .andExpect(problemDetail(HttpStatus.FORBIDDEN))
+                .andExpect(jsonPath("$.detail").value("담당하지 않는 카테고리입니다."))
+                .andDo(document("admin-categories-update-forbidden"));
     }
 
     @Test
@@ -271,7 +308,7 @@ class AdminCategoryControllerTest {
     @DisplayName("없거나 삭제한 카테고리를 고치면 404 ProblemDetail이다")
     void updateUnknownCategory() throws Exception {
         CategoryNotFoundException exception = new CategoryNotFoundException("nope");
-        given(adminCategoryService.update("nope", new CategoryUpdateRequest("이름", null, 0)))
+        given(adminCategoryService.update(ADMIN_ID, "nope", new CategoryUpdateRequest("이름", null, 0)))
                 .willThrow(exception);
 
         mvc.perform(asAdmin(json(put(BASE + "/{slug}", "nope"), "{\"name\": \"이름\", \"sortOrder\": 0}")))
@@ -306,6 +343,19 @@ class AdminCategoryControllerTest {
     }
 
     @Test
+    @DisplayName("이 카테고리만 담당하는 관리자가 있으면 삭제는 409 ProblemDetail이다 (role-owner-category-admin R10)")
+    void deleteCategoryWithSoleAdmin() throws Exception {
+        willThrow(new CategoryHasSoleAdminException())
+                .given(adminCategoryService)
+                .delete("java");
+
+        mvc.perform(asAdmin(delete(BASE + "/{slug}", "java")))
+                .andExpect(problemDetail(HttpStatus.CONFLICT))
+                .andExpect(jsonPath("$.detail").value("이 카테고리만 담당하는 관리자가 있어 삭제할 수 없습니다."))
+                .andDo(document("admin-categories-delete-sole-admin"));
+    }
+
+    @Test
     @DisplayName("없거나 이미 삭제한 카테고리를 삭제하면 404 ProblemDetail이다")
     void deleteUnknownCategory() throws Exception {
         willThrow(new CategoryNotFoundException("nope"))
@@ -335,6 +385,10 @@ class AdminCategoryControllerTest {
 
     private static MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
         return request.cookie(new Cookie(COOKIE_NAME, TestJwts.valid(ADMIN_ID)));
+    }
+
+    private static MockHttpServletRequestBuilder asCategoryAdmin(MockHttpServletRequestBuilder request) {
+        return request.cookie(new Cookie(COOKIE_NAME, TestJwts.valid(CATEGORY_ADMIN_ID)));
     }
 
     private static MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder request, String body) {

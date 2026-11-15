@@ -2,6 +2,7 @@ package com.b.now._29.app.quiz.admin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
 
 import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.quiz.attempt.QuestionAttempt;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 관리자 통계 집계 (docs/features/admin-stats.md R1~R4, D2, D3, D9, D10). 집계 쿼리와, 그 결과를 카테고리 목록과 합치는 Service를 실제
@@ -52,13 +54,13 @@ import org.springframework.context.annotation.Import;
  *   <li>{@code record AdminCategoryStatResponse(String slug, String name, List<AdminTypeStatResponse> types)}
  *   <li>{@code record AdminQuestionStatResponse(long id, QuestionType type, String content, long solvedUsers, long
  *       correctUsers)}
- *   <li>{@code @Service @Transactional(readOnly = true) AdminStatsService} — 생성자 인자는 Repository만 (이 테스트가
- *       {@code @Import}로 띄운다)
+ *   <li>{@code @Service @Transactional(readOnly = true) AdminStatsService} — 생성자 인자는 Repository와 {@code
+ *       AdminScopeService} (이 테스트가 {@code @Import}로 띄우고, {@code AdminScopeService}는 mock으로 넣는다)
  *       <ul>
- *         <li>{@code List<AdminCategoryStatResponse> getCategoryStats()} — 삭제 안 된 모든 카테고리를 sortOrder asc, id asc 순으로.
- *             types는 MULTIPLE_CHOICE → SHORT_ANSWER → ESSAY (enum 순서), 기록이 없으면 빈 목록
- *         <li>{@code List<AdminQuestionStatResponse> getQuestionStats(String categorySlug)} — 없거나 삭제한 카테고리는 {@code
- *             CategoryNotFoundException}
+ *         <li>{@code List<AdminCategoryStatResponse> getCategoryStats(long actorId)} — 범위 안의 삭제 안 된 카테고리를 sortOrder
+ *             asc, id asc 순으로. types는 MULTIPLE_CHOICE → SHORT_ANSWER → ESSAY (enum 순서), 기록이 없으면 빈 목록
+ *         <li>{@code List<AdminQuestionStatResponse> getQuestionStats(long actorId, String categorySlug)} — 없거나 삭제한
+ *             카테고리는 {@code CategoryNotFoundException}
  *       </ul>
  * </ul>
  */
@@ -69,12 +71,16 @@ class AdminStatsRepositoryTest {
 
     private static final Instant BASE = Instant.parse("2026-11-01T00:00:00Z");
     private static final String PREFIX = "stats-";
+    private static final long ACTOR_ID = 1L;
 
     @Autowired
     AdminStatsRepository adminStatsRepository;
 
     @Autowired
     AdminStatsService adminStatsService;
+
+    @MockitoBean
+    AdminScopeService adminScopeService;
 
     @Autowired
     QuestionAttemptRepository attemptRepository;
@@ -97,6 +103,8 @@ class AdminStatsRepositoryTest {
 
     @BeforeEach
     void setUp() {
+        // 집계와 합치기를 보는 테스트라 범위는 OWNER로 둔다. 담당 범위 거르기는 AdminStatsServiceTest가 본다
+        given(adminScopeService.of(ACTOR_ID)).willReturn(AdminScope.owner());
         alice = userRepository.saveAndFlush(
                 new User("stats-alice@example.com", "$2a$10$hash", new Nickname("alice"), 1));
         bob = userRepository.saveAndFlush(new User("stats-bob@example.com", "$2a$10$hash", new Nickname("bob"), 1));
@@ -279,14 +287,14 @@ class AdminStatsRepositoryTest {
         assertThat(categoryStats()).containsExactly(new AdminCategoryStatResponse("stats-a", "통계 A", List.of()));
         assertThat(typeStats()).isEmpty();
         assertThat(adminStatsRepository.findQuestionStats("stats-removed")).isEmpty();
-        assertThatThrownBy(() -> adminStatsService.getQuestionStats("stats-removed"))
+        assertThatThrownBy(() -> adminStatsService.getQuestionStats(ACTOR_ID, "stats-removed"))
                 .isInstanceOf(CategoryNotFoundException.class);
     }
 
     @Test
     @DisplayName("없는 카테고리의 문제 통계는 Service가 404 예외를 던진다 (API 계약)")
     void unknownCategoryIsNotFound() {
-        assertThatThrownBy(() -> adminStatsService.getQuestionStats("stats-nope"))
+        assertThatThrownBy(() -> adminStatsService.getQuestionStats(ACTOR_ID, "stats-nope"))
                 .isInstanceOf(CategoryNotFoundException.class);
     }
 
@@ -334,14 +342,14 @@ class AdminStatsRepositoryTest {
 
         assertThat(adminStatsRepository.findQuestionStats("stats-a"))
                 .containsExactly(stat(firstTie, 0, 0), stat(secondTie, 0, 0), stat(last, 0, 0));
-        assertThat(adminStatsService.getQuestionStats("stats-a"))
+        assertThat(adminStatsService.getQuestionStats(ACTOR_ID, "stats-a"))
                 .containsExactly(stat(firstTie, 0, 0), stat(secondTie, 0, 0), stat(last, 0, 0));
     }
 
     @Test
     @DisplayName("시드 카테고리도 카테고리 통계에 들어 있다 (R2)")
     void includesSeedCategories() {
-        assertThat(adminStatsService.getCategoryStats())
+        assertThat(adminStatsService.getCategoryStats(ACTOR_ID))
                 .extracting(AdminCategoryStatResponse::slug)
                 .contains("java");
     }
@@ -353,7 +361,7 @@ class AdminStatsRepositoryTest {
     }
 
     private List<AdminCategoryStatResponse> categoryStats() {
-        return adminStatsService.getCategoryStats().stream()
+        return adminStatsService.getCategoryStats(ACTOR_ID).stream()
                 .filter(row -> row.slug().startsWith(PREFIX))
                 .toList();
     }

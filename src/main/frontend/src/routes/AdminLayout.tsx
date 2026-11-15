@@ -1,8 +1,13 @@
 import { HStack, VStack } from "@seed-design/react";
 import { Link, Outlet } from "react-router";
 import { ActionButton } from "seed-design/ui/action-button";
+import { isOwner } from "../user/role";
+import { useCurrentUser } from "./routeLoaderData";
 
 export default function AdminLayout() {
+  // 회원 관리는 운영자(OWNER)만 한다
+  const role = useCurrentUser()?.role;
+  const showUsers = role !== undefined && isOwner(role);
   return (
     <VStack gap="x4">
       <HStack as="nav" aria-label="관리 메뉴" gap="x1" bleedLeft="x3_5">
@@ -12,9 +17,11 @@ export default function AdminLayout() {
         <ActionButton asChild variant="neutralWeak" size="small">
           <Link to="/admin/questions">문제</Link>
         </ActionButton>
-        <ActionButton asChild variant="neutralWeak" size="small">
-          <Link to="/admin/users">회원</Link>
-        </ActionButton>
+        {showUsers && (
+          <ActionButton asChild variant="neutralWeak" size="small">
+            <Link to="/admin/users">회원</Link>
+          </ActionButton>
+        )}
         <ActionButton asChild variant="neutralWeak" size="small">
           <Link to="/admin/stats">통계</Link>
         </ActionButton>

@@ -166,7 +166,7 @@ class CategoryRepositoryTest {
     @DisplayName("description과 deleted_at 컬럼을 매핑한다 (D2)")
     void mapsDescriptionAndDeletedAt() {
         Category category = categoryRepository.saveAndFlush(new Category("mapped", "매핑", "설명 문장", 1000));
-        category.delete(0);
+        category.delete(0, 0);
         categoryRepository.saveAndFlush(category);
         entityManager.clear();
 
@@ -182,7 +182,7 @@ class CategoryRepositoryTest {
 
     private void saveDeleted(String slug) {
         Category category = categoryRepository.saveAndFlush(new Category(slug, "삭제한 카테고리", 1000));
-        category.delete(0);
+        category.delete(0, 0);
         categoryRepository.saveAndFlush(category);
     }
 }

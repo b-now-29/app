@@ -12,12 +12,16 @@ import static org.mockito.Mockito.times;
 
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.CategoryRepository;
+import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.UserRoleService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -97,7 +101,7 @@ class RankingServiceTest {
     @Test
     @DisplayName("50위 밖 회원은 행을 entries와 me로 나눈다. entries에는 50위 이내 행만 들어간다 (R3, R7, D4)")
     void splitsRowsIntoEntriesAndMe() {
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankings(TOP_LIMIT, USER_ID))
                 .willReturn(withRow(new RankingRow(77L, "나", 2, 5L, false, true)));
 
@@ -108,7 +112,7 @@ class RankingServiceTest {
     @Test
     @DisplayName("50위 안 회원의 줄은 entries와 me 모두에 있다 (R3, D4)")
     void memberInsideTopIsInEntriesAndMe() {
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankings(TOP_LIMIT, USER_ID))
                 .willReturn(List.of(
                         new RankingRow(1L, "철수", 3, 42L, true, false), new RankingRow(2L, "영희", 1, 40L, true, true)));
@@ -120,7 +124,7 @@ class RankingServiceTest {
     @Test
     @DisplayName("점수가 0이라 랭킹에 없는 회원은 me가 rank null, score 0이다 (R7)")
     void memberWithoutScoreHasNoRank() {
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankings(TOP_LIMIT, USER_ID)).willReturn(ROWS);
 
         assertThat(rankingService.getRanking(USER_ID).me()).isEqualTo(new MyRankingResponse(null, 0L));
@@ -129,7 +133,7 @@ class RankingServiceTest {
     @Test
     @DisplayName("회원 랭킹 조회도 요청마다 한 번이다 (R1)")
     void memberQueriesOnce() {
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankings(TOP_LIMIT, USER_ID)).willReturn(ROWS);
 
         rankingService.getRanking(USER_ID);
@@ -138,10 +142,13 @@ class RankingServiceTest {
         then(rankingRepository).shouldHaveNoMoreInteractions();
     }
 
-    @Test
-    @DisplayName("관리자는 me가 null이고 userId 대신 null로 한 번만 조회한다 (R1, R3, R7, D4)")
-    void adminHasNoMe() {
-        given(userRoleService.isAdmin(USER_ID)).willReturn(true);
+    @ParameterizedTest
+    @EnumSource(
+            value = Role.class,
+            names = {"CATEGORY_ADMIN", "OWNER"})
+    @DisplayName("관리자 (카테고리 관리자, 운영자)는 me가 null이고 userId 대신 null로 한 번만 조회한다 (R1, R3, R7, D4)")
+    void adminHasNoMe(Role adminRole) {
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(adminRole));
         given(rankingRepository.findRankings(TOP_LIMIT, null)).willReturn(ROWS);
 
         assertThat(rankingService.getRanking(USER_ID)).isEqualTo(new RankingResponse(ENTRIES, null));
@@ -178,7 +185,7 @@ class RankingServiceTest {
     @DisplayName("카테고리 랭킹의 me는 그 카테고리 안의 자기 등수와 점수이고 조회는 한 번이다 (R1, R5, R7)")
     void categoryRankingForMember() {
         given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(true);
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankingsInCategory(SLUG, TOP_LIMIT, USER_ID))
                 .willReturn(withRow(new RankingRow(60L, "나", 2, 9L, false, true)));
 
@@ -192,7 +199,7 @@ class RankingServiceTest {
     @DisplayName("카테고리 상위 50명 안 회원의 줄은 entries와 me 모두에 있다 (R3, D4)")
     void categoryMemberInsideTop() {
         given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(true);
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankingsInCategory(SLUG, TOP_LIMIT, USER_ID))
                 .willReturn(List.of(
                         new RankingRow(1L, "철수", 3, 42L, true, true), new RankingRow(2L, "영희", 1, 40L, true, false)));
@@ -205,7 +212,7 @@ class RankingServiceTest {
     @DisplayName("카테고리에서 점수가 0인 회원은 me가 rank null, score 0이다 (R7)")
     void categoryRankingForMemberWithoutScore() {
         given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(true);
-        given(userRoleService.isAdmin(USER_ID)).willReturn(false);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
         given(rankingRepository.findRankingsInCategory(SLUG, TOP_LIMIT, USER_ID))
                 .willReturn(List.of());
 
@@ -213,11 +220,14 @@ class RankingServiceTest {
                 .isEqualTo(new RankingResponse(List.of(), new MyRankingResponse(null, 0L)));
     }
 
-    @Test
-    @DisplayName("카테고리 랭킹에서도 관리자는 me가 null이고 null로 한 번만 조회한다 (R1, R3, D4)")
-    void categoryRankingForAdmin() {
+    @ParameterizedTest
+    @EnumSource(
+            value = Role.class,
+            names = {"CATEGORY_ADMIN", "OWNER"})
+    @DisplayName("카테고리 랭킹에서도 관리자 (카테고리 관리자, 운영자)는 me가 null이고 null로 한 번만 조회한다 (R1, R3, D4)")
+    void categoryRankingForAdmin(Role adminRole) {
         given(categoryRepository.existsBySlugAndDeletedAtIsNull(SLUG)).willReturn(true);
-        given(userRoleService.isAdmin(USER_ID)).willReturn(true);
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(adminRole));
         given(rankingRepository.findRankingsInCategory(SLUG, TOP_LIMIT, null)).willReturn(ROWS);
 
         assertThat(rankingService.getCategoryRanking(SLUG, USER_ID)).isEqualTo(new RankingResponse(ENTRIES, null));

@@ -8,7 +8,8 @@ import {
   AdminQuestionNewPage,
 } from "./routes/AdminQuestionFormPage";
 import AdminUsersPage from "./routes/AdminUsersPage";
-import { adminUsersLoader } from "./routes/adminUsersLoader";
+import AdminUserEditPage from "./routes/AdminUserEditPage";
+import { adminUserLoader, adminUsersLoader } from "./routes/adminUsersLoader";
 import { adminLoader } from "./routes/adminLoader";
 import AdminCategoryStatsPage from "./routes/AdminCategoryStatsPage";
 import AdminQuestionStatsPage from "./routes/AdminQuestionStatsPage";
@@ -145,6 +146,11 @@ export const appRoutes: RouteObject[] = [
             path: "users",
             Component: AdminUsersPage,
             loader: adminUsersLoader,
+          },
+          {
+            path: "users/:id",
+            Component: AdminUserEditPage,
+            loader: adminUserLoader,
           },
           {
             path: "stats",

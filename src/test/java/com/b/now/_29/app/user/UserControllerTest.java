@@ -37,6 +37,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -343,30 +344,34 @@ class UserControllerTest {
     @Test
     @DisplayName("로그인 상태면 /users/me는 200과 id, email, role, nickname, tag를 응답한다")
     void getMe() throws Exception {
-        given(userService.getUser(USER_ID)).willReturn(response(Role.ADMIN));
+        given(userService.getUser(USER_ID)).willReturn(response(Role.CATEGORY_ADMIN));
 
         mvc.perform(get("/api/v1/users/me").cookie(loginCookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.keys()", containsInAnyOrder("id", "email", "role", "nickname", "tag")))
                 .andExpect(jsonPath("$.id").value(USER_ID))
                 .andExpect(jsonPath("$.email").value(EMAIL))
-                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.role").value("CATEGORY_ADMIN"))
                 .andExpect(jsonPath("$.nickname").value(NICKNAME))
                 .andExpect(jsonPath("$.tag").value(TAG))
                 .andDo(document(
                         "users-me",
                         requestCookies(cookieWithName("access_token").description("로그인할 때 받은 인증 쿠키")),
-                        responseFields(userFields("이메일", "권한 (USER, ADMIN). ADMIN이면 관리 화면을 쓸 수 있다"))));
+                        responseFields(userFields(
+                                "이메일",
+                                "권한 (USER, CATEGORY_ADMIN, OWNER). CATEGORY_ADMIN·OWNER면 관리 화면을 쓸 수 있고, "
+                                        + "회원 관리는 OWNER만 쓸 수 있다"))));
     }
 
-    @Test
-    @DisplayName("일반 회원의 /users/me는 role USER를 응답한다")
-    void getMeOfUser() throws Exception {
-        given(userService.getUser(USER_ID)).willReturn(response(Role.USER));
+    @ParameterizedTest
+    @EnumSource(Role.class)
+    @DisplayName("/users/me의 role은 USER, CATEGORY_ADMIN, OWNER 중 하나를 그대로 응답한다 (role-owner-category-admin API 계약)")
+    void getMeOfEachRole(Role role) throws Exception {
+        given(userService.getUser(USER_ID)).willReturn(response(role));
 
         mvc.perform(get("/api/v1/users/me").cookie(loginCookie()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.role").value("USER"));
+                .andExpect(jsonPath("$.role").value(role.name()));
     }
 
     @Test
@@ -400,7 +405,7 @@ class UserControllerTest {
                         requestCookies(cookieWithName("access_token").description("로그인할 때 받은 인증 쿠키")),
                         requestFields(fieldWithPath("nickname")
                                 .description("새 닉네임. 가입과 같은 규칙. 지금과 같으면 번호를 유지하고, 다르면 새 닉네임의 번호를 새로 받는다")),
-                        responseFields(userFields("이메일", "권한 (USER, ADMIN)"))));
+                        responseFields(userFields("이메일", "권한 (USER, CATEGORY_ADMIN, OWNER)"))));
 
         then(userService).should().changeNickname(USER_ID, "영희");
     }

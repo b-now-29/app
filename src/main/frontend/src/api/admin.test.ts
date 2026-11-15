@@ -22,12 +22,14 @@
 //   updateQuestion(id: number, request: QuestionRequest): Promise<AdminQuestionResponse>
 //   deleteQuestion(id: number): Promise<void>
 //
-// 회원 관리 (docs/features/admin-members.md API 계약, D6):
-//   AdminUserResponse { id: number, email: string, role: "USER" | "ADMIN", createdAt: string | null,
-//     nickname: string, tag: number }  (nickname, tag는 docs/features/nickname.md R11)
+// 회원 관리 (docs/features/admin-members.md API 계약, D6, role-owner-category-admin API 계약):
+//   AdminUserRoleSchema = z.enum(["USER", "CATEGORY_ADMIN", "OWNER"])
+//   AdminUserResponse { id: number, email: string, role: AdminUserRole, createdAt: string | null,
+//     nickname: string, tag: number, categorySlugs: readonly string[] }  (nickname, tag는 docs/features/nickname.md R11)
 //   getAdminUsers(): Promise<readonly AdminUserResponse[]>                      GET /api/v1/admin/users
-//   changeUserRole(id: number, role: "USER" | "ADMIN"): Promise<AdminUserResponse>
-//                                                    PUT /api/v1/admin/users/{id}/role  본문 { role }
+//   getAdminUser(id: number): Promise<AdminUserResponse>                        GET /api/v1/admin/users/{id}
+//   changeUserRole(id: number, role, categorySlugs: readonly string[]): Promise<AdminUserResponse>
+//                                  PUT /api/v1/admin/users/{id}/role  본문 { role, categorySlugs }
 //
 // 통계 (docs/features/admin-stats.md API 계약, D9):
 //   AdminTypeStatResponse { type: QuestionType, solved: number, correct: number }
@@ -48,6 +50,7 @@ import {
   getAdminQuestion,
   getAdminQuestionStats,
   getAdminQuestions,
+  getAdminUser,
   getAdminUsers,
   updateCategory,
   updateQuestion,
@@ -362,7 +365,8 @@ describe("404 응답", () => {
     ["getAdminQuestion", () => getAdminQuestion(999)],
     ["getAdminQuestionStats", () => getAdminQuestionStats("nope")],
     ["updateQuestion", () => updateQuestion(999, QUESTION_REQUEST)],
-    ["changeUserRole", () => changeUserRole(999, "ADMIN")],
+    ["changeUserRole", () => changeUserRole(999, "USER", [])],
+    ["getAdminUser", () => getAdminUser(999)],
     ["deleteCategory", () => deleteCategory("nope")],
     ["deleteQuestion", () => deleteQuestion(999)],
   ])(
@@ -382,53 +386,102 @@ describe("404 응답", () => {
   );
 });
 
-describe("회원 (admin-members)", () => {
+describe("회원 (admin-members, role-owner-category-admin)", () => {
   const MEMBERS: readonly AdminUserResponse[] = [
     {
       id: 1,
+      email: "owner@example.com",
+      role: "OWNER",
+      createdAt: null,
+      nickname: "운영자",
+      tag: 1,
+      categorySlugs: [],
+    },
+    {
+      id: 2,
       email: "test@example.com",
       role: "USER",
       createdAt: null,
       nickname: "회원",
       tag: 1,
+      categorySlugs: [],
     },
     {
       id: 3,
       email: "new@example.com",
-      role: "ADMIN",
+      role: "CATEGORY_ADMIN",
       createdAt: "2026-11-13T05:12:30Z",
       nickname: "철수",
       tag: 2,
+      categorySlugs: ["java", "spring"],
     },
   ];
 
-  it("getAdminUsers는 닉네임과 번호를 포함한 회원 목록을 조회한다 (R1, nickname R11)", async () => {
+  it("getAdminUsers는 닉네임, 번호, 담당 카테고리를 포함한 회원 목록을 조회한다 (R1, nickname R11)", async () => {
     fetchMock.mockResolvedValue(jsonResponse(MEMBERS));
 
     await expect(getAdminUsers()).resolves.toEqual(MEMBERS);
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users");
   });
 
-  it("changeUserRole은 id 경로로 role을 PUT하고 바뀐 회원을 돌려준다 (R3)", async () => {
-    const changed: AdminUserResponse = { ...MEMBERS[0], role: "ADMIN" };
+  it("getAdminUser는 id 경로로 회원 한 명을 조회한다 (API 계약)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(MEMBERS[2]));
+
+    await expect(getAdminUser(3)).resolves.toEqual(MEMBERS[2]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users/3");
+  });
+
+  it("changeUserRole은 id 경로로 role과 담당 카테고리를 PUT하고 바뀐 회원을 돌려준다 (R9)", async () => {
+    const changed: AdminUserResponse = {
+      ...MEMBERS[1],
+      role: "CATEGORY_ADMIN",
+      categorySlugs: ["java"],
+    };
     fetchMock.mockResolvedValue(jsonResponse(changed));
 
-    await expect(changeUserRole(1, "ADMIN")).resolves.toEqual(changed);
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users/1/role", {
+    await expect(
+      changeUserRole(2, "CATEGORY_ADMIN", ["java"]),
+    ).resolves.toEqual(changed);
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users/2/role", {
       method: "PUT",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ role: "ADMIN" }),
+      body: JSON.stringify({ role: "CATEGORY_ADMIN", categorySlugs: ["java"] }),
+    });
+  });
+
+  it("USER로 바꿀 때도 빈 categorySlugs를 함께 보낸다 (R9)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(MEMBERS[1]));
+
+    await changeUserRole(2, "USER", []);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/users/2/role", {
+      method: "PUT",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ role: "USER", categorySlugs: [] }),
     });
   });
 
   it.each([
-    ["getAdminUsers", () => getAdminUsers()],
-    ["changeUserRole", () => changeUserRole(1, "USER")],
+    ["없어진 ADMIN role", { ...MEMBERS[1], role: "ADMIN" }],
+    ["categorySlugs 없음", { ...MEMBERS[1], categorySlugs: undefined }],
   ])(
-    "%s가 실패하면 상태와 ProblemDetail detail을 담은 ApiError를 던진다 (R4)",
+    "회원 응답이 %s이면 ResponseFormatError를 던진다 (R1)",
+    async (_name, member) => {
+      fetchMock.mockResolvedValue(jsonResponse([member]));
+
+      await expect(getAdminUsers()).rejects.toBeInstanceOf(ResponseFormatError);
+    },
+  );
+
+  it.each([
+    ["getAdminUsers", () => getAdminUsers()],
+    ["getAdminUser", () => getAdminUser(1)],
+    ["changeUserRole", () => changeUserRole(1, "USER", [])],
+  ])(
+    "%s가 실패하면 상태와 ProblemDetail detail을 담은 ApiError를 던진다 (R2)",
     async (_name, call) => {
       fetchMock.mockResolvedValue(
-        problemResponse(409, "자기 자신의 관리자 권한은 해제할 수 없습니다."),
+        problemResponse(409, "운영자의 역할은 바꿀 수 없습니다."),
       );
 
       const error = await caught(call());
@@ -436,7 +489,7 @@ describe("회원 (admin-members)", () => {
       expect(error).toBeInstanceOf(ApiError);
       expect(error).toMatchObject({
         status: 409,
-        message: "자기 자신의 관리자 권한은 해제할 수 없습니다.",
+        message: "운영자의 역할은 바꿀 수 없습니다.",
       });
     },
   );

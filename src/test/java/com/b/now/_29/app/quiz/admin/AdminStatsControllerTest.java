@@ -19,9 +19,11 @@ import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.question.QuestionType;
 import com.b.now._29.app.support.TestJwts;
 import com.b.now._29.app.support.WithAppSecurity;
+import com.b.now._29.app.user.Role;
 import com.b.now._29.app.user.UserRoleService;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,9 +45,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * quiz.admin.AdminStatsController} ({@code @RestController}, {@code /api/v1/admin/stats}).
  *
  * <ul>
- *   <li>{@code GET /categories} → {@code adminStatsService.getCategoryStats()} 그대로 200
- *   <li>{@code GET /categories/{slug}/questions} → {@code adminStatsService.getQuestionStats(slug)} 그대로 200. {@code
- *       CategoryNotFoundException} → 404 (기존 advice)
+ *   <li>{@code GET /categories} → {@code adminStatsService.getCategoryStats(actorId)} 그대로 200
+ *   <li>{@code GET /categories/{slug}/questions} → {@code adminStatsService.getQuestionStats(actorId, slug)} 그대로 200.
+ *       {@code CategoryNotFoundException} → 404 (기존 advice), {@code CategoryAccessDeniedException} → 403
+ *   <li>{@code actorId}는 요청한 관리자 id ({@code @AuthenticationPrincipal Long}, role-owner-category-admin)
  *   <li>DTO는 {@code AdminStatsRepositoryTest} 맨 위 주석 참고
  * </ul>
  */
@@ -56,6 +59,7 @@ class AdminStatsControllerTest {
 
     private static final long ADMIN_ID = 1L;
     private static final long USER_ID = 2L;
+    private static final long CATEGORY_ADMIN_ID = 3L;
     private static final String COOKIE_NAME = "access_token";
     private static final String BASE = "/api/v1/admin/stats";
 
@@ -70,13 +74,15 @@ class AdminStatsControllerTest {
 
     @BeforeEach
     void setUp() {
-        given(userRoleService.isAdmin(ADMIN_ID)).willReturn(true);
+        given(userRoleService.findRole(ADMIN_ID)).willReturn(Optional.of(Role.OWNER));
+        given(userRoleService.findRole(USER_ID)).willReturn(Optional.of(Role.USER));
+        given(userRoleService.findRole(CATEGORY_ADMIN_ID)).willReturn(Optional.of(Role.CATEGORY_ADMIN));
     }
 
     @Test
     @DisplayName("카테고리 통계는 카테고리마다 유형별 solved·correct를 주고, 기록이 없는 카테고리는 types가 빈 배열이다 (R2, API 계약)")
     void getCategoryStats() throws Exception {
-        given(adminStatsService.getCategoryStats())
+        given(adminStatsService.getCategoryStats(ADMIN_ID))
                 .willReturn(List.of(
                         new AdminCategoryStatResponse(
                                 "java",
@@ -98,7 +104,8 @@ class AdminStatsControllerTest {
                         """, JsonCompareMode.STRICT))
                 .andDo(document(
                         "admin-stats-categories",
-                        requestCookies(cookieWithName(COOKIE_NAME).description("ADMIN 회원의 인증 쿠키")),
+                        requestCookies(
+                                cookieWithName(COOKIE_NAME).description("관리자 (CATEGORY_ADMIN 또는 OWNER) 회원의 인증 쿠키")),
                         responseFields(
                                 fieldWithPath("[].slug").description("카테고리 식별자"),
                                 fieldWithPath("[].name").description("카테고리 이름"),
@@ -115,7 +122,7 @@ class AdminStatsControllerTest {
     @Test
     @DisplayName("문제 통계는 문제마다 id·유형·내용·푼 회원 수·정답 회원 수를 주고 정답 정보는 없다 (R3, R6, API 계약)")
     void getQuestionStats() throws Exception {
-        given(adminStatsService.getQuestionStats("java"))
+        given(adminStatsService.getQuestionStats(ADMIN_ID, "java"))
                 .willReturn(List.of(
                         new AdminQuestionStatResponse(1L, QuestionType.MULTIPLE_CHOICE, "문자열 비교는?", 5, 4),
                         new AdminQuestionStatResponse(2L, QuestionType.ESSAY, "equals()를 설명하세요.", 0, 0)));
@@ -132,7 +139,8 @@ class AdminStatsControllerTest {
                         """, JsonCompareMode.STRICT))
                 .andDo(document(
                         "admin-stats-questions",
-                        requestCookies(cookieWithName(COOKIE_NAME).description("ADMIN 회원의 인증 쿠키")),
+                        requestCookies(
+                                cookieWithName(COOKIE_NAME).description("관리자 (CATEGORY_ADMIN 또는 OWNER) 회원의 인증 쿠키")),
                         pathParameters(parameterWithName("slug").description("카테고리 식별자")),
                         responseFields(
                                 fieldWithPath("[].id").description("문제 ID"),
@@ -141,14 +149,40 @@ class AdminStatsControllerTest {
                                 fieldWithPath("[].solvedUsers").description("이 문제를 푼 회원 수. 회원마다 가장 최근 기록 1건만 센다"),
                                 fieldWithPath("[].correctUsers").description("그중 최근 기록이 정답인 회원 수"))));
 
-        then(adminStatsService).should().getQuestionStats("java");
+        then(adminStatsService).should().getQuestionStats(ADMIN_ID, "java");
+    }
+
+    @Test
+    @DisplayName("CATEGORY_ADMIN도 카테고리 통계를 조회하고, 그 회원의 id로 Service를 부른다 (role-owner-category-admin R4)")
+    void categoryAdminGetsCategoryStats() throws Exception {
+        given(adminStatsService.getCategoryStats(CATEGORY_ADMIN_ID))
+                .willReturn(List.of(new AdminCategoryStatResponse("java", "Java", List.of())));
+
+        mvc.perform(get(BASE + "/categories").cookie(new Cookie(COOKIE_NAME, TestJwts.valid(CATEGORY_ADMIN_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        then(adminStatsService).should().getCategoryStats(CATEGORY_ADMIN_ID);
+    }
+
+    @Test
+    @DisplayName("담당이 아닌 카테고리의 문제 통계는 403 ProblemDetail이다 (role-owner-category-admin R6)")
+    void questionStatsOfUnassignedCategory() throws Exception {
+        given(adminStatsService.getQuestionStats(CATEGORY_ADMIN_ID, "spring"))
+                .willThrow(new CategoryAccessDeniedException());
+
+        mvc.perform(get(BASE + "/categories/{slug}/questions", "spring")
+                        .cookie(new Cookie(COOKIE_NAME, TestJwts.valid(CATEGORY_ADMIN_ID))))
+                .andExpect(problemDetail(HttpStatus.FORBIDDEN))
+                .andExpect(jsonPath("$.detail").value("담당하지 않는 카테고리입니다."))
+                .andDo(document("admin-stats-questions-forbidden"));
     }
 
     @Test
     @DisplayName("없거나 삭제한 카테고리의 문제 통계는 404 ProblemDetail이다 (API 계약)")
     void questionStatsOfUnknownCategory() throws Exception {
         CategoryNotFoundException exception = new CategoryNotFoundException("nope");
-        given(adminStatsService.getQuestionStats("nope")).willThrow(exception);
+        given(adminStatsService.getQuestionStats(ADMIN_ID, "nope")).willThrow(exception);
 
         mvc.perform(asAdmin(get(BASE + "/categories/{slug}/questions", "nope")))
                 .andExpect(problemDetail(HttpStatus.NOT_FOUND))

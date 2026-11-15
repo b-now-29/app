@@ -3,6 +3,7 @@ package com.b.now._29.app.quiz.admin;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,8 +25,8 @@ public class AdminCategoryController {
     }
 
     @GetMapping
-    public List<AdminCategoryResponse> getCategories() {
-        return adminCategoryService.getCategories();
+    public List<AdminCategoryResponse> getCategories(@AuthenticationPrincipal Long actorId) {
+        return adminCategoryService.getCategories(actorId);
     }
 
     @PostMapping
@@ -35,8 +36,11 @@ public class AdminCategoryController {
     }
 
     @PutMapping("/{slug}")
-    public AdminCategoryResponse update(@PathVariable String slug, @Valid @RequestBody CategoryUpdateRequest request) {
-        return adminCategoryService.update(slug, request);
+    public AdminCategoryResponse update(
+            @PathVariable String slug,
+            @Valid @RequestBody CategoryUpdateRequest request,
+            @AuthenticationPrincipal Long actorId) {
+        return adminCategoryService.update(actorId, slug, request);
     }
 
     @DeleteMapping("/{slug}")

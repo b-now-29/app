@@ -2,7 +2,6 @@ package com.b.now._29.app.user.admin;
 
 import jakarta.validation.Valid;
 import java.util.List;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -25,11 +24,13 @@ public class AdminUserController {
         return adminUserService.getUsers();
     }
 
+    @GetMapping("/{id}")
+    public AdminUserResponse getUser(@PathVariable long id) {
+        return adminUserService.getUser(id);
+    }
+
     @PutMapping("/{id}/role")
-    public AdminUserResponse changeRole(
-            @PathVariable long id,
-            @Valid @RequestBody RoleChangeRequest request,
-            @AuthenticationPrincipal Long actorId) {
-        return adminUserService.changeRole(id, request.role(), actorId);
+    public AdminUserResponse changeRole(@PathVariable long id, @Valid @RequestBody RoleChangeRequest request) {
+        return adminUserService.changeRole(id, request.role(), request.categorySlugs());
     }
 }

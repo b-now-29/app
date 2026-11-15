@@ -1,58 +1,21 @@
 import { HStack, Text, VStack } from "@seed-design/react";
-import { useState } from "react";
-import { useLoaderData, useRevalidator } from "react-router";
-import { changeUserRole } from "../api/admin";
-import type { AdminUserResponse } from "../api/admin";
-import { errorMessage } from "./actionError";
+import { Link, useLoaderData } from "react-router";
 import type { adminUsersLoader } from "./adminUsersLoader";
 import { useCurrentUser } from "./routeLoaderData";
+import { isOwner } from "../user/role";
 import { formatDate } from "../quiz/date";
-import { roleAction } from "../quiz/adminUsers";
 import NicknameText from "../components/NicknameText";
 import { ActionButton } from "seed-design/ui/action-button";
 
 export default function AdminUsersPage() {
   const users = useLoaderData<typeof adminUsersLoader>();
   const me = useCurrentUser();
-  const { revalidate } = useRevalidator();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function handleChange(member: AdminUserResponse) {
-    const { label, nextRole } = roleAction(member.role);
-    if (pending) {
-      return;
-    }
-    if (!window.confirm(`${member.email} 회원을 "${label}"할까요?`)) {
-      return;
-    }
-    setError(null);
-    setPending(true);
-    try {
-      try {
-        await changeUserRole(member.id, nextRole);
-      } catch (thrown) {
-        setError(errorMessage(thrown));
-      }
-      // 실패해도 서버의 현재 값으로 목록을 맞춘다
-      await revalidate();
-    } catch (thrown) {
-      setError(errorMessage(thrown));
-    } finally {
-      setPending(false);
-    }
-  }
 
   return (
     <VStack gap="x4">
       <Text as="h1" textStyle="screenTitle">
         회원 관리
       </Text>
-      {error && (
-        <Text role="alert" color="fg.critical">
-          {error}
-        </Text>
-      )}
       <ul aria-label="회원 목록">
         {users.map((member) => (
           <li key={member.id}>
@@ -73,16 +36,18 @@ export default function AdminUsersPage() {
                     {formatDate(member.createdAt)}
                   </Text>
                 </HStack>
+                {member.categorySlugs.length > 0 && (
+                  <Text textStyle="t3Regular">
+                    {member.categorySlugs.join(", ")}
+                  </Text>
+                )}
               </VStack>
-              <ActionButton
-                type="button"
-                variant="neutralWeak"
-                size="small"
-                disabled={pending || member.id === me?.id}
-                onClick={() => void handleChange(member)}
-              >
-                {roleAction(member.role).label}
-              </ActionButton>
+              {/* 운영자(OWNER)의 역할은 바꿀 수 없으므로 링크가 없다 */}
+              {!isOwner(member.role) && (
+                <ActionButton asChild variant="neutralWeak" size="small">
+                  <Link to={`/admin/users/${member.id}`}>수정 →</Link>
+                </ActionButton>
+              )}
             </HStack>
           </li>
         ))}

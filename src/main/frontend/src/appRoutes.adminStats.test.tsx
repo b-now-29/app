@@ -46,7 +46,7 @@ vi.mock("./api/users");
 const ADMIN: UserResponse = {
   id: 1,
   email: "admin@example.com",
-  role: "ADMIN",
+  role: "OWNER",
   nickname: "관리자",
   tag: 1,
 };
@@ -117,7 +117,7 @@ function rejectUnlessAdmin(): Promise<never> | null {
   if (currentUser === null) {
     return Promise.reject(new ApiError(401, "로그인이 필요합니다."));
   }
-  if (currentUser.role !== "ADMIN") {
+  if (currentUser.role === "USER") {
     return Promise.reject(new ApiError(403, "권한이 없습니다."));
   }
   return null;

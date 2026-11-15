@@ -1,29 +1,35 @@
-// 관리자 회원 관리 화면 (docs/features/admin-members.md R1~R4, R6, R7, 화면 흐름).
+// 운영자의 회원 관리 화면 (docs/features/admin-members.md, role-owner-category-admin R4, R8, R9, 화면 흐름, D11).
 // appRoutes 전체로 그려서 route 구성까지 함께 확인한다.
 //
 // 구현할 것:
-// - src/routes/AdminLayout.tsx: <nav aria-label="관리 메뉴">에 "회원" 링크 (href="/admin/users") 추가
-// - src/appRoutes.tsx: admin 자식에 { path: "users", Component: AdminUsersPage, loader: adminUsersLoader }
-// - src/routes/AdminUsersPage.tsx (default export), src/routes/adminUsersLoader.ts (adminUsersLoader.test.ts 참고)
-// - 계산은 src/quiz/adminUsers.ts의 roleAction (adminUsers.test.ts 참고), 가입일은 src/quiz/date.ts의 formatDate
-//   (date.test.ts 참고, docs/features/ranking.md D13)
+// - src/routes/AdminLayout.tsx: <nav aria-label="관리 메뉴">의 "회원" 링크 (href="/admin/users")는 OWNER에게만
+// - src/appRoutes.tsx: admin 자식에 { path: "users/:id", Component: (회원 상세 화면), loader: adminUserLoader }
+//   (adminUsersLoader.test.ts 참고)
+// - 폼 계산은 src/user/adminUserForm.ts (adminUserForm.test.ts 참고). quiz/adminUsers.ts의 roleAction은 없앤다
 //
 // 화면 계약 (frontend-dev가 맞출 이름·라벨):
-// - h1 "회원 관리". 목록 <ul aria-label="회원 목록">의 항목(listitem)마다 이메일, role (USER·ADMIN 그대로),
-//   가입일 (YYYY.MM.DD, null이면 "-"), 버튼 (USER면 "관리자로 지정", ADMIN이면 "관리자 해제"). 서버가 준 순서대로.
-// - (nickname.md R11) 항목마다 이메일 옆에 "닉네임#번호" 텍스트 (그 문자열만 있는 요소)
-// - 내 행 (root loader의 /users/me id와 같은 회원)은 버튼이 비활성이고 "나" 표시가 있다 (텍스트 "나"만 있는 요소).
-// - 버튼 → window.confirm → true면 changeUserRole(id, 다음 role) → 성공하면 목록 다시 불러오기 (revalidate).
-//   false면 요청하지 않는다.
-// - 실패하면 목록 위 role="alert"에 ApiError의 message (ProblemDetail detail)를 보여 주고 목록을 다시 불러온다 (D10).
+// - 목록 /admin/users: h1 "회원 관리". <ul aria-label="회원 목록">의 항목(listitem)마다 이메일, "닉네임#번호",
+//   role 값 (USER·CATEGORY_ADMIN·OWNER 그대로), 담당 카테고리, 링크 "수정 →" (href="/admin/users/{id}").
+//   OWNER 행에는 링크가 없다. 서버가 준 순서대로.
+// - 상세 /admin/users/:id: h1 "회원 수정". 회원의 이메일과 "닉네임#번호"를 보여 준다.
+//   역할 radio "일반 회원" / "카테고리 관리자". 카테고리 관리자를 고르면 카테고리마다 checkbox (라벨 = 카테고리 이름)가
+//   보이고, 일반 회원이면 checkbox가 없다. 카테고리 관리자인데 체크가 0개면 "저장" 버튼이 비활성이다.
+//   "저장" → changeUserRole(id, role, categorySlugs) → 성공하면 /admin/users로 간다.
+//   실패하면 role="alert"에 ApiError의 message (ProblemDetail detail)를 보여 주고 그 화면에 머문다.
+//   이 파일의 카테고리는 이름과 slug를 같게 두어, 목록이 담당 카테고리를 slug로 보이든 이름으로 보이든 통과한다.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { changeUserRole, getAdminCategories, getAdminUsers } from "./api/admin";
-import type { AdminUserResponse } from "./api/admin";
+import {
+  changeUserRole,
+  getAdminCategories,
+  getAdminUser,
+  getAdminUsers,
+} from "./api/admin";
+import type { AdminCategoryResponse, AdminUserResponse } from "./api/admin";
 import { getCategories } from "./api/categories";
-import { ApiError } from "./api/http";
+import { ApiError, NotFoundError } from "./api/http";
 import { getCurrentUser } from "./api/users";
 import type { UserResponse } from "./api/users";
 import { appRoutes } from "./appRoutes";
@@ -32,12 +38,19 @@ vi.mock("./api/admin");
 vi.mock("./api/categories");
 vi.mock("./api/users");
 
-const ME: UserResponse = {
+const OWNER: UserResponse = {
   id: 1,
   email: "admin@example.com",
-  role: "ADMIN",
+  role: "OWNER",
   nickname: "관리자",
   tag: 1,
+};
+const MANAGER: UserResponse = {
+  id: 3,
+  email: "manager@example.com",
+  role: "CATEGORY_ADMIN",
+  nickname: "Kim",
+  tag: 12,
 };
 const USER: UserResponse = {
   id: 2,
@@ -49,14 +62,23 @@ const USER: UserResponse = {
 
 const HOME_CATEGORY = "홈 카테고리";
 
-// 시간대가 달라도 날짜가 바뀌지 않도록 UTC 정오로 둔다
-const MEMBER_ME: AdminUserResponse = {
+function category(slug: string, sortOrder: number): AdminCategoryResponse {
+  return { slug, name: slug, description: null, sortOrder, questionCount: 0 };
+}
+const ALL_CATEGORIES = [
+  category("java", 10),
+  category("spring", 20),
+  category("kotlin", 30),
+];
+
+const MEMBER_OWNER: AdminUserResponse = {
   id: 1,
   email: "admin@example.com",
-  role: "ADMIN",
+  role: "OWNER",
   createdAt: null,
   nickname: "관리자",
   tag: 1,
+  categorySlugs: [],
 };
 const MEMBER_USER: AdminUserResponse = {
   id: 2,
@@ -65,33 +87,46 @@ const MEMBER_USER: AdminUserResponse = {
   createdAt: "2026-11-13T12:00:00Z",
   nickname: "회원",
   tag: 1,
+  categorySlugs: [],
 };
-const MEMBER_ADMIN: AdminUserResponse = {
+const MEMBER_MANAGER: AdminUserResponse = {
   id: 3,
-  email: "other-admin@example.com",
-  role: "ADMIN",
+  email: "manager@example.com",
+  role: "CATEGORY_ADMIN",
   createdAt: "2026-03-05T12:00:00Z",
   nickname: "Kim",
   tag: 12,
+  categorySlugs: ["java", "spring"],
 };
 
-// 서버 상태를 흉내 낸다. role 변경 뒤 loader가 다시 실행되어야만 화면에 반영된다
+// 서버 상태를 흉내 낸다. 저장 뒤 loader가 다시 실행되어야만 화면에 반영된다
 let currentUser: UserResponse | null;
 let members: AdminUserResponse[];
 
-function rejectUnlessAdmin(): Promise<never> | null {
+function rejectUnlessStaff(): Promise<never> | null {
   if (currentUser === null) {
     return Promise.reject(new ApiError(401, "로그인이 필요합니다."));
   }
-  if (currentUser.role !== "ADMIN") {
+  if (currentUser.role === "USER") {
+    return Promise.reject(new ApiError(403, "권한이 없습니다."));
+  }
+  return null;
+}
+
+function rejectUnlessOwner(): Promise<never> | null {
+  const staff = rejectUnlessStaff();
+  if (staff !== null) {
+    return staff;
+  }
+  if (currentUser?.role !== "OWNER") {
     return Promise.reject(new ApiError(403, "권한이 없습니다."));
   }
   return null;
 }
 
 beforeEach(() => {
-  currentUser = ME;
-  members = [MEMBER_ME, MEMBER_USER, MEMBER_ADMIN];
+  currentUser = OWNER;
+  members = [MEMBER_OWNER, MEMBER_USER, MEMBER_MANAGER];
 
   vi.mocked(getCurrentUser).mockReset();
   vi.mocked(getCurrentUser).mockImplementation(() =>
@@ -103,20 +138,31 @@ beforeEach(() => {
   ]);
   vi.mocked(getAdminCategories).mockReset();
   vi.mocked(getAdminCategories).mockImplementation(
-    () => rejectUnlessAdmin() ?? Promise.resolve([]),
+    () => rejectUnlessStaff() ?? Promise.resolve([...ALL_CATEGORIES]),
   );
 
   vi.mocked(getAdminUsers).mockReset();
   vi.mocked(getAdminUsers).mockImplementation(
-    () => rejectUnlessAdmin() ?? Promise.resolve([...members]),
+    () => rejectUnlessOwner() ?? Promise.resolve([...members]),
   );
+  vi.mocked(getAdminUser).mockReset();
+  vi.mocked(getAdminUser).mockImplementation((id: number) => {
+    const denied = rejectUnlessOwner();
+    if (denied !== null) {
+      return denied;
+    }
+    const found = members.find((member) => member.id === id);
+    return found === undefined
+      ? Promise.reject(new NotFoundError(`회원을 찾을 수 없습니다: ${id}`))
+      : Promise.resolve(found);
+  });
   vi.mocked(changeUserRole).mockReset();
-  vi.mocked(changeUserRole).mockImplementation((id, role) => {
+  vi.mocked(changeUserRole).mockImplementation((id, role, categorySlugs) => {
     const found = members.find((member) => member.id === id);
     if (found === undefined) {
       return Promise.reject(new ApiError(404, "회원을 찾을 수 없습니다."));
     }
-    const updated = { ...found, role };
+    const updated = { ...found, role, categorySlugs: [...categorySlugs] };
     members = members.map((member) => (member.id === id ? updated : member));
     return Promise.resolve(updated);
   });
@@ -130,10 +176,6 @@ function renderApp(path: string) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
   render(<RouterProvider router={router} />);
   return router;
-}
-
-function confirmDialog(answer: boolean) {
-  return vi.spyOn(window, "confirm").mockReturnValue(answer);
 }
 
 // 목록(<ul>)은 처음부터 있으므로 findByRole만으로는 다시 받은 목록을 기다리지 않는다.
@@ -154,8 +196,21 @@ async function findMemberRow(
   });
 }
 
-describe("관리 탭 (화면 흐름)", () => {
-  it("관리 메뉴에 /admin/users로 가는 회원 링크가 있고, 누르면 회원 관리 화면이다", async () => {
+async function openDetail(id: number) {
+  const router = renderApp(`/admin/users/${id}`);
+  await screen.findByRole("heading", { name: "회원 수정", level: 1 });
+  return router;
+}
+
+const userRadio = () => screen.getByRole("radio", { name: "일반 회원" });
+const managerRadio = () =>
+  screen.getByRole("radio", { name: "카테고리 관리자" });
+const categoryCheckbox = (name: string) =>
+  screen.getByRole("checkbox", { name });
+const saveButton = () => screen.getByRole("button", { name: "저장" });
+
+describe("관리 탭 (R8)", () => {
+  it("OWNER의 관리 메뉴에 /admin/users로 가는 회원 링크가 있고, 누르면 회원 관리 화면이다", async () => {
     const user = userEvent.setup();
     renderApp("/admin/categories");
 
@@ -173,8 +228,8 @@ describe("관리 탭 (화면 흐름)", () => {
   });
 });
 
-describe("회원 목록 (R1, R2, R7)", () => {
-  it("회원마다 이메일, role, 가입일을 서버가 준 순서대로 보여 주고 가입일이 없으면 -다", async () => {
+describe("회원 목록 (화면 흐름)", () => {
+  it("회원마다 이메일, 닉네임#번호, 역할, 담당 카테고리를 서버가 준 순서대로 보여 준다", async () => {
     renderApp("/admin/users");
 
     const list = await screen.findByRole("list", { name: "회원 목록" });
@@ -182,312 +237,178 @@ describe("회원 목록 (R1, R2, R7)", () => {
     expect(rows).toHaveLength(3);
 
     expect(rows[0]).toHaveTextContent("admin@example.com");
-    expect(rows[0]).toHaveTextContent("ADMIN");
-    expect(within(rows[0]).getByText("-")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("관리자#1")).toBeInTheDocument();
+    expect(rows[0]).toHaveTextContent("OWNER");
 
     expect(rows[1]).toHaveTextContent("user@example.com");
-    expect(rows[1]).toHaveTextContent("USER");
-    expect(rows[1]).toHaveTextContent("2026.11.13");
-
-    expect(rows[2]).toHaveTextContent("other-admin@example.com");
-    expect(rows[2]).toHaveTextContent("2026.03.05");
-  });
-
-  it("회원마다 이메일 옆에 닉네임#번호를 보여 준다 (nickname R11, D9)", async () => {
-    renderApp("/admin/users");
-
-    const list = await screen.findByRole("list", { name: "회원 목록" });
-    const rows = within(list).getAllByRole("listitem");
-    expect(within(rows[0]).getByText("관리자#1")).toBeInTheDocument();
     expect(within(rows[1]).getByText("회원#1")).toBeInTheDocument();
+    expect(rows[1]).toHaveTextContent("USER");
+
+    expect(rows[2]).toHaveTextContent("manager@example.com");
     expect(within(rows[2]).getByText("Kim#12")).toBeInTheDocument();
+    expect(rows[2]).toHaveTextContent("CATEGORY_ADMIN");
+    expect(rows[2]).toHaveTextContent("java");
+    expect(rows[2]).toHaveTextContent("spring");
+    expect(rows[2]).not.toHaveTextContent("kotlin");
   });
 
-  it("USER 회원은 관리자로 지정 버튼, ADMIN 회원은 관리자 해제 버튼이다", async () => {
-    renderApp("/admin/users");
-
-    const userRow = await findMemberRow("user@example.com");
-    expect(
-      within(userRow).getByRole("button", { name: "관리자로 지정" }),
-    ).toBeEnabled();
-    const adminRow = await findMemberRow("other-admin@example.com");
-    expect(
-      within(adminRow).getByRole("button", { name: "관리자 해제" }),
-    ).toBeEnabled();
-  });
-
-  it("내 행은 버튼이 비활성이고 나 표시가 있다. 다른 행에는 나 표시가 없다 (R4, R7)", async () => {
+  it("OWNER가 아닌 회원 행에는 상세로 가는 수정 링크가 있고, OWNER 행에는 없다", async () => {
     renderApp("/admin/users");
 
     const list = await screen.findByRole("list", { name: "회원 목록" });
     const rows = within(list).getAllByRole("listitem");
-    expect(within(rows[0]).getByRole("button")).toBeDisabled();
-    expect(within(rows[0]).getByText("나")).toBeInTheDocument();
-    expect(within(rows[1]).queryByText("나")).not.toBeInTheDocument();
-    expect(within(rows[2]).queryByText("나")).not.toBeInTheDocument();
+    expect(
+      within(rows[0]).queryByRole("link", { name: "수정 →" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(rows[1]).getByRole("link", { name: "수정 →" }),
+    ).toHaveAttribute("href", "/admin/users/2");
+    expect(
+      within(rows[2]).getByRole("link", { name: "수정 →" }),
+    ).toHaveAttribute("href", "/admin/users/3");
+  });
+
+  it("수정 링크를 누르면 그 회원의 상세 화면이다", async () => {
+    const user = userEvent.setup();
+    const router = renderApp("/admin/users");
+
+    await user.click(
+      within(await findMemberRow("manager@example.com")).getByRole("link", {
+        name: "수정 →",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "회원 수정", level: 1 }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/admin/users/3");
+    expect(getAdminUser).toHaveBeenCalledWith(3);
   });
 });
 
-describe("role 변경 (R3, R4)", () => {
-  it("관리자로 지정을 확인하면 ADMIN으로 요청하고 목록을 다시 불러와 바뀐 role을 보여 준다", async () => {
-    const confirm = confirmDialog(true);
+describe("회원 상세 (화면 흐름, D11)", () => {
+  it("카테고리 관리자는 카테고리 관리자 radio가 골라져 있고, 전체 카테고리 중 담당만 체크되어 있다", async () => {
+    await openDetail(3);
+
+    expect(screen.getByText("manager@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Kim#12")).toBeInTheDocument();
+    expect(managerRadio()).toBeChecked();
+    expect(userRadio()).not.toBeChecked();
+    expect(categoryCheckbox("java")).toBeChecked();
+    expect(categoryCheckbox("spring")).toBeChecked();
+    expect(categoryCheckbox("kotlin")).not.toBeChecked();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("일반 회원은 일반 회원 radio가 골라져 있고 카테고리 checkbox가 없다", async () => {
+    await openDetail(2);
+
+    expect(userRadio()).toBeChecked();
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("카테고리 관리자를 고르면 카테고리 checkbox가 보이고, 일반 회원으로 돌리면 사라진다", async () => {
     const user = userEvent.setup();
-    renderApp("/admin/users");
+    await openDetail(2);
 
-    await user.click(
-      within(await findMemberRow("user@example.com")).getByRole("button", {
-        name: "관리자로 지정",
-      }),
-    );
+    await user.click(managerRadio());
 
-    expect(confirm).toHaveBeenCalled();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    expect(categoryCheckbox("java")).not.toBeChecked();
+
+    await user.click(userRadio());
+
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  });
+
+  it("카테고리 관리자인데 체크가 0개면 저장 버튼이 꺼지고, 하나를 체크하면 켜진다 (D9)", async () => {
+    const user = userEvent.setup();
+    await openDetail(2);
+
+    await user.click(managerRadio());
+    expect(saveButton()).toBeDisabled();
+
+    await user.click(categoryCheckbox("spring"));
+    expect(saveButton()).toBeEnabled();
+
+    await user.click(categoryCheckbox("spring"));
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("일반 회원을 카테고리 관리자로 바꿔 저장하면 체크한 카테고리로 요청하고 목록으로 돌아가 바뀐 담당을 보여 준다 (R9)", async () => {
+    const user = userEvent.setup();
+    const router = await openDetail(2);
+
+    await user.click(managerRadio());
+    await user.click(categoryCheckbox("kotlin"));
+    await user.click(categoryCheckbox("java"));
+    await user.click(saveButton());
+
     await waitFor(() => {
-      expect(changeUserRole).toHaveBeenCalledWith(2, "ADMIN");
+      expect(router.state.location.pathname).toBe("/admin/users");
     });
+    expect(changeUserRole).toHaveBeenCalledWith(2, "CATEGORY_ADMIN", [
+      "kotlin",
+      "java",
+    ]);
     const row = await findMemberRow(
       "user@example.com",
-      (element) =>
-        within(element).queryByRole("button", { name: "관리자 해제" }) !== null,
+      (element) => element.textContent?.includes("CATEGORY_ADMIN") === true,
     );
-    expect(row).toHaveTextContent("ADMIN");
-    expect(getAdminUsers).toHaveBeenCalledTimes(2);
+    expect(row).toHaveTextContent("kotlin");
   });
 
-  it("관리자 해제를 확인하면 USER로 요청한다", async () => {
-    confirmDialog(true);
+  it("카테고리 관리자의 담당 하나를 해제해 저장하면 남은 담당으로 요청한다", async () => {
     const user = userEvent.setup();
-    renderApp("/admin/users");
+    await openDetail(3);
 
-    await user.click(
-      within(await findMemberRow("other-admin@example.com")).getByRole(
-        "button",
-        { name: "관리자 해제" },
-      ),
-    );
+    await user.click(categoryCheckbox("java"));
+    await user.click(saveButton());
 
     await waitFor(() => {
-      expect(changeUserRole).toHaveBeenCalledWith(3, "USER");
+      expect(changeUserRole).toHaveBeenCalledWith(3, "CATEGORY_ADMIN", [
+        "spring",
+      ]);
     });
-    await findMemberRow(
-      "other-admin@example.com",
-      (element) =>
-        within(element).queryByRole("button", { name: "관리자로 지정" }) !==
-        null,
-    );
   });
 
-  it("확인을 취소하면 요청을 보내지 않는다", async () => {
-    confirmDialog(false);
+  it("카테고리 관리자를 일반 회원으로 바꿔 저장하면 빈 담당으로 요청한다 (R9)", async () => {
     const user = userEvent.setup();
-    renderApp("/admin/users");
+    const router = await openDetail(3);
 
-    await user.click(
-      within(await findMemberRow("user@example.com")).getByRole("button", {
-        name: "관리자로 지정",
-      }),
-    );
+    await user.click(userRadio());
+    await user.click(saveButton());
 
-    expect(changeUserRole).not.toHaveBeenCalled();
-    expect(
-      within(await findMemberRow("user@example.com")).getByRole("button", {
-        name: "관리자로 지정",
-      }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/admin/users");
+    });
+    expect(changeUserRole).toHaveBeenCalledWith(3, "USER", []);
   });
 
   it.each([
-    [409, "자기 자신의 관리자 권한은 해제할 수 없습니다."],
-    [404, "회원을 찾을 수 없습니다: 3"],
+    [409, "운영자의 역할은 바꿀 수 없습니다."],
+    [404, "카테고리를 찾을 수 없습니다: java"],
+    [400, "입력값이 올바르지 않습니다."],
   ])(
-    "요청이 %i로 실패하면 목록 위 alert에 서버 detail을 보여 주고 서버 값으로 목록을 다시 불러온다",
+    "저장이 %i로 실패하면 alert에 서버 detail을 보여 주고 상세 화면에 머문다",
     async (status, detail) => {
       vi.mocked(changeUserRole).mockRejectedValue(new ApiError(status, detail));
-      confirmDialog(true);
       const user = userEvent.setup();
-      renderApp("/admin/users");
+      const router = await openDetail(3);
 
-      await user.click(
-        within(await findMemberRow("other-admin@example.com")).getByRole(
-          "button",
-          { name: "관리자 해제" },
-        ),
-      );
+      await user.click(categoryCheckbox("kotlin"));
+      await user.click(saveButton());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(detail);
-      const list = screen.getByRole("list", { name: "회원 목록" });
-      expect(within(list).getAllByRole("listitem")).toHaveLength(3);
-      expect(
-        within(await findMemberRow("other-admin@example.com")).getByRole(
-          "button",
-          { name: "관리자 해제" },
-        ),
-      ).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/admin/users/3");
+      expect(categoryCheckbox("kotlin")).toBeChecked();
     },
   );
 });
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((settle) => {
-    resolve = settle;
-  });
-  return { promise, resolve };
-}
-
-function roleButton(row: HTMLElement) {
-  return within(row).getByRole("button");
-}
-
-describe("role 변경 진행 중 (코드 리뷰 D9)", () => {
-  it("PUT과 목록 다시 불러오기가 끝날 때까지 모든 행의 버튼이 비활성이고, 끝나면 내 행 외에는 다시 활성이다", async () => {
-    const put = deferred<AdminUserResponse>();
-    vi.mocked(changeUserRole).mockImplementation(() => put.promise);
-    confirmDialog(true);
-    const user = userEvent.setup();
-    renderApp("/admin/users");
-
-    await user.click(
-      within(await findMemberRow("user@example.com")).getByRole("button", {
-        name: "관리자로 지정",
-      }),
-    );
-
-    await waitFor(() => {
-      expect(changeUserRole).toHaveBeenCalledWith(2, "ADMIN");
-    });
-    expect(roleButton(await findMemberRow("user@example.com"))).toBeDisabled();
-    expect(
-      roleButton(await findMemberRow("other-admin@example.com")),
-    ).toBeDisabled();
-
-    // PUT이 끝나도 목록 다시 불러오기가 끝나기 전에는 비활성이다
-    const reload = deferred<AdminUserResponse[]>();
-    vi.mocked(getAdminUsers).mockImplementation(() => reload.promise);
-    const updated: AdminUserResponse = { ...MEMBER_USER, role: "ADMIN" };
-    members = [MEMBER_ME, updated, MEMBER_ADMIN];
-    put.resolve(updated);
-
-    await waitFor(() => {
-      expect(getAdminUsers).toHaveBeenCalledTimes(2);
-    });
-    expect(roleButton(await findMemberRow("user@example.com"))).toBeDisabled();
-    expect(
-      roleButton(await findMemberRow("other-admin@example.com")),
-    ).toBeDisabled();
-
-    reload.resolve([...members]);
-
-    const userRow = await findMemberRow(
-      "user@example.com",
-      (element) =>
-        within(element).queryByRole("button", { name: "관리자 해제" }) !== null,
-    );
-    await waitFor(() => {
-      expect(roleButton(userRow)).toBeEnabled();
-    });
-    expect(
-      roleButton(await findMemberRow("other-admin@example.com")),
-    ).toBeEnabled();
-    expect(roleButton(await findMemberRow("admin@example.com"))).toBeDisabled();
-  });
-
-  it("진행 중에 버튼을 다시 눌러도 확인 창과 요청이 한 번만 나간다", async () => {
-    const put = deferred<AdminUserResponse>();
-    vi.mocked(changeUserRole).mockImplementation(() => put.promise);
-    const confirm = confirmDialog(true);
-    const user = userEvent.setup();
-    renderApp("/admin/users");
-
-    const button = within(await findMemberRow("user@example.com")).getByRole(
-      "button",
-      { name: "관리자로 지정" },
-    );
-    await user.click(button);
-    await waitFor(() => {
-      expect(changeUserRole).toHaveBeenCalledTimes(1);
-    });
-
-    await user.click(button);
-    await user.click(
-      roleButton(await findMemberRow("other-admin@example.com")),
-    );
-
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(changeUserRole).toHaveBeenCalledTimes(1);
-
-    put.resolve({ ...MEMBER_USER, role: "ADMIN" });
-  });
-});
-
-describe("role 변경 실패 후 다시 불러오기 (코드 리뷰 D10)", () => {
-  it("409로 실패해도 alert에 detail을 보여 주고 목록을 다시 불러와 서버 role로 바꾼다", async () => {
-    const detail = "다른 관리자가 이미 바꿨습니다.";
-    vi.mocked(changeUserRole).mockImplementation(() => {
-      // 다른 관리자가 먼저 해제했다
-      members = members.map((member) =>
-        member.id === 3 ? { ...member, role: "USER" as const } : member,
-      );
-      return Promise.reject(new ApiError(409, detail));
-    });
-    confirmDialog(true);
-    const user = userEvent.setup();
-    renderApp("/admin/users");
-
-    await user.click(
-      within(await findMemberRow("other-admin@example.com")).getByRole(
-        "button",
-        { name: "관리자 해제" },
-      ),
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
-    await waitFor(() => {
-      expect(getAdminUsers).toHaveBeenCalledTimes(2);
-    });
-    const row = await findMemberRow(
-      "other-admin@example.com",
-      (element) =>
-        within(element).queryByRole("button", { name: "관리자로 지정" }) !==
-        null,
-    );
-    expect(row).toHaveTextContent("USER");
-    expect(screen.getByRole("alert")).toHaveTextContent(detail);
-  });
-
-  it("404로 실패하면 alert에 detail을 보여 주고 목록을 다시 불러와 없는 회원을 뺀다", async () => {
-    const detail = "회원을 찾을 수 없습니다: 3";
-    vi.mocked(changeUserRole).mockImplementation(() => {
-      members = members.filter((member) => member.id !== 3);
-      return Promise.reject(new ApiError(404, detail));
-    });
-    confirmDialog(true);
-    const user = userEvent.setup();
-    renderApp("/admin/users");
-
-    await user.click(
-      within(await findMemberRow("other-admin@example.com")).getByRole(
-        "button",
-        { name: "관리자 해제" },
-      ),
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
-    await waitFor(() => {
-      expect(getAdminUsers).toHaveBeenCalledTimes(2);
-    });
-    await waitFor(() => {
-      const list = screen.getByRole("list", { name: "회원 목록" });
-      expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    });
-    expect(
-      screen.queryByText("other-admin@example.com"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(detail);
-  });
-});
-
-describe("접근 (R6)", () => {
-  it("비회원이 오면 로그인 화면으로 보낸다", async () => {
+describe("접근 (R4, R8)", () => {
+  it("비회원이 회원 목록에 오면 로그인 화면으로 보낸다", async () => {
     currentUser = null;
     const router = renderApp("/admin/users");
 
@@ -495,16 +416,35 @@ describe("접근 (R6)", () => {
     expect(router.state.location.pathname).toBe("/login");
   });
 
-  it("USER가 오면 홈으로 보내고 회원 목록을 그리지 않는다", async () => {
-    currentUser = USER;
-    const router = renderApp("/admin/users");
+  it.each([
+    ["USER", USER],
+    ["CATEGORY_ADMIN", MANAGER],
+  ])(
+    "%s가 회원 목록에 오면 홈으로 보내고 회원 목록을 그리지 않는다",
+    async (_name, member) => {
+      currentUser = member;
+      const router = renderApp("/admin/users");
+
+      expect(
+        await screen.findByRole("link", { name: HOME_CATEGORY }),
+      ).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/");
+      expect(
+        screen.queryByRole("list", { name: "회원 목록" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("CATEGORY_ADMIN이 회원 상세에 오면 홈으로 보낸다", async () => {
+    currentUser = MANAGER;
+    const router = renderApp("/admin/users/2");
 
     expect(
       await screen.findByRole("link", { name: HOME_CATEGORY }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
     expect(
-      screen.queryByRole("list", { name: "회원 목록" }),
+      screen.queryByRole("heading", { name: "회원 수정" }),
     ).not.toBeInTheDocument();
   });
 });

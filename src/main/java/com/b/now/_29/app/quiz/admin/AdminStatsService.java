@@ -1,5 +1,6 @@
 package com.b.now._29.app.quiz.admin;
 
+import com.b.now._29.app.quiz.category.Category;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.CategoryRepository;
 import java.util.Comparator;
@@ -15,13 +16,20 @@ public class AdminStatsService {
 
     private final AdminStatsRepository adminStatsRepository;
     private final CategoryRepository categoryRepository;
+    private final AdminScopeService adminScopeService;
 
-    public AdminStatsService(AdminStatsRepository adminStatsRepository, CategoryRepository categoryRepository) {
+    public AdminStatsService(
+            AdminStatsRepository adminStatsRepository,
+            CategoryRepository categoryRepository,
+            AdminScopeService adminScopeService) {
         this.adminStatsRepository = adminStatsRepository;
         this.categoryRepository = categoryRepository;
+        this.adminScopeService = adminScopeService;
     }
 
-    public List<AdminCategoryStatResponse> getCategoryStats() {
+    /** OWNER는 전체, 카테고리 관리자는 담당 카테고리만. */
+    public List<AdminCategoryStatResponse> getCategoryStats(long actorId) {
+        AdminScope scope = adminScopeService.of(actorId);
         Map<String, List<AdminTypeStatResponse>> typesBySlug = adminStatsRepository.findCategoryTypeStats().stream()
                 .sorted(Comparator.comparing(AdminCategoryTypeStat::type))
                 .collect(Collectors.groupingBy(
@@ -30,6 +38,7 @@ public class AdminStatsService {
                                 row -> new AdminTypeStatResponse(row.type(), row.solved(), row.correct()),
                                 Collectors.toUnmodifiableList())));
         return categoryRepository.findAllByDeletedAtIsNullOrderBySortOrderAscIdAsc().stream()
+                .filter(scope::canManage)
                 .map(category -> new AdminCategoryStatResponse(
                         category.getSlug(),
                         category.getName(),
@@ -37,10 +46,12 @@ public class AdminStatsService {
                 .toList();
     }
 
-    public List<AdminQuestionStatResponse> getQuestionStats(String categorySlug) {
-        if (!categoryRepository.existsBySlugAndDeletedAtIsNull(categorySlug)) {
-            throw new CategoryNotFoundException(categorySlug);
-        }
+    public List<AdminQuestionStatResponse> getQuestionStats(long actorId, String categorySlug) {
+        AdminScope scope = adminScopeService.of(actorId);
+        Category category = categoryRepository
+                .findBySlugAndDeletedAtIsNull(categorySlug)
+                .orElseThrow(() -> new CategoryNotFoundException(categorySlug));
+        scope.requireManage(category);
         return List.copyOf(adminStatsRepository.findQuestionStats(categorySlug));
     }
 }

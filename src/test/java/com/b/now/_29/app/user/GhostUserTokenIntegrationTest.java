@@ -13,6 +13,7 @@ import com.b.now._29.app.TestcontainersConfiguration;
 import com.b.now._29.app.support.ClientIps;
 import com.b.now._29.app.support.SetCookieHeader;
 import com.b.now._29.app.support.TestJwts;
+import com.b.now._29.app.support.TestOwner;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
@@ -57,7 +58,12 @@ class GhostUserTokenIntegrationTest {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    UserService userService;
+
+    /** 카테고리·문제를 만드는 운영자 (OWNER). */
     private Cookie admin;
+
     private String slug;
     private long multipleChoiceId;
     private long choiceId;
@@ -65,9 +71,7 @@ class GhostUserTokenIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        String adminEmail = uniqueEmail();
-        admin = signUp(adminEmail);
-        setRole(adminEmail, "ADMIN");
+        admin = TestOwner.cookie(jdbcTemplate, userService);
         slug = "ghost-" + UUID.randomUUID().toString().substring(0, 8);
         mvc.perform(json(
                         post(ADMIN + "/categories").cookie(admin),
@@ -145,7 +149,7 @@ class GhostUserTokenIntegrationTest {
     void adminPathOfGhostIsUnauthorized() throws Exception {
         String email = uniqueEmail();
         Cookie cookie = signUp(email);
-        setRole(email, "ADMIN");
+        setRole(email, "CATEGORY_ADMIN");
         long id = userId(cookie);
         deleteUser(id);
 

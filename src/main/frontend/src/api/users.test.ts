@@ -204,4 +204,19 @@ describe("getCurrentUser", () => {
 
     await expect(getCurrentUser()).rejects.toBeInstanceOf(ApiError);
   });
+
+  it.each(["CATEGORY_ADMIN", "OWNER"] as const)(
+    "role이 %s인 회원도 그대로 돌려준다 (role-owner-category-admin API 계약)",
+    async (role) => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...USER, role }));
+
+      await expect(getCurrentUser()).resolves.toEqual({ ...USER, role });
+    },
+  );
+
+  it("없어진 ADMIN role은 ResponseFormatError다 (role-owner-category-admin R1)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...USER, role: "ADMIN" }));
+
+    await expect(getCurrentUser()).rejects.toBeInstanceOf(ResponseFormatError);
+  });
 });

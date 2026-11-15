@@ -66,7 +66,7 @@ export type QuestionRequest = {
 
 const BASE = "/api/v1/admin";
 
-export const AdminUserRoleSchema = z.enum(["USER", "ADMIN"]);
+export const AdminUserRoleSchema = z.enum(["USER", "CATEGORY_ADMIN", "OWNER"]);
 export type AdminUserRole = z.infer<typeof AdminUserRoleSchema>;
 
 const AdminUserSchema = z
@@ -78,6 +78,8 @@ const AdminUserSchema = z
     tag: z.number(),
     // 이 기능 전에 가입한 회원은 null
     createdAt: z.string().nullable(),
+    // 담당 카테고리 slug (카테고리 sortOrder 순). USER·OWNER는 빈 목록
+    categorySlugs: z.array(z.string()).readonly(),
   })
   .readonly();
 export type AdminUserResponse = z.infer<typeof AdminUserSchema>;
@@ -88,11 +90,21 @@ export function getAdminUsers(): Promise<readonly AdminUserResponse[]> {
   return getJson(`${BASE}/users`, AdminUserListSchema);
 }
 
+export function getAdminUser(id: number): Promise<AdminUserResponse> {
+  return getJson(`${BASE}/users/${id}`, AdminUserSchema);
+}
+
 export function changeUserRole(
   id: number,
   role: AdminUserRole,
+  categorySlugs: readonly string[],
 ): Promise<AdminUserResponse> {
-  return sendJson("PUT", `${BASE}/users/${id}/role`, { role }, AdminUserSchema);
+  return sendJson(
+    "PUT",
+    `${BASE}/users/${id}/role`,
+    { role, categorySlugs },
+    AdminUserSchema,
+  );
 }
 
 const AdminTypeStatSchema = z

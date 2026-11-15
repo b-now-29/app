@@ -1,5 +1,7 @@
 package com.b.now._29.app.config;
 
+import com.b.now._29.app.quiz.admin.CategoryAccessDeniedException;
+import com.b.now._29.app.quiz.category.CategoryHasSoleAdminException;
 import com.b.now._29.app.quiz.category.CategoryNotEmptyException;
 import com.b.now._29.app.quiz.category.CategoryNotFoundException;
 import com.b.now._29.app.quiz.category.DuplicateCategorySlugException;
@@ -11,9 +13,8 @@ import com.b.now._29.app.quiz.question.UnsupportedAnswerTypeException;
 import com.b.now._29.app.user.DuplicateEmailException;
 import com.b.now._29.app.user.InvalidCredentialsException;
 import com.b.now._29.app.user.InvalidNicknameException;
-import com.b.now._29.app.user.LastAdminDemotionNotAllowedException;
 import com.b.now._29.app.user.Nickname;
-import com.b.now._29.app.user.SelfDemotionNotAllowedException;
+import com.b.now._29.app.user.OwnerRoleChangeNotAllowedException;
 import com.b.now._29.app.user.TooManyAttemptsException;
 import com.b.now._29.app.user.UserNotFoundException;
 import com.b.now._29.app.user.WrongCurrentPasswordException;
@@ -88,12 +89,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         DuplicateEmailException.class,
         DuplicateCategorySlugException.class,
         CategoryNotEmptyException.class,
+        CategoryHasSoleAdminException.class,
         QuestionTypeChangeNotAllowedException.class,
-        SelfDemotionNotAllowedException.class,
-        LastAdminDemotionNotAllowedException.class
+        OwnerRoleChangeNotAllowedException.class
     })
     public ProblemDetail handleConflict(RuntimeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(CategoryAccessDeniedException.class)
+    public ProblemDetail handleForbidden(CategoryAccessDeniedException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, exception.getMessage());
     }
 
     @ExceptionHandler(TooManyAttemptsException.class)

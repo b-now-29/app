@@ -5,7 +5,7 @@ import type { FormEvent } from "react";
 import { createCategory, deleteCategory, updateCategory } from "../api/admin";
 import type { AdminCategoryResponse } from "../api/admin";
 import { errorMessage } from "./actionError";
-import { useAdminCategories } from "./routeLoaderData";
+import { useAdminCategories, useCurrentUser } from "./routeLoaderData";
 import {
   EMPTY_CATEGORY_FORM,
   formFromCategory,
@@ -15,11 +15,15 @@ import type {
   CategoryFormErrors,
   CategoryFormValues,
 } from "../quiz/categoryForm";
+import { isOwner } from "../user/role";
 import { ActionButton } from "seed-design/ui/action-button";
 import { TextField, TextFieldInput } from "seed-design/ui/text-field";
 
 export default function AdminCategoriesPage() {
   const categories = useAdminCategories();
+  // 카테고리 생성·삭제는 운영자(OWNER)만 한다. 카테고리 관리자는 수정만 한다
+  const role = useCurrentUser()?.role;
+  const canCreateOrDelete = role !== undefined && isOwner(role);
   const { revalidate } = useRevalidator();
   const [form, setForm] = useState<CategoryFormValues>(EMPTY_CATEGORY_FORM);
   // null이면 추가, 값이 있으면 그 slug의 카테고리를 수정 중
@@ -122,68 +126,77 @@ export default function AdminCategoriesPage() {
                 >
                   수정
                 </ActionButton>
-                <ActionButton
-                  type="button"
-                  variant="criticalSolid"
-                  size="small"
-                  onClick={() => void handleDelete(category)}
-                >
-                  삭제
-                </ActionButton>
+                {canCreateOrDelete && (
+                  <ActionButton
+                    type="button"
+                    variant="criticalSolid"
+                    size="small"
+                    onClick={() => void handleDelete(category)}
+                  >
+                    삭제
+                  </ActionButton>
+                )}
               </HStack>
             </HStack>
           </li>
         ))}
       </ul>
-      <form onSubmit={(event) => void handleSubmit(event)}>
-        <VStack gap="x4">
-          <TextField
-            label="slug"
-            value={form.slug}
-            onValueChange={({ value }) => change("slug", value)}
-            disabled={editingSlug !== null}
-            invalid={fieldErrors.slug !== undefined}
-            errorMessage={fieldErrors.slug}
-          >
-            <TextFieldInput />
-          </TextField>
-          <TextField
-            label="이름"
-            value={form.name}
-            onValueChange={({ value }) => change("name", value)}
-            invalid={fieldErrors.name !== undefined}
-            errorMessage={fieldErrors.name}
-          >
-            <TextFieldInput />
-          </TextField>
-          <TextField
-            label="설명"
-            value={form.description}
-            onValueChange={({ value }) => change("description", value)}
-          >
-            <TextFieldInput />
-          </TextField>
-          <TextField
-            label="표시 순서"
-            value={form.sortOrder}
-            onValueChange={({ value }) => change("sortOrder", value)}
-            invalid={fieldErrors.sortOrder !== undefined}
-            errorMessage={fieldErrors.sortOrder}
-          >
-            <TextFieldInput type="number" />
-          </TextField>
-          <HStack gap="x2">
-            <ActionButton type="submit" disabled={submitting}>
-              {editingSlug === null ? "추가" : "저장"}
-            </ActionButton>
-            {editingSlug !== null && (
-              <ActionButton type="button" variant="neutralWeak" onClick={reset}>
-                취소
+      {/* 카테고리 관리자는 추가 폼이 필요 없고, 수정할 때만 폼을 쓴다 */}
+      {(canCreateOrDelete || editingSlug !== null) && (
+        <form onSubmit={(event) => void handleSubmit(event)}>
+          <VStack gap="x4">
+            <TextField
+              label="slug"
+              value={form.slug}
+              onValueChange={({ value }) => change("slug", value)}
+              disabled={editingSlug !== null}
+              invalid={fieldErrors.slug !== undefined}
+              errorMessage={fieldErrors.slug}
+            >
+              <TextFieldInput />
+            </TextField>
+            <TextField
+              label="이름"
+              value={form.name}
+              onValueChange={({ value }) => change("name", value)}
+              invalid={fieldErrors.name !== undefined}
+              errorMessage={fieldErrors.name}
+            >
+              <TextFieldInput />
+            </TextField>
+            <TextField
+              label="설명"
+              value={form.description}
+              onValueChange={({ value }) => change("description", value)}
+            >
+              <TextFieldInput />
+            </TextField>
+            <TextField
+              label="표시 순서"
+              value={form.sortOrder}
+              onValueChange={({ value }) => change("sortOrder", value)}
+              invalid={fieldErrors.sortOrder !== undefined}
+              errorMessage={fieldErrors.sortOrder}
+            >
+              <TextFieldInput type="number" />
+            </TextField>
+            <HStack gap="x2">
+              <ActionButton type="submit" disabled={submitting}>
+                {editingSlug === null ? "추가" : "저장"}
               </ActionButton>
-            )}
-          </HStack>
-        </VStack>
-      </form>
+              {editingSlug !== null && (
+                <ActionButton
+                  type="button"
+                  variant="neutralWeak"
+                  onClick={reset}
+                >
+                  취소
+                </ActionButton>
+              )}
+            </HStack>
+          </VStack>
+        </form>
+      )}
     </VStack>
   );
 }

@@ -438,7 +438,7 @@ class WrongAnswerRepositoryTest {
     /** 문제 수 검증은 삭제 대상이 아니므로 남은 문제 0개로 지운다. 문제 행은 그대로 둔다 (관리자 R6). */
     private void deleteCategory(Category category) {
         Category managed = categoryRepository.findById(category.getId()).orElseThrow();
-        managed.delete(0);
+        managed.delete(0, 0);
         categoryRepository.saveAndFlush(managed);
     }
 

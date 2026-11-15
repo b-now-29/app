@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p>구현할 API: {@code new Category(String slug, String name, String description, int sortOrder)}, {@code
  * getDescription()}, {@code getSortOrder()}, {@code void update(String name, String description, int sortOrder)},
- * {@code void delete(long remainingQuestionCount)} (남은 문제가 있으면 {@code CategoryNotEmptyException(String slug)}),
+ * {@code void delete(long remainingQuestionCount, long soleAdminCount)} (남은 문제가 있으면 {@code
+ * CategoryNotEmptyException(String slug)}, 아니고 이 카테고리만 담당하는 관리자가 있으면 {@code CategoryHasSoleAdminException}),
  * {@code boolean isDeleted()}.
  */
 class CategoryTest {
@@ -46,7 +47,7 @@ class CategoryTest {
     void deletesWhenNoRemainingQuestions() {
         Category category = new Category("kotlin", "Kotlin", null, 40);
 
-        category.delete(0);
+        category.delete(0, 0);
 
         assertThat(category.isDeleted()).isTrue();
     }
@@ -56,7 +57,31 @@ class CategoryTest {
     void rejectsDeleteWithRemainingQuestions() {
         Category category = new Category("kotlin", "Kotlin", null, 40);
 
-        assertThatThrownBy(() -> category.delete(1)).isInstanceOf(CategoryNotEmptyException.class);
+        assertThatThrownBy(() -> category.delete(1, 0)).isInstanceOf(CategoryNotEmptyException.class);
+
+        assertThat(category.isDeleted()).isFalse();
+    }
+
+    // 유일한 담당 카테고리 삭제 막기 (role-owner-category-admin R10, D10)
+
+    @Test
+    @DisplayName("문제가 없어도 이 카테고리만 담당하는 관리자가 있으면 CategoryHasSoleAdminException이고 삭제되지 않는다 (R10)")
+    void rejectsDeleteWithSoleAdmin() {
+        Category category = new Category("kotlin", "Kotlin", null, 40);
+
+        assertThatThrownBy(() -> category.delete(0, 1))
+                .isInstanceOf(CategoryHasSoleAdminException.class)
+                .hasMessage("이 카테고리만 담당하는 관리자가 있어 삭제할 수 없습니다.");
+
+        assertThat(category.isDeleted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("문제도 남고 유일한 담당 관리자도 있으면 문제가 남은 쪽의 CategoryNotEmptyException이다 (R10)")
+    void remainingQuestionsTakePrecedenceOverSoleAdmin() {
+        Category category = new Category("kotlin", "Kotlin", null, 40);
+
+        assertThatThrownBy(() -> category.delete(2, 1)).isInstanceOf(CategoryNotEmptyException.class);
 
         assertThat(category.isDeleted()).isFalse();
     }

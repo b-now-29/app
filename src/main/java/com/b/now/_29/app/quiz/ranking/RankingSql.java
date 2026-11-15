@@ -31,7 +31,7 @@ final class RankingSql {
     /** 카테고리 랭킹: 그 카테고리 문제의 기록만 이력에 넣는다 (R5). */
     static final String CATEGORY_CHANGES = CHANGES_HEAD + " AND c.slug = :slug" + CHANGES_TAIL;
 
-    /** 점수 0 (R3)과 관리자 (R3)를 빼고 등수를 매긴다. 점수 desc, 도달 시각 asc, 회원 id asc (R4). */
+    /** 점수 0 (R3)과 관리자 (카테고리 관리자, 운영자; R3)를 빼고 등수를 매긴다. 점수 desc, 도달 시각 asc, 회원 id asc (R4). */
     static final String RANKED = """
             scores AS (
                 SELECT user_id,
@@ -48,7 +48,8 @@ final class RankingSql {
                        s.score AS score,
                        s.user_id AS user_id
                 FROM scores s
-                    JOIN users u ON u.id = s.user_id AND u.role <> 'ADMIN'
+                    -- role = 'USER'는 Role.isStaff()가 false인 회원과 같은 뜻이다 (OWNER·CATEGORY_ADMIN 제외, R7)
+                    JOIN users u ON u.id = s.user_id AND u.role = 'USER'
             )
             """;
 
