@@ -111,9 +111,9 @@ jobs:
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-          scp deploy/compose.yaml deploy/Caddyfile ec2-user@"$HOST":~/app/
-          ssh ec2-user@"$HOST" "cd ~/app \
+          scp deploy/compose.yaml ec2-user@"$HOST":~/app/
+          # Caddy는 b-now-29/infra가 맡는다. app은 공용 네트워크 edge로 붙으므로 없을 때만 만든다.
+          ssh ec2-user@"$HOST" "docker network create edge >/dev/null 2>&1 || true; cd ~/app \
             && APP_TAG=${{ github.sha }} docker compose pull app \
             && APP_TAG=${{ github.sha }} docker compose up -d \
-            && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
             && docker image prune -f"
